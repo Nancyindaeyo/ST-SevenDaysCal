@@ -2718,7 +2718,9 @@ function injectFab() {
     });
 
     const fab = document.getElementById(FAB_ID);
-    fab.addEventListener('pointerdown', function (e) {
+    const fabButton = fab?.querySelector('.sp-fab-btn');
+    if (!fab || !fabButton) return;
+    fabButton.addEventListener('pointerdown', function (e) {
         if (e.isPrimary === false || e.button !== 0 || fabDragState) return;
         fabDragged = false;
         const rect = fab.getBoundingClientRect();
@@ -2729,13 +2731,13 @@ function injectFab() {
             origLeft: rect.left,
             origTop: rect.top,
         };
-        fab.setPointerCapture?.(e.pointerId);
+        fabButton.setPointerCapture?.(e.pointerId);
     });
-    fab.addEventListener('pointermove', onFabPointerMove);
-    fab.addEventListener('pointerup', onFabPointerEnd);
-    fab.addEventListener('pointercancel', onFabPointerEnd);
+    fabButton.addEventListener('pointermove', onFabPointerMove);
+    fabButton.addEventListener('pointerup', onFabPointerEnd);
+    fabButton.addEventListener('pointercancel', onFabPointerEnd);
 
-    $(`#${FAB_ID} .sp-fab-btn`).on('click', function () {
+    fabButton.addEventListener('click', function () {
         if (!fabDragged) {
             $(`#${MODAL_ID}`).is(':visible') ? closePanel() : openSchedule();
         }
@@ -2764,8 +2766,8 @@ function onFabPointerEnd(ev) {
         localStorage.setItem('sp-fab-pos', JSON.stringify({ left: r.left, top: r.top }));
     }
     fabDragState = null;
-    const f = document.getElementById(FAB_ID);
-    if (f?.hasPointerCapture?.(pointerId)) f.releasePointerCapture(pointerId);
+    const captureTarget = ev.currentTarget;
+    if (captureTarget?.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
 }
 
 function injectModal() {
