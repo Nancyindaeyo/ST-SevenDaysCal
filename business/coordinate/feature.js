@@ -158,7 +158,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         const markerSaved = await persistMarker(() => !!writeReplyMarker(source.message, saved.id));
         try { await repository.checkSize(); } catch (error) { host.warn?.('[SP anchor] 收藏空间检查失败', error); }
         host.toast?.(markerSaved ? '已收藏此楼' : '收藏已保存，但回复关联保存失败', null, !markerSaved);
-        if (saved && host.selectMany) { try { const tags = await repository.getTags(); const customValue = '__new_tag__'; const result = await host.selectMany({ title: '给这条收藏加分组', body: '可多选已有分组，也可以新建一个。', choices: [...tags.map(tag => ({ value: tag.id, label: tag.name })), { value: customValue, label: '新建分组' }], initialValues: saved.tags || [], custom: { value: customValue, placeholder: '输入新分组名…', maxLength: 20, rows: 1 } }); if (result) { const selected = new Set((result.values || []).filter(id => id !== customValue)); if (result.values?.includes(customValue) && result.customValue) { const tag = await repository.addTag(result.customValue, 'slate'); if (tag?.id) selected.add(tag.id); } await repository.setItemTags(saved.id, [...selected]); } } catch (error) { host.toast?.('楼层已收藏，但标签未保存', null, true); } }
+        await offerItemTags(saved, '楼层已收藏，但标签未保存');
         busyReplies.delete(source.message); btn?.classList.remove('sp-anchor-busy');
     };
     const bindExcerpts = target => {
@@ -308,6 +308,36 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         return () => { clickOff?.(); inputOff?.(); composeOff?.(); blurOff?.(); noteKeyOff?.(); downOff?.(); mouseOff?.(); keyOffSearch?.(); keyUpOff?.(); };
     };
         const tagColor = color => ['rose', 'amber', 'olive', 'teal', 'indigo', 'plum', 'slate', 'clay'].includes(String(color)) ? String(color) : 'slate';
+    const offerItemTags = async (saved, failToast) => {
+        if (!saved || !host.selectMany) return;
+        try {
+            const tags = await repository.getTags();
+            const customValue = '__new_tag__';
+            const result = await host.selectMany({
+                title: '给这条收藏加分组',
+                body: '可多选已有分组，也可以新建一个。',
+                choices: [...tags.map(tag => ({ value: tag.id, label: tag.name })), { value: customValue, label: '新建分组' }],
+                initialValues: saved.tags || [],
+                custom: { value: customValue, placeholder: '输入新分组名…', maxLength: 20, rows: 1 },
+            });
+            if (!result) return;
+            const selected = new Set((result.values || []).filter(id => id !== customValue));
+            if (result.values?.includes(customValue) && result.customValue) {
+                const tag = await repository.addTag(result.customValue, 'slate');
+                if (tag?.id) selected.add(tag.id);
+            }
+            await repository.setItemTags(saved.id, [...selected]);
+        } catch {
+            host.toast?.(failToast, null, true);
+        }
+    };
+    const saveFromTheater = async item => {
+        const expected = controller.snapshotRevision();
+        const saved = await controller.save(item, { html: item.html, preview: item.textPreview }, expected);
+        try { await repository.checkSize(); } catch (error) { host.warn?.('[SP anchor] 收藏空间检查失败', error); }
+        await offerItemTags(saved, '小剧场已收藏，但标签未保存');
+        return saved;
+    };
     const api = {
         addTag: (name, color) => controller.action(() => repository.addTag(name, tagColor(color))).then(result => result.value),
         deleteTag: id => controller.action(async () => { const n = await repository.deleteTag(id); await excerpts?.stripTag?.(id); return n; }).then(result => result.value),
@@ -324,7 +354,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     return {
         repository, controller, ui,
         init(meta) { if (!initialized) { initialized = true; controller.beginChat(meta); } return this; },
-        refreshSavedKeys, scanButtons, mountMessageButton, unmountMessageButton, onFloorButton,
+        refreshSavedKeys, scanButtons, mountMessageButton, unmountMessageButton, onFloorButton, saveFromTheater,
         addTag: (name, color) => api.addTag(name, color),
         renameTag: (id, name) => api.renameTag(id, name),
         recolorTag: (id, color) => api.recolorTag(id, color),

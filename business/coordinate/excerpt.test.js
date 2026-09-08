@@ -128,6 +128,9 @@ test('snapshot notes and search text stay in the index meta', async () => {
     const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ', searchText: '  正文 后面还有月光  ' });
     assert.equal(meta.note, '这是备注');
     assert.equal(meta.searchText, '正文 后面还有月光');
+    assert.equal(meta.kind, '');
+    const theater = normalizeMeta({ id: 't', kind: 'theater', note: '番外' });
+    assert.equal(theater.kind, 'theater');
 });
 
 test('excerpt repository keeps snapshots untouched in its own file', async () => {

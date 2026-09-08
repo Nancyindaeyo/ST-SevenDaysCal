@@ -1,4 +1,5 @@
 import { renderTheaterPieceHtml } from './render.js';
+import { buildTheaterSnapshot } from './snapshot.js';
 import { classifyGenerationError } from '../../api/diagnostics.js';
 
 // 棱 UI 只编排注入的宿主能力；它不读取 SillyTavern 全局对象，也不拥有生成状态。
@@ -11,7 +12,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const currentChat = () => host.getChatId?.() ?? '';
     const isCurrent = target => target?.isCurrent ? target.isCurrent() : true;
     const body = html => host.setBody?.(html);
-    const renderCard = (piece, saved) => `<div class="sp-theater-card" data-id="${attr(piece.id)}"><div class="sp-theater-card-head"><span class="sp-theater-card-title">${esc(piece.title || '(未命名)')}</span><span class="sp-theater-card-time">${esc(piece.ts ? new Date(piece.ts).toLocaleString('zh-CN', { hour12: false }) : '')}</span></div><div class="sp-theater-card-actions"><label class="sp-theater-like"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="${saved ? 'saved' : 'draft'}"${piece.liked ? ' checked' : ''}><span>喜欢</span></label><button class="sp-theater-view" data-id="${attr(piece.id)}">查看</button>${saved ? `<button class="sp-theater-del-saved" data-id="${attr(piece.id)}">删除</button>` : `<button class="sp-theater-promote" data-id="${attr(piece.id)}">永久保存</button><button class="sp-theater-del-draft" data-id="${attr(piece.id)}">删除</button>`}</div></div>`;
+    const renderCard = piece => `<div class="sp-theater-card" data-id="${attr(piece.id)}"><div class="sp-theater-card-head"><span class="sp-theater-card-title">${esc(piece.title || '(未命名)')}</span><span class="sp-theater-card-time">${esc(piece.ts ? new Date(piece.ts).toLocaleString('zh-CN', { hour12: false }) : '')}</span></div><div class="sp-theater-card-actions"><label class="sp-theater-like"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="draft"${piece.liked ? ' checked' : ''}><span>喜欢</span></label><button class="sp-theater-view" data-id="${attr(piece.id)}">查看</button><button class="sp-theater-collect" data-id="${attr(piece.id)}">收藏</button><button class="sp-theater-del-draft" data-id="${attr(piece.id)}">删除</button></div></div>`;
     const renderTemplateButtons = templates => templates.length ? templates.map(t => `<button type="button" class="sp-theater-tpl-pick" data-uid="${attr(t.uid)}">${esc(t.title)}</button>`).join('') : '<div class="sp-theater-list-empty">暂无模板，可在设置 · 棱里新增</div>';
     const renderPoolRows = (names, selected, query) => {
         if (!names.length) return '<div class="sp-theater-list-empty">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选，不要绑到角色卡。</div>';
@@ -34,7 +35,19 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         host.setPanelPoolHtml?.(renderPoolRows(state.poolNames, selected, query));
         return state.poolNames;
     };
-    const findPiece = id => [...(repository.loadDrafts(currentChat()) || []), ...(repository.loadSaved(injectedCapture() || null) || [])].find(piece => String(piece.id) === String(id));
+    const findPiece = id => (repository.loadDrafts(currentChat()) || []).find(piece => String(piece.id) === String(id));
+    const collectPiece = async piece => {
+        if (!piece) return;
+        if (!host.saveSnapshot) return host.toast?.('坐标还没就绪', null, true);
+        const ctx = host.snapshotContext?.() || {};
+        const item = buildTheaterSnapshot(piece, { ...ctx, title: piece.title }, { htmlOptions: host.htmlOptions?.() || {}, id: piece.id });
+        try {
+            const saved = await host.saveSnapshot(item);
+            if (saved) host.toast?.('已收藏到坐标');
+        } catch (error) {
+            host.toast?.(`收藏失败：${error?.message || '未知错误'}`, null, true);
+        }
+    };
     const renderManager = templates => {
         const count = (templates || []).length;
         const open = Boolean(host.getManagerOpen?.());
@@ -66,21 +79,21 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         return `<details class="sp-theater-piece"${open ? ' open' : ''} data-id="${attr(piece.id)}"><summary class="sp-theater-piece-summary"><span class="sp-theater-piece-title">${esc(piece.title || piece.formName || '(未命名)')}</span><label class="sp-theater-like" onclick="event.stopPropagation()"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="draft"${piece.liked ? ' checked' : ''}><span>喜欢</span></label></summary><div class="sp-theater-result-inner">${safeHtml}</div></details>`;
     };
     const render = () => {
-        const drafts = (repository.loadDrafts(currentChat()) || []).slice().reverse(); const saved = (repository.loadSaved(injectedCapture() || null) || []).slice().reverse();
-        const available = [...drafts, ...saved]; const currentExists = state.current?.id && available.some(piece => String(piece.id) === String(state.current.id)); const piece = state.current = currentExists ? state.current : (drafts[0] || saved[0] || null);
+        const drafts = (repository.loadDrafts(currentChat()) || []).slice().reverse();
+        const currentExists = state.current?.id && drafts.some(piece => String(piece.id) === String(state.current.id)); const piece = state.current = currentExists ? state.current : (drafts[0] || null);
         const batchId = state.batchId || piece?.batchId || '';
         const batch = batchId ? drafts.filter(item => String(item.batchId) === String(batchId)) : (piece ? [piece] : []);
-        const likedCount = [...drafts, ...saved].filter(item => item.liked).length;
+        const likedCount = drafts.filter(item => item.liked).length;
         const result = batch.length ? `<div class="sp-theater-batch">${batch.map((item, i) => renderPieceCard(item, i === 0 || String(item.id) === String(piece?.id))).join('')}</div>` : '<div class="sp-empty sp-theater-result-empty"><i class="fa-solid fa-masks-theater"></i><p>可留空抽 1～3 条。随机模板会从勾选世界书抽一条内容填进框；框里有字时只写这一条。</p></div>';
         const source = piece?.templateSource?.input ? `<div class="sp-theater-source-wrap"><button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="查看本次实际使用内容"><i class="fa-solid fa-file-lines"></i><span>配方 · ${esc(piece.templateSource.title || '(无标题)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i></button><div id="sp-theater-source-detail" class="sp-theater-source-detail" style="display:none"><div class="sp-theater-source-caption">本次实际使用内容</div><pre>${esc(piece.templateSource.input)}</pre></div></div>` : '';
-        const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">永久保存</button></div>` : '';
+        const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">收藏</button></div>` : '';
         const exportBar = `<div class="sp-theater-export-row"><span class="sp-cfg-hint">已喜欢 ${likedCount} 条</span><button type="button" class="sp-btn sp-theater-export"${likedCount ? '' : ' disabled'}>导出已选为新世界书</button></div>`;
         const resultBlock = piece ? `<div class="sp-theater-result-wrap"><button class="sp-theater-fullscreen-btn" type="button" title="全屏浏览小剧场"><i class="fa-solid fa-expand"></i></button><button class="sp-theater-fold-toggle" type="button" style="display:none"><i class="fa-solid fa-chevron-down"></i><span class="sp-theater-fold-label">展开全文</span></button><div class="sp-theater-result sp-theater-result-collapsible" id="sp-theater-result">${result}</div></div>` : `<div class="sp-theater-result" id="sp-theater-result">${result}</div>`;
         const selectedBooks = new Set(host.getPoolBooks?.() || []);
         const poolOpen = host.isPanelPoolOpen?.() !== false;
         state.poolQuery = String(host.val?.('#sp-theater-pool-panel-search') || state.poolQuery || '');
         const poolBlock = `<details class="sp-theater-tpl-picker" id="sp-theater-pool-panel"${poolOpen ? ' open' : ''}><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>抽取用世界书</span><span class="sp-theater-tpl-library-count" id="sp-theater-pool-panel-count">${selectedBooks.size}</span></summary><div class="sp-theater-tpl-picker-body sp-theater-pool-panel-body"><p class="sp-cfg-hint">勾选小回 / 极光 / 小兔。空框生成会跨书抽 N 条；随机模板只抽一条内容填进框，框里有字就只写这一条。</p><input type="search" id="sp-theater-pool-panel-search" class="sp-input sp-wi-exclude-search" placeholder="查找世界书…" value="${attr(state.poolQuery)}"><div id="sp-theater-pool-panel-list" class="sp-wi-exclude-list"><div class="sp-theater-list-empty">加载中…</div></div></div></details>`;
-        body(`<div class="sp-theater-input-area">${poolBlock}<details class="sp-theater-tpl-picker" id="sp-theater-tpl-picker"><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>选择手写模板起草（可选）</span></summary><div class="sp-theater-tpl-picker-body" id="sp-theater-tpl-picker-list"><div class="sp-theater-list-empty">加载中…</div></div></details><textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="可留空抽 N 条。随机模板会填入勾选世界书的一条内容；框里有字时只生成这一条。">${esc(piece?.request || '')}</textarea><div class="sp-theater-btn-row"><button class="sp-btn sp-theater-random" title="从勾选世界书随机抽一条内容填进框，再按可换一条"><i class="fa-solid fa-shuffle"></i> 随机模板</button><button class="sp-btn sp-btn-primary sp-theater-generate">生成番外</button></div></div><hr class="sp-theater-divider">${resultBlock}${source}${op}${exportBar}<hr class="sp-theater-divider"><div class="sp-theater-lists"><details class="sp-theater-list-group" open><summary>草稿（最多 ${draftCap} 条，新挤旧）</summary><div class="sp-theater-list">${drafts.length ? drafts.map(p => renderCard(p, false)).join('') : '<div class="sp-theater-list-empty">暂无草稿</div>'}</div></details><details class="sp-theater-list-group"${saved.length ? ' open' : ''}><summary>已永久保存（本对话）</summary><div class="sp-theater-list">${saved.length ? saved.map(p => renderCard(p, true)).join('') : '<div class="sp-theater-list-empty">暂无永久保存</div>'}</div></details></div>`);
+        body(`<div class="sp-theater-input-area">${poolBlock}<details class="sp-theater-tpl-picker" id="sp-theater-tpl-picker"><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>选择手写模板起草（可选）</span></summary><div class="sp-theater-tpl-picker-body" id="sp-theater-tpl-picker-list"><div class="sp-theater-list-empty">加载中…</div></div></details><textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="可留空抽 N 条。随机模板会填入勾选世界书的一条内容；框里有字时只生成这一条。">${esc(piece?.request || '')}</textarea><div class="sp-theater-btn-row"><button class="sp-btn sp-theater-random" title="从勾选世界书随机抽一条内容填进框，再按可换一条"><i class="fa-solid fa-shuffle"></i> 随机模板</button><button class="sp-btn sp-btn-primary sp-theater-generate">生成番外</button></div></div><hr class="sp-theater-divider">${resultBlock}${source}${op}${exportBar}<hr class="sp-theater-divider"><div class="sp-theater-lists"><details class="sp-theater-list-group" open><summary>草稿（最多 ${draftCap} 条，新挤旧；要留下就收藏到坐标）</summary><div class="sp-theater-list">${drafts.length ? drafts.map(p => renderCard(p)).join('') : '<div class="sp-theater-list-empty">暂无草稿</div>'}</div></details></div>`);
         measureFold();
         void refreshTemplates();
         void refreshPoolList();
@@ -125,7 +138,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             if (state.source?.uid === selectedSource?.uid && state.source?.input === selectedSource?.input) state.source = null;
             if (host.isOpen?.()) {
                 render();
-                if (result.persistFailed) host.toast?.('棱已生成。本机草稿缓存未写入，先看上面的正文；刷新前请先永久保存', null, true);
+                if (result.persistFailed) host.toast?.('棱已生成。本机草稿未写入，先看上面的正文；刷新前请先收藏到坐标', null, true);
                 else if (host.notifyEnabled?.()) host.toast?.(result.pieces?.length > 1 ? `棱已生成 ${result.pieces.length} 条` : '棱已生成');
             }
             else host.closedSuccess?.(result.pieces?.length || 1);
@@ -192,23 +205,26 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         });
         root.on('click.sp-theater-ui', '.sp-theater-view', function () { const piece = findPiece(host.data?.(this, 'id')); if (piece) { state.current = piece; render(); host.scrollTop?.(); } });
         root.on('click.sp-theater-ui', '.sp-theater-del-draft', async function () { const target = host.captureTarget?.(currentChat()); const id = host.data?.(this, 'id'); const baseline = repository.draftBaseline?.(target?.chatId, id); if (await host.confirm?.('删除草稿', '确定删除这条小剧场草稿吗？') && isCurrent(target)) { const result = repository.deleteDraft(target.chatId, id, baseline); if (result?.ok && isCurrent(target)) render(); else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true); } });
-        root.on('click.sp-theater-ui', '.sp-theater-promote', function () { const target = host.captureTarget?.(currentChat()); const piece = (repository.loadDrafts(target.chatId) || []).find(p => p.id === host.data?.(this, 'id')); if (!piece) return; Promise.resolve(repository.promoteToSaved(target, piece)).then(result => { if (result?.ok && isCurrent(target)) { host.toast?.('已永久保存'); render(); } else if (!result?.cancelled && result?.commitState !== 'not-dispatched' && isCurrent(target)) host.toast?.('永久保存失败，请重试', null, true); }).catch(() => { if (isCurrent(target)) host.toast?.('永久保存失败，请重试', null, true); }); });
-        root.on('click.sp-theater-ui', '.sp-theater-del-saved', async function () { const target = host.captureTarget?.(currentChat()); const id = host.data?.(this, 'id'); const baseline = repository.savedBaseline?.(target, id); if (!await host.confirm?.('删除永久保存', '确定从本对话删除这条已永久保存的小剧场吗？删除后无法恢复。') || !isCurrent(target)) return; try { const result = await repository.deleteSaved(target, id, { baseline }); if (isCurrent(target)) { if (result?.conflict) host.toast?.('永久稿已变化，请重新确认', null, true); else if (!result?.ok && !result?.cancelled) host.toast?.('删除永久稿失败，请重试', null, true); else render(); } } catch { if (isCurrent(target)) host.toast?.('删除永久稿失败，请重试', null, true); } });
-        root.on('click.sp-theater-ui', '.sp-theater-save', async function () { if (!state.current) return; const target = host.captureTarget?.(currentChat()); const title = String(host.val?.('#sp-theater-title') || '').trim(); const piece = { ...state.current, title }; const draftBaseline = repository.draftBaseline?.(target.chatId, piece.id); const draftResult = repository.updateDraft?.(target.chatId, piece.id, { title }, draftBaseline); if (draftResult?.ok === false) { if (isCurrent(target)) host.toast?.(draftResult.conflict ? '草稿已变化，请重试' : '永久保存失败，请重试', null, true); return; } const updatedDraftBaseline = repository.draftBaseline?.(target.chatId, piece.id); try { const result = await repository.promoteToSaved(target, piece, { draftBaseline: updatedDraftBaseline }); if (result?.ok && isCurrent(target)) { state.current = piece; host.toast?.('已永久保存到本对话'); render(); } else if (result?.ok === false && isCurrent(target)) host.toast?.(result.conflict ? '内容已变化，请重试' : '永久保存失败，请重试', null, true); } catch { if (isCurrent(target)) host.toast?.('永久保存失败，请重试', null, true); } });
+        root.on('click.sp-theater-ui', '.sp-theater-collect', async function () { const piece = findPiece(host.data?.(this, 'id')); if (piece) await collectPiece(piece); });
+        root.on('click.sp-theater-ui', '.sp-theater-save', async function () {
+            if (!state.current) return;
+            const target = host.captureTarget?.(currentChat());
+            const title = String(host.val?.('#sp-theater-title') || '').trim();
+            const piece = { ...state.current, title };
+            const draftBaseline = repository.draftBaseline?.(target.chatId, piece.id);
+            const draftResult = repository.updateDraft?.(target.chatId, piece.id, { title }, draftBaseline);
+            if (draftResult?.ok === false) {
+                if (isCurrent(target)) host.toast?.(draftResult.conflict ? '草稿已变化，请重试' : '收藏失败，请重试', null, true);
+                return;
+            }
+            if (draftResult?.ok) state.current = piece;
+            await collectPiece(piece);
+        });
         // resolveTheaterRegen(state.current, textarea) is supplied by the feature boundary.
         root.on('click.sp-theater-ui', '.sp-theater-regen', function () { if (feature.busy || !state.current) return; const regen = resolveRegen(state.current, host.val?.('#sp-theater-input') || ''); state.source = regen.templateSource; host.val?.('#sp-theater-input', regen.input); generate(regen.input); });
         root.on('change.sp-theater-ui', '.sp-theater-like-cb', function () {
-            const id = host.data?.(this, 'id'); const liked = !!this.checked; const layer = host.data?.(this, 'layer');
+            const id = host.data?.(this, 'id'); const liked = !!this.checked;
             const target = host.captureTarget?.(currentChat());
-            if (layer === 'saved') {
-                const baseline = repository.savedBaseline?.(target, id);
-                Promise.resolve(repository.updateSaved?.(target, id, { liked }, baseline)).then(result => {
-                    if (!isCurrent(target)) return;
-                    if (result?.ok) render();
-                    else if (result?.conflict) host.toast?.('永久稿已变化，请重新勾选', null, true);
-                }).catch(() => { if (isCurrent(target)) host.toast?.('勾选失败', null, true); });
-                return;
-            }
             const baseline = repository.draftBaseline?.(currentChat(), id);
             const result = repository.updateDraft?.(currentChat(), id, { liked }, baseline);
             if (result?.ok && isCurrent(target)) {
@@ -219,8 +235,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         root.on('click.sp-theater-ui', '.sp-theater-export', async function () {
             if (!exporter?.export) return host.toast?.('导出不可用', null, true);
             const drafts = repository.loadDrafts(currentChat()) || [];
-            const saved = repository.loadSaved(injectedCapture() || null) || [];
-            const liked = [...drafts, ...saved].filter(piece => piece.liked);
+            const liked = drafts.filter(piece => piece.liked);
             if (!liked.length) return host.toast?.('先勾选喜欢的条目', null, true);
             try {
                 const result = await exporter.export(liked);

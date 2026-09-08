@@ -16,7 +16,7 @@ import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
 import { normalizeOutlineResponse } from './business/outline/schema.js';
-import { createCoordinateRuntime } from './business/coordinate/runtime.js';
+import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
 import * as store from './store.js';
@@ -378,7 +378,7 @@ function createTheaterHostFeature() {
         onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
         stage: text => { if (theaterMode) setTheaterBody(loadingHtml(`正在${text}`, 'sp-abort-theater')); }, renderAiMessageHtml,
         downloadJson: downloadJsonFile,
-        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); } }),
+        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); }, snapshotContext: () => { const ctx = getContext() || {}; const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return { chatId: ctx.chatId ?? null, chatIdHash: ctx.chatMetadata?.chat_id_hash ?? null, chatName: el?.value || el?.textContent?.trim() || ctx.chatId || '当前聊天', charName: ctx.name2 || '角色' }; }, saveSnapshot: item => { const coordinate = getCoordinateRuntime(); if (!coordinate?.feature?.saveFromTheater) throw new Error('坐标还没就绪'); return coordinate.feature.saveFromTheater(item); } }),
     });
     return runtime.feature;
 }
@@ -1395,14 +1395,15 @@ const MODULE_INTROS = {
         _iKey('fa-plus',           '应用到点／线／轴', '按上面的规则写入对应模块') +
         _iKey('fa-calendar-check', '应用历法',    '确认冲突处理后换用这套历法'),
     theater:
-        _iLede('「棱」＝纯文字番外：空框时先跨书抽签冻结每一面，再像兔子镜那样一次请求连写 1～3 面。世界书只给棱读，不要绑到角色卡。喜欢的条目可导出为新世界书「构画-棱-兔子镜母本」，再自己导进兔子镜。') +
+        _iLede('「棱」＝纯文字番外：空框时先跨书抽签冻结每一面，再像兔子镜那样一次请求连写 1～3 面。世界书只给棱读，不要绑到角色卡。喜欢的条目可导出为新世界书「构画-棱-兔子镜母本」，再自己导进兔子镜。要留下某条正文，点收藏进坐标快照。') +
         _iKey('fa-book', '抽取用世界书', '在棱页顶部勾选。把小回 / 极光 / 小兔导入酒馆后勾上即可，不要绑到角色卡。设置 → 提示词与标签 → 棱 · 写作与抽取世界书里也有同一份清单。') +
         _iKey('fa-shuffle', '随机模板', '从勾选世界书里随便抽一条「内容」填进输入框。再按一次换另一条。框里有内容时只生成这一条。') +
         _iKey('fa-wand-magic-sparkles', '生成番外', '可空输入：空着就抽 N 条。框里有字（含随机模板）时只按这一条写。') +
         _iKey('fa-heart', '喜欢', '勾选后点「导出已选」生成新世界书母本，不是把原书再导一遍。') +
-        _iSub('［重新生成］再抽一轮。可先改标题再点［永久保存］。草稿最多 12 条。'),
+        _iKey('fa-star', '收藏', '把这条小剧场存进坐标快照，和楼层收藏同一份永久库。草稿只是本机草稿纸，新会挤旧。') +
+        _iSub('［重新生成］再抽一轮。可先改标题再点［收藏］。草稿最多 12 条。'),
     anchor:
-        _iLede('「坐标」收藏的是 AI 楼层正文的副本，方便以后回看，不是完整样式快照。入口受设置 → 通用设置 → 显示与通知管理里的“收藏此楼入口”控制，只会出现在 AI 楼；收藏后可立即选择标签，再点同一枚按钮会取消收藏。') +
+        _iLede('「坐标」收藏的是 AI 楼层正文的副本，也可以收下棱里的小剧场。方便以后回看，不是完整样式快照。入口受设置 → 通用设置 → 显示与通知管理里的“收藏此楼入口”控制，只会出现在 AI 楼；收藏后可立即选择标签，再点同一枚按钮会取消收藏。') +
         _iSub('收藏夹按角色 → 聊天 → 楼层分组，可用标签筛选和管理。删除收藏只删副本，不会删除或改动原楼层。') +
         _iSvgKey(_coordinateIntroSvg, '坐标形收藏', 'AI 楼上的这枚坐标形按钮：点击收藏，再次点击取消收藏') +
         _iSub('［标签管理］可新建、改名、改色或删除标签，删标签不会删收藏。收藏全文右上角的［⛶］进入全屏，［×］删除这份收藏副本。'),
