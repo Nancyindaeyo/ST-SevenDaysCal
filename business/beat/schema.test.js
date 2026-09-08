@@ -39,3 +39,18 @@ test('beat prompt asks for 4-5 shots and never fills theater', () => {
     assert.match(prompt, /不要填棱/);
     assert.match(prompt, /换路径/);
 });
+
+test('removeShot drops one outline and keeps the rest', async () => {
+    const { createBeatController } = await import('./controller.js');
+    let latest = [];
+    const controller = createBeatController({ onChange: shots => { latest = shots; } });
+    controller.replace([
+        { angle: 'today', title: 'A', body: '甲' },
+        { angle: 'line', title: 'B', body: '乙' },
+        { angle: 'date', title: 'C', body: '丙' },
+        { angle: 'daily', title: 'D', body: '丁' },
+    ]);
+    controller.removeShot(1);
+    assert.deepEqual(latest.map(shot => shot.title), ['A', 'C', 'D']);
+    assert.equal(controller.shots.length, 3);
+});

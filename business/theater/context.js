@@ -1,8 +1,10 @@
+export const THEATER_WORLD_INFO_SCOPES = Object.freeze(['char']);
+
 export function createTheaterStoryContext({ getContext, buildWorldInfoContext, readCardExtras, getMemText, owners } = {}) {
     return async function build(owner = null) {
         const ctx = getContext(); const chatId = ctx.chatId; const revision = owners?.currentChatRevision?.() ?? 0;
         const userName = ctx.name1 || '用户'; const charName = ctx.name2 || '角色'; const char = ctx.characters?.[ctx.characterId] ?? {};
-        let wiContext = ''; try { wiContext = await buildWorldInfoContext(ctx); } catch { wiContext = ''; }
+        let wiContext = ''; try { wiContext = await buildWorldInfoContext?.(ctx, { scopes: THEATER_WORLD_INFO_SCOPES }); } catch { wiContext = ''; }
         if (owner && (!owners.isValid(owner, { chatId, chatRevision: revision }) || getContext().chatId !== chatId)) throw Object.assign(new Error('theater-story-stale'), { name: 'AbortError' });
         const { personaDesc, authorNote } = readCardExtras(ctx); let memText = ''; try { memText = await getMemText(); } catch { memText = ''; }
         if (owner && (!owners.isValid(owner, { chatId, chatRevision: revision }) || getContext().chatId !== chatId)) throw Object.assign(new Error('theater-story-stale'), { name: 'AbortError' });

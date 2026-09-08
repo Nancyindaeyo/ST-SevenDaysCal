@@ -16,11 +16,11 @@ export function beatFoldHtml() {
             <span class="sp-fold-hint">卡住时出 4～5 条下一楼短大纲</span>
         </summary>
         <div class="sp-beat-panel" id="sp-beat-panel">
-            <p class="sp-cfg-hint">读纠偏后的点/线、面当前节点、间近期发言和近文。可改、可复制、可填主楼输入框。不代发，不填棱。</p>
-            <div class="sp-beat-list" id="sp-beat-list"></div>
+            <p class="sp-cfg-hint">读纠偏后的点/线、面当前节点、间近期发言和近文。可改、可复制、可删、可填主楼输入框。不代发，不填棱。</p>
             <div class="sp-refresh-bar-actions">
                 <button type="button" class="sp-btn sp-btn-primary" id="sp-beat-gen">生成本轮拍</button>
             </div>
+            <div class="sp-beat-list" id="sp-beat-list"></div>
         </div>
     </details>`;
 }
@@ -35,11 +35,11 @@ export function createBeatUi(host = {}) {
         if (!$list?.length) return;
         const shots = controller?.shots || [];
         const busy = controller?.busy;
-        query('#sp-beat-gen')?.prop?.('disabled', !!busy).text(busy ? '生成中…' : '生成本轮拍');
+        query('#sp-beat-gen')?.prop?.('disabled', !!busy).html(busy ? '生成中…' : (shots.length ? '<i class="fa-solid fa-rotate-right"></i> 再生成' : '生成本轮拍'));
         if (!shots.length) {
             $list.html(busy
                 ? '<div class="sp-empty sp-fold-empty"><i class="fa-solid fa-spinner fa-spin"></i><p>正在写下一拍…</p></div>'
-                : '<div class="sp-empty sp-fold-empty"><p>还没有本轮拍。点下面生成；纠偏结束后的提示也可以点进来。</p></div>');
+                : '<div class="sp-empty sp-fold-empty"><p>还没有本轮拍。点「生成本轮拍」；纠偏结束后的提示也可以点进来。</p></div>');
             return;
         }
         $list.html(shots.map((shot, index) => {
@@ -53,6 +53,7 @@ export function createBeatUi(host = {}) {
                     <span class="sp-beat-shot-actions">
                         <button type="button" class="sp-icon-btn sp-beat-copy" title="复制"><i class="fa-solid fa-copy"></i></button>
                         <button type="button" class="sp-icon-btn sp-beat-inject" title="填入输入框"><i class="fa-solid fa-arrow-right-to-bracket"></i></button>
+                        <button type="button" class="sp-icon-btn sp-beat-del" title="删除这条"><i class="fa-solid fa-trash"></i></button>
                     </span>
                 </div>
                 <input class="sp-input sp-beat-shot-title" value="${title}">
@@ -93,6 +94,12 @@ export function createBeatUi(host = {}) {
             if (!shot) return;
             const ok = host.injectToInput?.(formatBeatForInput(shot));
             if (ok !== false) host.toast?.('已填入输入框');
+        });
+        $root.on('click.spBeat', '.sp-beat-del', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const index = Number(host.$(this).closest('.sp-beat-shot').attr('data-idx'));
+            controller?.removeShot?.(index);
         });
     };
 

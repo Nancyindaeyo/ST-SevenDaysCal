@@ -424,10 +424,18 @@ q::after {
 .sp-content-head:active { cursor: grabbing; }
 
 .sp-panel-tools {
-    flex-shrink: 0;
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: 55%;
+    overflow-x: hidden;
+    overflow-y: auto;
     background: var(--sp-sheet-bg);
     border-bottom: 1px solid var(--sp-divider);
+    scrollbar-width: thin;
+    scrollbar-color: var(--sp-divider) transparent;
 }
+.sp-panel-tools::-webkit-scrollbar { width: 4px; }
+.sp-panel-tools::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
 .sp-fold-card {
     border-bottom: 1px solid var(--sp-divider);
 }
@@ -500,6 +508,7 @@ q::after {
     justify-content: flex-end;
     gap: 8px;
 }
+.sp-beat-panel .sp-refresh-bar-actions { justify-content: flex-start; }
 .sp-beat-panel {
     display: flex;
     flex-direction: column;
@@ -510,6 +519,7 @@ q::after {
     display: flex;
     flex-direction: column;
     gap: 8px;
+    min-height: 0;
 }
 .sp-beat-shot {
     border: 1px solid var(--sp-divider);

@@ -4,6 +4,7 @@ import { isTheaterHeaderEntry, stripTheaterRecipe, drawTheaterRecipes, normalize
 import { parseTheaterPieces } from './pieces.js';
 import { buildTheaterExportBook, likedTheaterPieces } from './export-book.js';
 import { buildWriteMessages } from './prompts.js';
+import { THEATER_WORLD_INFO_SCOPES } from './context.js';
 
 test('header entries are the 必开/头/尾 rows, not lottery types', () => {
     assert.equal(isTheaterHeaderEntry('使用必开（头）'), true);
@@ -73,4 +74,10 @@ test('write prompt forbids HTML and asks for N theater_piece blocks', () => {
     assert.match(messages[0].content, /禁止输出 HTML/);
     assert.match(messages[0].content, /theater_piece/);
     assert.match(messages[0].content, /一次写出 2 条/);
+});
+
+test('theater background world info is character books only', () => {
+    assert.deepEqual([...THEATER_WORLD_INFO_SCOPES], ['char']);
+    assert.equal(THEATER_WORLD_INFO_SCOPES.includes('global'), false);
+    assert.equal(THEATER_WORLD_INFO_SCOPES.includes('persona'), false);
 });

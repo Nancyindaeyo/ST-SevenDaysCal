@@ -73,6 +73,12 @@ export function createBeatController(env = {}) {
             shots = clampBeatShots(shots.map((shot, i) => (i === Number(index) ? { ...shot, ...patch } : shot)));
             return shots;
         },
+        replace: next => setShots(next),
+        removeShot(index) {
+            const i = Number(index);
+            if (!Number.isInteger(i) || i < 0 || i >= shots.length) return shots;
+            return setShots(shots.filter((_, n) => n !== i));
+        },
         get shots() { return shots; },
         get busy() { return busy; },
     };

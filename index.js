@@ -372,7 +372,7 @@ let memoryPauseNoticeShown = false;
 function createTheaterHostFeature() {
     const runtime = createTheaterRuntime({
         storage: globalThis.localStorage, coreModule: scriptCore, getContext, callTheaterApi,
-        buildWorldInfoContext: ctx => buildWorldInfoContext(ctx), readCardExtras: ctx => readCardExtras(ctx), getMemText: () => getMemText(),
+        buildWorldInfoContext: (ctx, opts) => buildWorldInfoContext(ctx, opts), readCardExtras: ctx => readCardExtras(ctx), getMemText: () => getMemText(),
         names: () => ({ userName: getContext().name1 || '用户', charName: getContext().name2 || '角色' }),
         settings: () => { const s = getSettings(); return { theaterStylePrompt: typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '', theaterCount: s.theaterCount, theaterPoolBooks: Array.isArray(s.theaterPoolBooks) ? s.theaterPoolBooks : [] }; },
         onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
@@ -5796,8 +5796,10 @@ async function resolveWorldInfoActivation(ctx, coreChat) {
     return { supported: false, failed: true, keys: new Set(), lukerFailed };
 }
 
-async function buildWorldInfoContext(ctx) {
-    const entries = await getCharBookEntries(ctx);
+async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
+    const allEntries = await getCharBookEntries(ctx);
+    const allow = Array.isArray(scopes) && scopes.length ? new Set(scopes) : null;
+    const entries = allow ? allEntries.filter(entry => allow.has(entry.scope)) : allEntries;
     const selection = ensureCurrentWiSelection(ctx, entries);
     const coreChat = Array.isArray(ctx?.chat) ? ctx.chat.filter(message => {
         if (!message || message.is_system) return false;
