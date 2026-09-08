@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace, QUOTE_MAX } from './excerpt-schema.js';
 import { createExcerptRepository } from './excerpt-repository.js';
 import { groupItemsByTag, matchQuery, hayOf } from './browse.js';
-import { filterSearchList } from './excerpt-ui.js';
+import { filterSearchList, joinPickedText, readShadowSelection, splitPickUnits, useTapPick } from './excerpt-ui.js';
 import { snapshotSearchText } from './capture.js';
 
 test('clipText collapses space and caps length', () => {
@@ -121,6 +121,29 @@ test('search box is not a shelf tab', async () => {
     assert.match(html, /class="sp-anchor-search[^"]*"[^>]*data-search-shelf="snaps"/);
     assert.equal(/<input[^>]*\sdata-shelf=/.test(html), false);
     assert.match(html, /class="sp-anchor-shelf-tab[^"]*"[^>]*data-shelf="snaps"/);
+});
+
+test('pick units split Chinese sentences and keep punctuation', () => {
+    assert.deepEqual(splitPickUnits('窗边还有月光。后来雨停了！'), ['窗边还有月光。', '后来雨停了！']);
+    assert.deepEqual(joinPickedText(['窗边还有月光。', '  后来雨停了  ']), '窗边还有月光。 后来雨停了');
+});
+
+test('mobile tap pick is on for coarse pointers or narrow screens', () => {
+    assert.equal(useTapPick(390, () => ({ matches: false })), true);
+    assert.equal(useTapPick(1280, query => ({ matches: query.includes('coarse') })), true);
+    assert.equal(useTapPick(1280, () => ({ matches: false })), false);
+});
+
+test('shadow selection falls back to tapped sentences', () => {
+    const host = {
+        contains: () => false,
+        shadowRoot: {
+            getSelection: () => '',
+            contains: () => false,
+            querySelectorAll: () => [{ textContent: '第一句。' }, { textContent: '第二句。' }],
+        },
+    };
+    assert.equal(readShadowSelection(host), '第一句。 第二句。');
 });
 
 test('snapshot notes and search text stay in the index meta', async () => {

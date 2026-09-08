@@ -173,7 +173,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
             }
             if (el.matches('.sp-anchor-clip')) {
                 const quote = clipText(readShadowSelection(target.querySelector('#sp-anchor-full-host')), QUOTE_MAX);
-                if (!quote) return host.toast?.('先在快照里划选一段文字', null, true);
+                if (!quote) return host.toast?.('先在快照里划选或点选一段文字', null, true);
                 ui.setComposer({ quote, note: '', snapshotId: ui.itemId() });
                 return renderer.full(ui.itemId());
             }
