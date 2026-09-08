@@ -5745,6 +5745,15 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     color      : var(--sp-subtle);
     font-size  : var(--sp-fs-78);
 }
+/* 卡片自己写了 display:flex，会盖掉原生 [hidden]；筛选必须靠 !important 真正藏起来。 */
+#sp-anchor-wrap .sp-anchor-char-card[hidden],
+#sp-anchor-wrap .sp-anchor-chat-card[hidden],
+#sp-anchor-wrap .sp-anchor-group-card[hidden],
+#sp-anchor-wrap .sp-anchor-item-card[hidden],
+#sp-anchor-wrap .sp-excerpt-card[hidden],
+#sp-anchor-wrap .sp-search-empty[hidden] {
+    display: none !important;
+}
 .sp-excerpt-list { display: flex; flex-direction: column; gap: 12px; }
 .sp-excerpt-card {
     position     : relative;

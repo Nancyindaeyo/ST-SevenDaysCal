@@ -1,4 +1,5 @@
 import { INDEX_NAME, emptyIndex, normalizeIndex, fileNameOf, toMeta, formatBytes, SIZE_WARN_BYTES, SNAP_NOTE_MAX } from './schema.js';
+import { snapshotSearchText } from './capture.js';
 import { uploadJson, readJson, deleteJson, createCoordinateHostPorts } from '../../runtime/coordinate-host-ports.js';
 
 function strHash(input) {
@@ -30,6 +31,11 @@ export function createCoordinateRepository({ ports = createCoordinateHostPorts()
     };
     const saveIndex = async () => { if (!cache) throw new Error('coordinate index is not loaded'); await uploadJson(ports, INDEX_NAME, cache); };
     const serial = task => { const next = mutation.then(task, task); mutation = next.catch(() => {}); return next; };
+    const withSearchText = item => {
+        if (!item || String(item.searchText || '').trim()) return item;
+        const searchText = snapshotSearchText(item.html);
+        return searchText ? { ...item, searchText } : item;
+    };
 
     const api = {
         ports,
@@ -43,10 +49,11 @@ export function createCoordinateRepository({ ports = createCoordinateHostPorts()
         formatBytes,
         checkSize: async () => { const bytes = await api.estimateBytes(); return { bytes, over: bytes > (Number(ports.settings()?.anchorSizeWarnBytes) || warnBytes), warnBytes }; },
         addItem: item => serial(async () => {
-            await uploadJson(ports, fileNameOf(item.id), item);
-            const idx = await readIndex(); const meta = toMeta(item); const i = idx.items.findIndex(x => x.id === meta.id);
+            const packed = withSearchText(item);
+            await uploadJson(ports, fileNameOf(packed.id), packed);
+            const idx = await readIndex(); const meta = toMeta(packed); const i = idx.items.findIndex(x => x.id === meta.id);
             if (i < 0) idx.items.push(meta); else idx.items[i] = meta;
-            await saveIndex(); return item;
+            await saveIndex(); return packed;
         }),
         deleteItem: id => serial(async () => {
             if (!id) return;
@@ -73,6 +80,21 @@ export function createCoordinateRepository({ ports = createCoordinateHostPorts()
         }),
         findItemIdsByFloor: async (chatId, floor) => (await readIndex()).items.filter(item => String(item.chatId) === String(chatId) && (Number(item.messageId) === Number(floor) || Number(item.floorIndex) === Number(floor))).map(item => item.id),
         listByChat: async () => { const buckets = new Map(); for (const item of await api.getAllItems()) { const key = item.chatIdHash != null ? `h:${item.chatIdHash}` : `c:${item.chatId || '(unknown)'}`; const bucket = buckets.get(key) || { chatId: item.chatId, chatIdHash: item.chatIdHash ?? null, chatName: item.chatName || '(未命名聊天)', charName: item.charName || '', items: [], latestTs: 0 }; bucket.items.push(item); if ((item.ts || 0) >= bucket.latestTs) { bucket.latestTs = item.ts || 0; bucket.chatId = item.chatId ?? bucket.chatId; bucket.chatName = item.chatName || bucket.chatName; bucket.charName = item.charName || bucket.charName; } buckets.set(key, bucket); } return [...buckets.values()].map(bucket => ({ ...bucket, count: bucket.items.length, items: bucket.items.sort((a, b) => (Number(b.floorIndex) || 0) - (Number(a.floorIndex) || 0) || (Number(b.ts) || 0) - (Number(a.ts) || 0)) })).sort((a, b) => b.latestTs - a.latestTs); },
+        hydrateSearchText: () => serial(async () => {
+            const idx = await readIndex();
+            const missing = idx.items.filter(item => !String(item.searchText || '').trim());
+            if (!missing.length) return 0;
+            let n = 0;
+            for (const meta of missing) {
+                const item = await api.getItem(meta.id);
+                const searchText = snapshotSearchText(item?.html);
+                if (!searchText) continue;
+                meta.searchText = searchText;
+                n++;
+            }
+            if (n) await saveIndex();
+            return n;
+        }),
         deleteTag: id => serial(async () => { const idx = await readIndex(); const oldTags = idx.tags.map(tag => ({ ...tag })); const affected = idx.items.filter(item => item.tags?.includes(id)).map(item => ({ meta: item, tags: [...(item.tags || [])] })); const changedItems = []; try { for (const entry of affected) { const item = await api.getItem(entry.meta.id); if (!item) continue; item.tags = (item.tags || []).filter(tag => tag !== id); await uploadJson(ports, fileNameOf(item.id), item); changedItems.push({ id: item.id, item }); } idx.tags = idx.tags.filter(tag => tag.id !== id); for (const entry of affected) entry.meta.tags = entry.tags.filter(tag => tag !== id); await saveIndex(); return affected.length; } catch (error) { idx.tags = oldTags; for (const entry of affected) entry.meta.tags = entry.tags; throw error; } }),
         renameChatId: (oldId, newId, name = '', hash = null) => serial(async () => { const idx = await readIndex(); const hit = idx.items.filter(item => String(item.chatId) === String(oldId)); if (!hit.length) return 0; for (const meta of hit) { meta.chatId = String(newId); meta.chatName = String(name || newId); if (hash != null) meta.chatIdHash = hash; } await saveIndex(); for (const meta of hit) { const item = await api.getItem(meta.id); if (item) { item.chatId = String(newId); item.chatName = String(name || newId); if (hash != null) item.chatIdHash = hash; await api._addItemUnlocked(item); } } return hit.length; }),
         healChatByHash: (currentId, name, hash) => serial(async () => { if (currentId == null || hash == null) return 0; const want = Number(hash); const idx = await readIndex(); const hit = idx.items.filter(item => (item.chatIdHash != null && Number(item.chatIdHash) === want) || (item.chatIdHash == null && strHash(item.chatId) === want) || String(item.chatId) === String(currentId)); let changed = 0; for (const meta of hit) { if (String(meta.chatId) !== String(currentId) || meta.chatName !== String(name || currentId) || Number(meta.chatIdHash) !== want) { meta.chatId = String(currentId); meta.chatName = String(name || currentId); meta.chatIdHash = hash; changed++; } } if (changed) await saveIndex(); for (const meta of hit) { const item = await api.getItem(meta.id); if (item && (String(item.chatId) !== String(currentId) || Number(item.chatIdHash) !== want)) { item.chatId = String(currentId); item.chatName = String(name || currentId); item.chatIdHash = hash; await api._addItemUnlocked(item); } } return changed; }),
@@ -88,6 +110,6 @@ export function createCoordinateRepository({ ports = createCoordinateHostPorts()
         }),
     };
     // Internal form avoids nesting a second queue while a mutation is already running.
-    api._addItemUnlocked = async item => { await uploadJson(ports, fileNameOf(item.id), item); const idx = await readIndex(); const meta = toMeta(item); const i = idx.items.findIndex(x => x.id === meta.id); if (i < 0) idx.items.push(meta); else idx.items[i] = meta; await saveIndex(); return item; };
+    api._addItemUnlocked = async item => { const packed = withSearchText(item); await uploadJson(ports, fileNameOf(packed.id), packed); const idx = await readIndex(); const meta = toMeta(packed); const i = idx.items.findIndex(x => x.id === meta.id); if (i < 0) idx.items.push(meta); else idx.items[i] = meta; await saveIndex(); return packed; };
     return api;
 }

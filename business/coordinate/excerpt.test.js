@@ -4,6 +4,7 @@ import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExce
 import { createExcerptRepository } from './excerpt-repository.js';
 import { groupItemsByTag, matchQuery, hayOf } from './browse.js';
 import { filterSearchList } from './excerpt-ui.js';
+import { snapshotSearchText } from './capture.js';
 
 test('clipText collapses space and caps length', () => {
     assert.equal(clipText('  a \n  b  ', 20), 'a b');
@@ -76,6 +77,37 @@ test('filterSearchList hides unmatched cards without rebuilding', () => {
     assert.equal(cards[1].hidden, false);
 });
 
+test('snapshotSearchText keeps body text beyond the card preview', async () => {
+    const { makePreview } = await import('./capture.js');
+    const html = `<p>${'前'.repeat(160)}月光</p>`;
+    assert.equal(makePreview(html).includes('月光'), false);
+    assert.equal(snapshotSearchText(html).includes('月光'), true);
+    assert.equal(snapshotSearchText('<p>春 <b>走在雨里</b></p>'), '春 走在雨里');
+});
+
+test('character cards index snapshot body, notes and tags for search', async () => {
+    const { createCoordinateRenderer } = await import('./render.js');
+    let html = '';
+    const renderer = createCoordinateRenderer({
+        repository: {
+            listByChat: async () => [{
+                charName: '春', chatName: '聊天', chatId: 'c1', latestTs: 1, count: 1,
+                items: [{ id: '1', charName: '春', chatName: '聊天', textPreview: '预览开头', searchText: '预览开头 后面才出现的月光', note: '冷色备注', tags: ['sweet'], ts: 1, floorIndex: 3 }],
+            }],
+            getTags: async () => [{ id: 'sweet', name: '甜' }],
+            countItems: async () => 1,
+        },
+        excerptRepo: { count: async () => 0 },
+        setBody: next => { html = next; },
+        getState: () => ({ level: 'chars', shelf: 'snaps', browse: 'char', snapSearch: '', filter: null }),
+    });
+    await renderer.chars();
+    assert.match(html, /data-search="[^"]*月光/);
+    assert.match(html, /data-search="[^"]*冷色备注/);
+    assert.match(html, /data-search="[^"]*甜/);
+    assert.match(html, /data-search="[^"]*春/);
+});
+
 test('search box is not a shelf tab', async () => {
     const { createCoordinateRenderer } = await import('./render.js');
     let html = '';
@@ -91,10 +123,11 @@ test('search box is not a shelf tab', async () => {
     assert.match(html, /class="sp-anchor-shelf-tab[^"]*"[^>]*data-shelf="snaps"/);
 });
 
-test('snapshot notes stay in the index meta', async () => {
+test('snapshot notes and search text stay in the index meta', async () => {
     const { normalizeMeta } = await import('./schema.js');
-    const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ' });
+    const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ', searchText: '  正文 后面还有月光  ' });
     assert.equal(meta.note, '这是备注');
+    assert.equal(meta.searchText, '正文 后面还有月光');
 });
 
 test('excerpt repository keeps snapshots untouched in its own file', async () => {

@@ -1,3 +1,5 @@
+import { SEARCH_TEXT_MAX } from './schema.js';
+
 const DANGEROUS_URL = /^(?:javascript|vbscript|data):/i;
 
 function fallbackText(value) {
@@ -37,7 +39,7 @@ export function sanitizeSnapshot(htmlRaw, { DOMPurify: purifier = globalThis.DOM
     return box.innerHTML;
 }
 
-export function makePreview(html, max = 140) {
+function plainTextFromHtml(html) {
     const cleanText = value => String(value ?? '').replace(/<!--[\s\S]*?-->/g, ' ').replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(?:\.[\w-]+\s*)?\{[^}]*\}/g, ' ').replace(/\s+/g, ' ').trim();
     let text = '';
     const raw = String(html ?? '');
@@ -46,7 +48,16 @@ export function makePreview(html, max = 140) {
         if (doc?.createElement) { const template = doc.createElement('template'); template.innerHTML = raw; template.content?.querySelectorAll?.('style,script')?.forEach(node => node.remove()); text = cleanText(template.content?.textContent || ''); }
     } catch { /* fallback below */ }
     if (!text) text = cleanText(raw.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ').replace(/<[^>]*>/g, ' '));
+    return text;
+}
+
+export function makePreview(html, max = 140) {
+    const text = plainTextFromHtml(html);
     return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+export function snapshotSearchText(html, max = SEARCH_TEXT_MAX) {
+    return plainTextFromHtml(html).slice(0, max);
 }
 
 export function captureMesText(mesText, options = {}) {
