@@ -1,4 +1,5 @@
 import { extractWidgets } from './schema.js';
+import { parseQuotedSpaceMessage, quoteCardHtml } from './quote.js';
 import { normalizeLine, parseLineRow } from '../lines/schema.js';
 
 export function createSpaceRenderer(env = {}) {
@@ -129,7 +130,13 @@ export function createSpaceRenderer(env = {}) {
                 return widgetCard(widget.kind, widget.body, wid, widget.editIdx);
             }).join('');
         } else {
-            contentHtml = escape(content).replace(/\n/g, '<br>');
+            const quoted = parseQuotedSpaceMessage(content);
+            if (quoted) {
+                const typed = quoted.typed ? escape(quoted.typed).replace(/\n/g, '<br>') : '';
+                contentHtml = `${quoteCardHtml(quoted, escape)}${typed ? `<div class="sp-space-quote-follow">${typed}</div>` : ''}`;
+            } else {
+                contentHtml = escape(content).replace(/\n/g, '<br>');
+            }
         }
         const edit = role === 'user' ? '<button class="sp-chat-msg-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>' : '';
         const actions = canAct

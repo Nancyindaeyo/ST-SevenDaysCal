@@ -2041,11 +2041,12 @@ jQuery(async () => {
                 const title = text.includes('摘抄') ? '删除摘抄' : text.includes('收藏') ? '删除收藏' : '删除标签';
                 return spConfirm({ title, body: text });
             },
-            sendToSpace: async text => {
-                const message = String(text || '').trim();
-                if (!message) return { status: 'failed' };
+            sendToSpace: async item => {
+                if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
                 spaceFeature.guide?.leave?.();
-                const ok = await openPluginViewWithPrefill('space', '#sp-space-input', message);
+                spaceFeature.ui?.setQuote?.(item);
+                const ok = await openPluginViewWithPrefill('space');
+                spaceFeature.ui?.setQuote?.(item);
                 return { status: ok ? 'quoted' : 'failed' };
             },
             scrollToFloor: (chatId, floor) => {
@@ -3614,11 +3615,14 @@ function injectModal() {
 
                         <div class="sp-space-wrap sp-outline-chat" id="sp-space-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-chat-msgs" id="sp-space-msgs"></div>
-                            <div class="sp-chat-input-row">
-                                <button id="sp-space-guide" class="sp-icon-btn" title="引导设计"><i class="fa-solid fa-compass"></i></button>
-                                <button id="sp-space-clear" class="sp-icon-btn" title="清空对话"><i class="fa-solid fa-broom"></i></button>
-                                <textarea id="sp-space-input" class="sp-input sp-chat-input-ta" rows="1" placeholder="局外聊聊：剧情、设定、关系、知识…"></textarea>
-                                <button id="sp-space-send" class="sp-icon-btn" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
+                            <div class="sp-space-composer">
+                                <div id="sp-space-quote" class="sp-space-quote" hidden></div>
+                                <div class="sp-chat-input-row">
+                                    <button id="sp-space-guide" class="sp-icon-btn" title="引导设计"><i class="fa-solid fa-compass"></i></button>
+                                    <button id="sp-space-clear" class="sp-icon-btn" title="清空对话"><i class="fa-solid fa-broom"></i></button>
+                                    <textarea id="sp-space-input" class="sp-input sp-chat-input-ta" rows="1" placeholder="局外聊聊：剧情、设定、关系、知识…"></textarea>
+                                    <button id="sp-space-send" class="sp-icon-btn" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
+                                </div>
                             </div>
                         </div>
 

@@ -3,7 +3,7 @@ export function enterCoordinateSidebar({ resetModes, hidePanels, showCoordinate,
 }
 
 export function createCoordinateUI({ root = null, onDestroy = null } = {}) {
-    const route = { level: 'chars', charName: null, chatId: null, itemId: null, filter: null, shelf: 'snaps', snapSearch: '', clipSearch: '', browse: 'char', groupId: null, composer: null, excerptEditId: null, fullTagEdit: false, tagEditId: null, tagEditColor: 'slate', tagNewColor: 'rose', tagDeleteId: null };
+    const route = { level: 'chars', charName: null, chatId: null, itemId: null, filter: null, shelf: 'snaps', snapSearch: '', clipSearch: '', browse: 'char', groupId: null, from: null, composer: null, excerptEditId: null, fullTagEdit: false, tagEditId: null, tagEditColor: 'slate', tagNewColor: 'rose', tagDeleteId: null };
     let destroyed = false; let interactionItemId = null; const cleanups = new Set();
     const listen = (target, event, handler, options) => { target?.addEventListener?.(event, handler, options); const off = () => target?.removeEventListener?.(event, handler, options); cleanups.add(off); return off; };
     return {
@@ -15,6 +15,50 @@ export function createCoordinateUI({ root = null, onDestroy = null } = {}) {
         setSearch(next, shelf = route.shelf) { const text = String(next || ''); if (shelf === 'clips') route.clipSearch = text; else route.snapSearch = text; },
         setBrowse(next) { route.browse = next === 'tag' ? 'tag' : 'char'; route.groupId = null; route.level = 'chars'; route.chatId = route.itemId = null; },
         setGroup(id) { route.browse = 'tag'; route.groupId = id == null ? null : String(id); route.level = id ? 'group' : 'chars'; route.chatId = route.itemId = null; },
+        captureFrom() { route.from = { shelf: route.shelf, level: route.level, charName: route.charName, chatId: route.chatId, browse: route.browse, groupId: route.groupId }; },
+        backFrom() {
+            const from = route.from || { shelf: 'snaps', level: 'chars', browse: route.browse || 'char' };
+            route.from = null;
+            route.itemId = null;
+            route.composer = null;
+            if (from.shelf === 'clips') {
+                route.shelf = 'clips';
+                route.level = 'chars';
+                route.chatId = null;
+                return;
+            }
+            route.shelf = 'snaps';
+            route.browse = from.browse === 'tag' ? 'tag' : 'char';
+            if (from.level === 'group' && from.groupId) {
+                route.groupId = from.groupId;
+                route.level = 'group';
+                route.charName = route.chatId = null;
+                return;
+            }
+            if (from.level === 'items' && from.charName && (from.chatId == null || from.chatId === '')) {
+                route.level = 'items';
+                route.charName = from.charName;
+                route.chatId = null;
+                route.groupId = null;
+                return;
+            }
+            if (from.level === 'items' && from.chatId) {
+                route.level = 'items';
+                route.chatId = from.chatId;
+                route.charName = from.charName || null;
+                route.groupId = null;
+                return;
+            }
+            if (from.level === 'chats' && from.charName) {
+                route.level = 'chats';
+                route.charName = from.charName;
+                route.chatId = null;
+                route.groupId = null;
+                return;
+            }
+            route.level = 'chars';
+            route.charName = route.chatId = route.groupId = null;
+        },
         setComposer(next) { route.composer = next && typeof next === 'object' ? { quote: String(next.quote || ''), note: String(next.note || ''), snapshotId: next.snapshotId || null } : null; },
         setExcerptEdit(id) { route.excerptEditId = id == null ? null : String(id); },
         setFullTagEdit(next) { route.fullTagEdit = !!next; },
@@ -26,8 +70,8 @@ export function createCoordinateUI({ root = null, onDestroy = null } = {}) {
         route: () => route.level, itemId: () => interactionItemId ?? route.itemId,
         freezeInteraction: () => { interactionItemId = route.itemId; return interactionItemId; },
         clearInteraction: () => { interactionItemId = null; },
-        open(next = 'chars') { this.setRoute(next); root?.classList?.add('sp-coordinate-open'); },
-        close() { this.setRoute('chars'); root?.classList?.remove('sp-coordinate-open'); },
+        open(next = 'chars') { this.setRoute(next); route.from = null; root?.classList?.add('sp-coordinate-open'); },
+        close() { this.setRoute('chars'); route.from = null; root?.classList?.remove('sp-coordinate-open'); },
         destroy() { if (destroyed) return; destroyed = true; for (const off of cleanups) off(); cleanups.clear(); this.close(); onDestroy?.(); },
         isDestroyed: () => destroyed,
     };

@@ -1,4 +1,5 @@
 import { spaceMessagePlainText } from './schema.js';
+import { excerptToQuote, wrapQuotedSpaceMessage, parseQuotedSpaceMessage, quoteCardHtml } from './quote.js';
 import { renderSpaceGuide, spaceGuideEmptyHtml } from './guide-ui.js';
 
 export function createSpaceUi(host = {}) {
@@ -16,6 +17,28 @@ export function createSpaceUi(host = {}) {
     let controllers = null;
     let guide = null;
     let bound = false;
+    let pendingQuote = null;
+
+    const quoteRoot = () => query('#sp-space-quote');
+    const renderPendingQuote = () => {
+        const $quote = quoteRoot();
+        if (!$quote?.length) return;
+        if (!pendingQuote?.quote) {
+            $quote.attr('hidden', true).empty();
+            return;
+        }
+        $quote.html(`${quoteCardHtml(pendingQuote, escape)}<button type="button" class="sp-space-quote-dismiss" title="去掉引用" aria-label="去掉引用"><i class="fa-solid fa-xmark"></i></button>`).removeAttr('hidden');
+    };
+    const setQuote = item => {
+        const next = excerptToQuote(item);
+        pendingQuote = next.quote ? next : null;
+        renderPendingQuote();
+        return pendingQuote;
+    };
+    const clearQuote = () => {
+        pendingQuote = null;
+        renderPendingQuote();
+    };
 
     const registerWidget = widget => {
         const wid = String(++widgetSeq);
@@ -75,7 +98,8 @@ export function createSpaceUi(host = {}) {
 
     const startEdit = ($message, index) => {
         const original = controllers.chat.history()[index]?.content ?? '';
-        $message.find('.sp-chat-msg-content').replaceWith(`<textarea class="sp-chat-msg-editor">${escape(original)}</textarea>`);
+        const quoted = parseQuotedSpaceMessage(original);
+        $message.find('.sp-chat-msg-content').replaceWith(`<textarea class="sp-chat-msg-editor">${escape(quoted ? quoted.typed : original)}</textarea>`);
         $message.find('.sp-chat-msg-actions').replaceWith(
             '<div class="sp-chat-msg-actions sp-chat-msg-editing">' +
             '<button class="sp-chat-msg-edit-save">保存并重发</button>' +
@@ -89,7 +113,8 @@ export function createSpaceUi(host = {}) {
         $message.find('.sp-chat-msg-edit-save').on('click', () => {
             if (controllers.chat.busy) return;
             const next = String($textarea.val() || '').trim();
-            if (next) void controllers.chat.resendFrom(index, next);
+            const payload = quoted ? wrapQuotedSpaceMessage(quoted, next) : next;
+            if (quoted?.quote || next) void controllers.chat.resendFrom(index, payload);
         });
         $textarea.on('keydown', event => {
             if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
@@ -128,12 +153,19 @@ export function createSpaceUi(host = {}) {
                 }
                 return;
             }
-            if (!message || controllers.chat.busy) return;
+            const quote = pendingQuote;
+            if ((!message && !quote?.quote) || controllers.chat.busy) return;
             $input.val('');
             host.autoGrow?.($input[0]);
-            void controllers.chat.send(message);
+            const payload = quote?.quote ? wrapQuotedSpaceMessage(quote, message) : message;
+            clearQuote();
+            void controllers.chat.send(payload);
         };
         $root.on('click.spSpaceFeature', '#sp-space-send', sendInput);
+        $root.on('click.spSpaceFeature', '.sp-space-quote-dismiss', event => {
+            event.preventDefault();
+            clearQuote();
+        });
         if (!isMobileViewport()) {
             $root.on('keydown.spSpaceFeature', '#sp-space-input', event => {
                 const nativeEvent = event.originalEvent;
@@ -249,6 +281,9 @@ export function createSpaceUi(host = {}) {
         beginThinking,
         endThinking,
         setPlaceholder: value => query('#sp-space-input')?.attr?.('placeholder', value),
+        setQuote,
+        clearQuote,
+        pendingQuote: () => pendingQuote,
         clearWidgets: () => widgets.clear(),
         widgetEntries: () => [...widgets.values()],
         widgetRecords: () => [...widgets.entries()],

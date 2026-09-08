@@ -1,3 +1,5 @@
+import { quotedSpaceMessageForApi } from './quote.js';
+
 export const SPACE_HISTORY_CAP = 20;
 
 export function normalizeSpaceHistory(saved) {
@@ -52,6 +54,10 @@ export function latestSpaceWidget(history) {
 
 export function stripWidgetsForApi(history) {
     return history.map(message => {
+        if (message.role === 'user') {
+            const next = quotedSpaceMessageForApi(message.content);
+            return next === message.content ? message : { ...message, content: next };
+        }
         if (message.role !== 'assistant') return message;
         const cleaned = String(message.content || '')
             .replace(/<schedule_widget[^>]*>[\s\S]*?<\/schedule_widget\s*>/gi, '【已输出一张点卡片（内容以当前面板为准）】')
@@ -65,5 +71,6 @@ export function stripWidgetsForApi(history) {
 export function spaceMessagePlainText(message) {
     if (!message) return '';
     const raw = String(message.content ?? '');
+    if (message.role === 'user') return quotedSpaceMessageForApi(raw);
     return message.role === 'assistant' ? extractWidgets(raw).text : raw;
 }

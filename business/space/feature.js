@@ -66,6 +66,7 @@ export function createSpaceFeature(env = {}) {
         if (!enabled) return;
         repository.clearMemory();
         ui.emptyMessages();
+        ui.clearQuote?.();
     };
     const abortAll = (reason = 'manual-abort') => {
         chat.abort(reason);

@@ -1,5 +1,6 @@
 import { buildSpaceChatSystemPrompt, buildSpaceHelpText } from './prompts.js';
 import { latestSpaceWidget, stripWidgetsForApi } from './schema.js';
+import { quotedSpaceMessageForApi } from './quote.js';
 
 export const LEDGER_READ_KEYWORDS = Object.freeze(['刻度', '暗历', '暗账', '状态', '伤', '病', '孕', '约定', '周期', '待办', '身心', '现在怎', '好了没', '没了结']);
 
@@ -142,7 +143,7 @@ export function createSpaceContext(env = {}) {
         const ctx = env.context?.() || {};
         const userName = ctx.name1 || '用户';
         const charName = ctx.name2 || '角色';
-        const message = String(userMsg || '');
+        const message = quotedSpaceMessageForApi(userMsg);
         const intent = classifySpaceIntent(message, historySnapshot);
         const outlineRaw = env.readOutline?.(target) || '';
         const pointList = intent.pointContext
@@ -177,7 +178,7 @@ export function createSpaceContext(env = {}) {
             personaOverride: String(env.settings?.()?.spacePersona || '').trim(),
             intent,
         });
-        return [{ role: 'system', content: system }, ...stripWidgetsForApi(historySnapshot), { role: 'user', content: userMsg }];
+        return [{ role: 'system', content: system }, ...stripWidgetsForApi(historySnapshot), { role: 'user', content: quotedSpaceMessageForApi(userMsg) }];
     };
     return Object.freeze({ buildMessages });
 }
