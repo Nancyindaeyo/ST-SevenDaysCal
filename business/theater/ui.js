@@ -123,7 +123,11 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             state.current = result.piece || state.current;
             state.batchId = result.piece?.batchId || result.pieces?.[0]?.batchId || '';
             if (state.source?.uid === selectedSource?.uid && state.source?.input === selectedSource?.input) state.source = null;
-            if (host.isOpen?.()) { render(); if (host.notifyEnabled?.()) host.toast?.(result.pieces?.length > 1 ? `棱已生成 ${result.pieces.length} 条` : '棱已生成'); }
+            if (host.isOpen?.()) {
+                render();
+                if (result.persistFailed) host.toast?.('棱已生成。本机草稿缓存未写入，先看上面的正文；刷新前请先永久保存', null, true);
+                else if (host.notifyEnabled?.()) host.toast?.(result.pieces?.length > 1 ? `棱已生成 ${result.pieces.length} 条` : '棱已生成');
+            }
             else host.closedSuccess?.(result.pieces?.length || 1);
         } else if (result?.status === 'failed') {
             if (currentChat() !== requestChatId) return result;

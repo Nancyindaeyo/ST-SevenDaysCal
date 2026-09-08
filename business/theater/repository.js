@@ -23,13 +23,42 @@ export function createTheaterRepository({ storage, metadata, persist, keyForChat
         permanentQueue = task.catch(() => {});
         return task;
     };
+    const memoryDrafts = new Map();
+    const draftBucket = chatId => String(chatId ?? '');
+    const slimDraftPiece = piece => {
+        const copy = cloneTheaterPiece(piece);
+        if (!copy) return null;
+        const max = 4000;
+        if (String(copy.request || '').length > max) copy.request = String(copy.request).slice(0, max);
+        if (copy.templateSource?.input && String(copy.templateSource.input).length > max) {
+            copy.templateSource = { ...copy.templateSource, input: String(copy.templateSource.input).slice(0, max) };
+        }
+        return copy;
+    };
     const readDrafts = chatId => {
+        const bucket = draftBucket(chatId);
+        if (memoryDrafts.has(bucket)) return cloneTheaterList(memoryDrafts.get(bucket));
         const key = keyForChat?.(chatId); if (!key) return [];
         try { return cloneTheaterList(JSON.parse(storage?.getItem?.(key) || '[]')); } catch { return []; }
     };
     const writeDrafts = (chatId, list) => {
-        const key = keyForChat?.(chatId); if (!key) return false;
-        try { storage?.setItem?.(key, JSON.stringify(normalizeTheaterList(list).slice(-cap))); return { ok: true }; } catch (error) { return { ok: false, error }; }
+        const bucket = draftBucket(chatId);
+        const normalized = normalizeTheaterList(list).slice(-cap);
+        memoryDrafts.set(bucket, normalized);
+        const key = keyForChat?.(chatId);
+        if (!key || typeof storage?.setItem !== 'function') return { ok: true, memoryOnly: true };
+        const persist = payload => {
+            storage.setItem(key, JSON.stringify(payload));
+            return { ok: true };
+        };
+        try { return persist(normalized); }
+        catch (error) {
+            try { return persist(normalized.map(slimDraftPiece).filter(Boolean)); }
+            catch {
+                try { return persist(normalized.slice(-3).map(slimDraftPiece).filter(Boolean)); }
+                catch (persistError) { return { ok: true, memoryOnly: true, persistFailed: true, error: persistError || error }; }
+            }
+        }
     };
     const resolveTarget = target => {
         const fixed = target && typeof target === 'object' ? target : {};
