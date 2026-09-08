@@ -3,6 +3,11 @@ import { stripInternalLineLines, ticketFromCue } from './vectors/codec.js';
 import { adultPromptGuidance } from './adult.js';
 
 export function prepareLinesInspirationContext(context = {}) { return context; }
+
+export function buildLatestFloorAddon(text) {
+    const value = String(text || '').trim();
+    return value ? `【本楼刚落地的正文，线必须据此推进】\n${value}` : '';
+}
 export const LINE_NEXT_RELEASE_CONTRACT = 'Next: 一句前瞻信号或 stall=true 的恢复条件';
 function trackedLinesForPrompt(previousRaw, vectorContext = {}) {
     if (!previousRaw) return '（无）';

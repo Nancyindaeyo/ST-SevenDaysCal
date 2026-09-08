@@ -25,6 +25,17 @@ export function refreshBarHtml({ selected = ['point', 'lines'], reason = '', fee
     </div>`;
 }
 
+export function refreshFoldHtml(options = {}) {
+    return `<details class="sp-fold-card" id="sp-refresh-fold">
+        <summary class="sp-fold-summary">
+            <i class="fa-solid fa-chevron-right sp-fold-chevron" aria-hidden="true"></i>
+            <span>刷新账本</span>
+            <span class="sp-fold-hint">勾选后对齐或重做点 / 线 / 冷知识 / 面</span>
+        </summary>
+        ${refreshBarHtml(options)}
+    </details>`;
+}
+
 export function readRefreshBar($root) {
     if (!$root?.length) return { selected: [], reason: '', feedback: '' };
     const selected = [];

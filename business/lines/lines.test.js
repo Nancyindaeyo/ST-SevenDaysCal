@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { validateLinesResponse, parseLineCard, parseLines, serializeLines } from './schema.js';
-import { buildLinesPrompt, LINE_NEXT_RELEASE_CONTRACT } from './prompt.js';
+import { buildLinesPrompt, buildLatestFloorAddon, LINE_NEXT_RELEASE_CONTRACT } from './prompt.js';
 import { createLinesGenerationController } from './controller.js';
 import { createLinesFeature } from './feature.js';
 import { createTaskOwnerManager } from '../../runtime/task-owner.js';
@@ -15,6 +15,10 @@ import { adultInjectionGuidance, adultModeForCharacter, drawAdultSelections, all
 import { drawTickets } from './vectors/draw.js';
 import { serializeVectorCue } from './vectors/codec.js';
 
+test('automatic advance prompt can mark the floor that just landed', () => {
+    assert.match(buildLatestFloorAddon('今晚体检结束。'), /本楼刚落地的正文/);
+    assert.equal(buildLatestFloorAddon('  '), '');
+});
 test('line combined edit updates Desc and Next in one raw mutation', () => {
     const raw = '<storylines_widget>\nLine: A|推进|执行|1|今天|world|false|false\nDesc: 旧描述\nNext: 旧下一步\n</storylines_widget>';
     const result = editLineFields(raw, 0, { desc: ' 新描述 ', next: ' 新下一步 ' });

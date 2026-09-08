@@ -10,8 +10,12 @@ import {
 import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
-import { refreshBarHtml, readRefreshBar } from './business/refresh/bar.js';
+import { readRefreshBar, refreshFoldHtml } from './business/refresh/bar.js';
 import { createRefreshController } from './business/refresh/controller.js';
+import { beatFoldHtml } from './business/beat/ui.js';
+import { createBeatFeature } from './business/beat/feature.js';
+import { spaceMessagePlainText } from './business/space/schema.js';
+import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
@@ -1315,7 +1319,7 @@ const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" f
 const MODULE_INTROS = {
     schedule:
         _iLede('「点」从故事里的“今天”开始，为我／TA 安排接下来 3 天的事项，并把更远的事另列在“未来”；它不是人物此刻状态卡。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；是否出现、格式完整与时间合理取决于模型是否遵循提示词和主楼剧情质量，缺失或不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('默认不会随日期变化自动重排，也不会潜伏注入主楼 AI。想更新用面板顶上的刷新条：勾选点／线／冷知识／面，「按正文对齐」打补丁，「重新生成」则按原因重做。设置 → 推进设置 → 日期与对齐里可打开「点/线按正文自动对齐」。') +
+        _iSub('默认不会随日期变化自动重排，也不会潜伏注入主楼 AI。想更新用面板顶上折叠的「刷新账本」：勾选点／线／冷知识／面，「按正文对齐」打补丁，「重新生成」则按原因重做。卡住下一楼时打开旁边的「本轮拍」。设置 → 推进设置 → 日期与对齐里可打开「点/线按正文自动对齐」。') +
         _iKey('fa-rotate-right', '生成／刷新', '按最新剧情重做未锁事项；新结果会覆盖旧的未锁数据') +
         _iKey('fa-thumbtack',    '固定 TA',    '只把当前 TA 留在 TA▾ 抽屉，方便下次查看；不是锁定事项') +
         _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条点的操作都收在这里') +
@@ -1343,7 +1347,7 @@ const MODULE_INTROS = {
         _iKey('fa-trash',       '彻底删除', '归档区：不可恢复地删除'),
     lines:
         _iLede('「线」有“平行事件”和“冷知识”两页。平行事件追踪仍在发展的伏笔、人物行动与局势；冷知识要先在设置 → 注入与内容设置 → 功能与内容开关开启“冷知识”，才会参与生成和显示。') +
-        _iSub('线可按回合数自动推进、在故事日期变化时推进，或只接受手动推进；策略在设置 → 推进设置 → 线。潜伏注入必须同时开启总开关和线自己的“潜伏注入主楼 AI”。') +
+        _iSub('线可按回合数自动推进、在故事日期变化时推进，或只接受手动推进；新装默认手动。策略在设置 → 推进设置 → 线。自动推进会带上刚落地的本楼正文。潜伏注入必须同时开启总开关和线自己的“潜伏注入主楼 AI”。') +
         _iKey('fa-rotate-right', '重新生成', '重做未锁定的线；锁定线保留') +
         _iKey('fa-forward',      '推进',     '更新已有线，并可能新增少量真正独立的事件') +
         _iKey('fa-plus',         '新增冷知识', '在“冷知识”页选择主题生成；只在冷知识开关开启后可用') +
@@ -1354,7 +1358,7 @@ const MODULE_INTROS = {
         _iKey('fa-trash',        '删除',     '移除这条线'),
     outline:
         _iLede('「面」左侧是一整份剧情大纲，右侧是只针对这份面的 AI 讨论。［重新生成］会替换整份旧面，不是只补一个节点；讨论里的回复只有成功解析出至少一个有效节点时，才会出现可用的“应用此面”。') +
-        _iSub('自动判断会按设置的间隔识别故事演到哪，只会向后推进，不会自动倒退。大纲潜伏注入必须同时开启总开关、面自己的“大纲自动注入”，并且已经设有当前节点。') +
+        _iSub('自动判断会按设置的间隔识别故事演到哪，只会向后推进，不会自动倒退；它和“大纲自动注入”是两件事，可以只推游标、不注入主楼。大纲潜伏注入必须同时开启总开关、面自己的“大纲自动注入”，并且已经设有当前节点。') +
         _iKey('fa-rotate-right',        '重新生成',   '按最新剧情重做并覆盖整份面') +
         _iKey('fa-paper-plane',         '发送讨论',   '在右侧向 AI 讨论、修改或索要一版新面') +
         _iKey('fa-broom',               '清空讨论',   '只清右侧讨论记录，不删除左侧现有面') +
@@ -1366,7 +1370,8 @@ const MODULE_INTROS = {
         _iKey('fa-trash',               '删除',       '只删除这个节点'),
     space:
         _iLede('「间」是局外创作顾问：可以聊剧情、设定、人物和世界观，也能把 AI 给出的结构化卡片落到其他模块。这里不会写入正式角色扮演楼层，也不会直接推进剧情。发送新问题时会先清理较旧记录；一轮完整问答结束后，最多可能暂时显示 21 条间内消息。') +
-        _iSub('落地规则：新点追加到“未来”且不会自动锁；改点会替换指定条目。新线追加后自动锁定，改已有线则保留它原来的锁态。轴日期只做去重追加并自动锁定。应用历法会换掉当前月份／天数／纪年；若现有日期不适用，会先让你选择取消、删除冲突日期或自动修正。') +
+        _iSub('空窗时可以点「引导设计」：给我灵感或我来描述，问答后确认才写入点／线／面。落地规则：新点追加到“未来”且不会自动锁；改点会替换指定条目。新线追加后自动锁定，改已有线则保留它原来的锁态。轴日期只做去重追加并自动锁定。应用历法会换掉当前月份／天数／纪年；若现有日期不适用，会先让你选择取消、删除冲突日期或自动修正。') +
+        _iKey('fa-compass',       '引导设计',   '收束点／线／面；确认前不改账本。不问番外，不填棱。可顺手出本轮拍') +
         _iKey('fa-paper-plane',    '发送',       '把问题发给局外创作顾问') +
         _iKey('fa-pen',            '编辑并重发', '只在你的消息上出现；会从这里截断后续记录并重新提问') +
         _iKey('fa-copy',           '复制',       '只复制这条消息的普通文字；结构化卡片不会随消息一起复制') +
@@ -1712,8 +1717,12 @@ const spaceFeature = createSpaceFeature({
             era: (body, $button) => axisWidgetActions.applyEraWidget(body, $button),
         }),
     },
+    collectGuideContext: () => collectBeatLedgerContext(),
+    applyGuideDraft: (name, draft) => applyGuideDraft(name, draft),
+    generateBeat: () => revealBeatAndGenerate(),
 });
 let theaterMode          = false;
+let beatFeature          = null;
 const refreshController = createRefreshController({
     context: getContext,
     loadConfig: loadCfg,
@@ -1750,12 +1759,93 @@ const refreshController = createRefreshController({
         syncLatestScheduleBlock();
         refreshInlineWindow(true);
     },
-    toastAlways: (msg, isError) => showToast(msg, null, !!isError),
+    toastAlways: (msg, isError) => {
+        if (isError) { showToast(msg, null, true); return; }
+        showToast(`${msg} · 点此查看本轮拍`, () => revealBeatAndGenerate());
+    },
 });
 function syncRefreshBar(view = _lastMainView) {
     const show = view === 'schedule' || view === 'lines' || view === 'outline';
-    $in('#sp-refresh-bar').css('display', show ? 'flex' : 'none');
+    $in('#sp-panel-tools').css('display', show ? 'block' : 'none');
 }
+function collectBeatLedgerContext() {
+    const ctx = getContext() || {};
+    const snap = outlineFeature.readSnapshot?.() || { beats: [], cursor: 0 };
+    const current = snap.beats?.[Number(snap.cursor) - 1];
+    const outlineNode = current
+        ? `${current.time ? current.time + '·' : ''}《${current.title || ''}》${current.scene ? `\n${current.scene}` : ''}`
+        : '';
+    const spaceRecent = (spaceFeature.chat.history() || []).slice(-8)
+        .map(message => `${message.role === 'assistant' ? '顾问' : '作者'}：${spaceMessagePlainText(message)}`)
+        .join('\n');
+    return {
+        userName: ctx.name1 || '用户',
+        charName: ctx.name2 || '角色',
+        pointRaw: readStore(getCacheKey('user', ''))?.raw || '',
+        linesRaw: readStore(getLinesCacheKey())?.raw || '',
+        outlineRaw: outlineFeature.readRaw?.() || '',
+        outlineNode,
+        spaceRecent,
+    };
+}
+async function applyGuideDraft(name, draft) {
+    const raw = String(draft || '').trim();
+    if (!raw) return false;
+    if (name === 'point') {
+        const key = getCacheKey('user', '');
+        if (!key) return false;
+        const saved = readStore(key) || {};
+        await writeStoreConfirmed(key, { ...saved, raw, userName: getContext()?.name1 || saved.userName, ts: Date.now() });
+        pointState.cachedSchedule = renderSchedule(raw, saved.userName || getContext()?.name1 || '用户', currentView, loadCalDesc());
+        if (!outlineMode && !linesMode && !spaceMode && !theaterMode && !axisState.almanacMode) setBody(pointState.cachedSchedule);
+        syncLatestScheduleBlock();
+        return true;
+    }
+    if (name === 'lines') {
+        const key = getLinesCacheKey();
+        if (!key) return false;
+        const saved = readStore(key) || {};
+        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+        linesFeature.refreshPanel?.();
+        syncLatestInlineBlock();
+        return true;
+    }
+    if (name === 'outline') {
+        const normalized = normalizeOutlineResponse(raw);
+        if (!normalized) { showToast('面草案解析失败，没有写入', null, true); return false; }
+        const target = outlineFeature.repository.capture();
+        const saved = outlineFeature.repository.readOutline(target);
+        if (!outlineFeature.repository.commitOutline(target, { raw: normalized, ts: Date.now(), cursor: saved?.cursor || 1 })) return false;
+        outlineFeature.refreshPanel();
+        outlineFeature.injection.refresh();
+        return true;
+    }
+    return false;
+}
+function revealBeatAndGenerate() {
+    showPanel();
+    if (_lastMainView !== 'schedule' && _lastMainView !== 'lines' && _lastMainView !== 'outline') {
+        $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').trigger('click');
+    }
+    beatFeature?.reveal?.();
+    void beatFeature?.generate?.();
+}
+beatFeature = createBeatFeature({
+    context: getContext,
+    loadConfig: loadCfg,
+    callApi: callCustomApi,
+    openSettings: () => { if (!settingsOpen) toggleSettings(); },
+    toast: (message, error) => showToast(message, null, error),
+    collectContext: collectBeatLedgerContext,
+    uiHost: {
+        $,
+        query: $in,
+        escapeHtml,
+        copyText: copyPlainText,
+        injectToInput: injectToST,
+        toast: (message, error) => showToast(message, null, error),
+    },
+});
 // 暗历内联编辑态/归档折叠态/批量模式已随 ledger 渲染层迁入 business/ledger/render.js
 // （经 getLedgerEditor、归档/批量 actions 与 resetLedgerRenderState 复位）。
 const _injectTexts      = {};
@@ -2016,6 +2106,7 @@ jQuery(async () => {
         _lastMainView = 'schedule';
         coordinateRuntime?.feature?.onChatChanged({ chatId: getContext()?.chatId ?? null, chatMetadataRef: getContext()?.chatMetadata ?? null, enabled: pluginEnabled() });
         refreshController.resetCounter();
+        beatFeature?.reset?.();
         const loadingChatId = String(getContext()?.chatId || '');
         await loadExternalChat({ force: true });
         if (String(getContext()?.chatId || '') !== loadingChatId) return;
@@ -2902,7 +2993,10 @@ function injectModal() {
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
 
-                    ${refreshBarHtml({ selected: ['point', 'lines'] })}
+                    <div class="sp-panel-tools" id="sp-panel-tools">
+                    ${refreshFoldHtml({ selected: ['point', 'lines'] })}
+                    ${beatFoldHtml()}
+                    </div>
 
                     <!-- Settings overlay: covers content-col only, sidebar stays visible -->
                     <div id="sp-settings-overlay" class="sp-settings-overlay" style="display:none">
@@ -3284,7 +3378,7 @@ function injectModal() {
                                             </div>
                                             <div class="sp-settings-subsection-static"><div class="sp-settings-subsection-title">面 · 大纲注入</div>
                                                 <label class="sp-mode-opt"><input type="checkbox" id="sp-outline-inject" ${getSettings().outlineInject === true ? 'checked' : ''}><span>大纲自动注入</span></label>
-                                                <p class="sp-cfg-hint">沿大纲节点缓慢推进：每隔若干楼<b>独立判定</b>当前演到哪个节点，把「当前节点 + 下一步方向」隐形注入主楼 AI（聊天不显示）。游标<b>只进不退、无信号不动</b>，写再多跑题日常也不硬推。默认关，需先有一版面。</p>
+                                                <p class="sp-cfg-hint">把「当前节点 + 下一步方向」隐形注入主楼 AI（聊天不显示）。游标要另开「面游标自动判定」。默认关，需先有一版面。</p>
                                             </div>
                                             <div class="sp-settings-subsection-static"><div class="sp-settings-subsection-title">刻度 · 潜伏注入</div>
                                                 <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-inject" ${getSettings().ledgerInject === true ? 'checked' : ''}><span>潜伏注入主楼 AI</span></label>
@@ -3345,14 +3439,17 @@ function injectModal() {
                                                 <label class="sp-mode-opt"><input type="radio" name="sp-lines-mode" value="days" ${getLinesMode() === 'days' ? 'checked' : ''}><span>时间制，按游戏内日期变化推进</span></label>
                                                 <label class="sp-mode-opt"><input type="radio" name="sp-lines-mode" value="manual" ${getLinesMode() === 'manual' ? 'checked' : ''}><span>手动推进，由用户点击按钮触发</span></label>
                                             </div>
+                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-lines-advance-latest" ${getSettings().linesAdvanceIncludeLatest !== false ? 'checked' : ''}><span>手动推进时带上本楼正文</span></label>
+                                            <p class="sp-cfg-hint">自动推进始终带刚落地的本楼。手动默认也带；关掉则手动推进只看最近几楼历史。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-outline-section">
                                         <summary class="sp-settings-section-title">面</summary>
                                         <div class="sp-settings-section-body">
+                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-outline-judge" ${getSettings().outlineJudgeEnabled === true ? 'checked' : ''}><span>面游标自动判定</span></label>
                                             <label class="sp-cfg-group">判定节奏</label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-outline-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(outlineFeature.judge.getInterval()))}"><span>条 AI 回复判定一次推进</span></label>
-                                            <p class="sp-cfg-hint">楼数越大越省 token、越迟钝；越小越灵敏、开销越高（<b>每次判定 = 一次额外 API</b>）。默认 3。</p>
+                                            <p class="sp-cfg-hint">只把当前节点往后推，不注入主楼。楼数越大越省 token。每次判定 = 一次额外 API。默认跟当时有没有开「大纲自动注入」对齐；新装默认关。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-pace-ledger-section">
@@ -3476,6 +3573,7 @@ function injectModal() {
                         <div class="sp-space-wrap sp-outline-chat" id="sp-space-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-chat-msgs" id="sp-space-msgs"></div>
                             <div class="sp-chat-input-row">
+                                <button id="sp-space-guide" class="sp-icon-btn" title="引导设计"><i class="fa-solid fa-compass"></i></button>
                                 <button id="sp-space-clear" class="sp-icon-btn" title="清空对话"><i class="fa-solid fa-broom"></i></button>
                                 <textarea id="sp-space-input" class="sp-input sp-chat-input-ta" rows="1" placeholder="局外聊聊：剧情、设定、关系、知识…"></textarea>
                                 <button id="sp-space-send" class="sp-icon-btn" title="发送"><i class="fa-solid fa-paper-plane"></i></button>
@@ -3578,6 +3676,7 @@ function injectModal() {
     outlineFeature.bindUi();
 
     spaceFeature.bindUi();
+    beatFeature.bindUi();
     const $linesWrap = $in('#sp-lines-wrap');
     $linesWrap.on('click', '#sp-gen-lines-now', triggerGenerateLines);
     $linesWrap.on('click', '.sp-lines-sheet-btn', function () {
@@ -4313,6 +4412,15 @@ function injectModal() {
         outlineFeature.resetJudgeCounter();
         outlineFeature.injection.refresh();
         if (outlineMode) outlineFeature.refreshPanel();
+    });
+    $in('#sp-outline-judge').on('change', function () {
+        getSettings().outlineJudgeEnabled = this.checked;
+        saveSettingsDebounced();
+        outlineFeature.resetJudgeCounter();
+    });
+    $in('#sp-lines-advance-latest').on('change', function () {
+        getSettings().linesAdvanceIncludeLatest = this.checked;
+        saveSettingsDebounced();
     });
     // 大纲判定间隔：改完即重新计数（避免旧计数立刻触发判定）
     $in('#sp-outline-judge-interval').on('change', function () {

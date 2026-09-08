@@ -117,7 +117,7 @@ export function createOutlineJudge({
             diagnostic.committed({ reasonCode: stored?.stale ? 'outline-cursor-saved-stale' : 'outline-cursor-saved' });
             if (stored?.stale || !currentAndOwned(task)) { finish(task); return { status: 'cancelled', reason: 'committed-but-stale', committed: true }; }
             finish(task);
-            try { if (settings?.().notifyMode === 'full') toast?.('面已自动推进到下一节点 · 请注意查看'); notifyChanged(task, saved.raw, cursor + 1); }
+            try { toast?.('面已自动推进到下一节点'); notifyChanged(task, saved.raw, cursor + 1); }
             catch (error) { diagnostic.uiFailed(error, { reasonCode: 'outline-ui-refresh-failed' }); }
             return { status: 'updated' };
         } catch (error) {
@@ -194,7 +194,7 @@ export function createOutlineJudge({
         return Number.isFinite(value) && value >= 1 ? Math.floor(value) : 3;
     };
     const onCharacterMessage = messageId => {
-        if (!pluginEnabled?.() || settings?.().outlineInject !== true) return false;
+        if (!pluginEnabled?.() || settings?.().outlineJudgeEnabled !== true) return false;
         const chat = context?.()?.chat;
         if (!Array.isArray(chat) || messageId !== chat.length - 1 || messageId <= lastJudgedMessageId) return false;
         lastJudgedMessageId = messageId;

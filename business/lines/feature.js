@@ -49,6 +49,19 @@ export function createLinesFeature(env = {}) {
     const lifecycle = env.lifecycle || createLinesLifecycle();
     if (lifecycle.lastDay == null && typeof env.dayAnchor === 'function') lifecycle.lastDay = env.dayAnchor() ?? null;
     const swipeStore = env.swipeStore || createSwipeLinesStore({ storage: env.storage });
+    const latestFloorTravel = ({ auto = false } = {}) => {
+        const include = auto === true || env.getSettings?.().linesAdvanceIncludeLatest !== false;
+        if (!include) return null;
+        const chat = env.chat?.() || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            const message = chat[i];
+            if (!message || message.is_user || message.is_system) continue;
+            const text = String(env.cleanText?.(message.mes || '') || message.mes || '').trim();
+            if (!text) return null;
+            return { promptAddon: `【本楼刚落地的正文，线必须据此推进】\n${text}` };
+        }
+        return null;
+    };
     const injection = env.injection || (env.injectionEnv && createLinesInjectionController(env.injectionEnv));
     const dashed = env.dashed || (env.dashedEnv && createDashedModule({ ...env.dashedEnv, refreshPanel: () => refreshPanel?.(true), refreshInline: () => syncInline?.() }));
     const generation = env.generation || (env.generationEnv && createLinesGenerationController({
@@ -81,6 +94,7 @@ export function createLinesFeature(env = {}) {
         finishPreflight: owner => owners.finish(owner),
         invalidatePreflight: (reason = 'manual-abort') => owners.invalidate('lines-preflight', reason),
         runGenerate: (...args) => generation?.run?.(...args),
+        latestFloorTravel: options => latestFloorTravel(options),
     }));
     const adultBlurEnabled = () => env.getSettings?.().adultBlurEnabled !== false;
     const sensitive = (html, adult) => adult && adultBlurEnabled() ? `<span class="sp-adult-sensitive" tabindex="0" role="button" aria-label="显示成人内容" title="显示成人内容"><span aria-hidden="true">${html}</span></span>` : html;
@@ -162,7 +176,7 @@ export function createLinesFeature(env = {}) {
         let result = { status: 'skipped', reason: shouldAdvance ? 'unavailable' : 'not-requested' };
         if (shouldAdvance && !runtime.busy && cfg?.url && cfg?.key) {
             const swipeId = Number(env.swipeId?.(messageId) ?? 0);
-            result = await generation?.run?.(true, { mesId: Number(messageId), swipeId }) || result;
+            result = await generation?.run?.(true, { mesId: Number(messageId), swipeId }, latestFloorTravel({ auto: true })) || result;
         } else if (shouldAdvance && runtime.busy) {
             result = { status: 'skipped', reason: 'busy' };
         } else if (shouldAdvance && (!cfg?.url || !cfg?.key)) {

@@ -1,4 +1,5 @@
 import { spaceMessagePlainText } from './schema.js';
+import { renderSpaceGuide, spaceGuideEmptyHtml } from './guide-ui.js';
 
 export function createSpaceUi(host = {}) {
     const query = host.query || (() => null);
@@ -13,6 +14,7 @@ export function createSpaceUi(host = {}) {
     const widgets = new Map();
     let widgetSeq = 0;
     let controllers = null;
+    let guide = null;
     let bound = false;
 
     const registerWidget = widget => {
@@ -37,8 +39,27 @@ export function createSpaceUi(host = {}) {
         if (messages) messages.scrollTop = messages.scrollHeight;
     };
     const renderHistory = history => {
+        if (guide?.isActive?.()) {
+            renderGuide(guide.snapshot());
+            return;
+        }
         query('#sp-space-msgs')?.empty?.();
+        if (!history?.length) {
+            query('#sp-space-msgs')?.html?.(spaceGuideEmptyHtml());
+            return;
+        }
         history.forEach((message, index) => appendMessage(message.role === 'assistant' ? 'ai' : message.role, message.content, index));
+    };
+    const renderGuide = snapshot => {
+        const $msgs = query('#sp-space-msgs');
+        if (!$msgs?.length) return;
+        $msgs.html(renderSpaceGuide(snapshot, escape));
+        const messages = element('#sp-space-msgs');
+        if (messages) messages.scrollTop = messages.scrollHeight;
+        const phase = snapshot?.phase;
+        if (phase === 'describe') query('#sp-space-input')?.attr?.('placeholder', '描述你想要的方向，发送即可');
+        else if (phase === 'ask') query('#sp-space-input')?.attr?.('placeholder', '自定义回答，发送即下一步；可留空点跳过');
+        else query('#sp-space-input')?.attr?.('placeholder', '局外聊聊：剧情、设定、关系、知识…');
     };
     const emptyMessages = () => query('#sp-space-msgs')?.empty?.();
     const beginThinking = () => {
@@ -90,6 +111,23 @@ export function createSpaceUi(host = {}) {
         const sendInput = () => {
             const $input = query('#sp-space-input');
             const message = String($input?.val?.() || '').trim();
+            if (guide?.isActive?.()) {
+                if (guide.busy) return;
+                $input.val('');
+                host.autoGrow?.($input[0]);
+                const phase = guide.snapshot?.().phase;
+                if (phase === 'describe') {
+                    if (!message) { host.toast?.('先写几句方向', true); return; }
+                    guide.submitDescription(message);
+                    return;
+                }
+                if (phase === 'ask') {
+                    if (message) guide.answerCurrent(message);
+                    else guide.skipCurrent();
+                    return;
+                }
+                return;
+            }
             if (!message || controllers.chat.busy) return;
             $input.val('');
             host.autoGrow?.($input[0]);
@@ -145,6 +183,10 @@ export function createSpaceUi(host = {}) {
             else if (stored.kind === 'era_widget') actions.era?.(stored.body, $button);
         });
         $root.on('click.spSpaceFeature', '#sp-space-clear', async () => {
+            if (guide?.isActive?.()) {
+                guide.leave();
+                return;
+            }
             if (controllers.chat.busy || !controllers.chat.history().length) return;
             const confirmed = await host.confirm?.({
                 title: '清空对话',
@@ -154,11 +196,54 @@ export function createSpaceUi(host = {}) {
             });
             if (confirmed) controllers.chat.clear();
         });
+        $root.on('click.spSpaceFeature', '#sp-space-guide, #sp-space-guide-start', () => {
+            if (controllers.chat.busy || guide?.busy) return;
+            guide?.start?.();
+        });
+        $root.on('click.spSpaceFeature', '[data-guide]', function (event) {
+            event.preventDefault();
+            if (!guide || guide.busy) return;
+            const action = String(this.getAttribute('data-guide') || '');
+            const $section = host.$(this).closest('.sp-guide-draft');
+            const module = $section.attr('data-mod');
+            if (action === 'inspire') void guide.inspire();
+            else if (action === 'describe') guide.describe();
+            else if (action === 'pick') guide.pickInspiration(Number(this.getAttribute('data-idx')));
+            else if (action === 'skip') guide.skipCurrent();
+            else if (action === 'next') {
+                const message = String(query('#sp-space-input')?.val?.() || '').trim();
+                query('#sp-space-input')?.val?.('');
+                if (message) guide.answerCurrent(message);
+                else if (guide.snapshot().step >= 2) void guide.finishAsking();
+                else guide.skipCurrent();
+            }
+            else if (action === 'back') guide.back();
+            else if (action === 'reset') guide.reset();
+            else if (action === 'stop') void guide.finishAsking();
+            else if (action === 'keep') guide.decide(module, 'keep');
+            else if (action === 'apply') guide.decide(module, 'apply');
+            else if (action === 'skip-mod') guide.decide(module, 'skip');
+            else if (action === 'redo') void guide.redoModule(module);
+            else if (action === 'commit') void guide.commit();
+        });
+        $root.on('click.spSpaceFeature', '.sp-guide-opt', function () {
+            if (!guide || guide.busy) return;
+            guide.answerCurrent(String(this.textContent || '').trim());
+        });
+        $root.on('input.spSpaceFeature', '.sp-guide-comment', function () {
+            const module = host.$(this).closest('.sp-guide-draft').attr('data-mod');
+            guide?.setComment?.(module, this.value);
+        });
+        $root.on('change.spSpaceFeature', '#sp-guide-want-beat', function () {
+            guide?.setWantBeat?.(this.checked);
+        });
     };
     return Object.freeze({
         bindControllers: value => { controllers = value; },
+        bindGuide: value => { guide = value; },
         bind,
         renderHistory,
+        renderGuide,
         appendMessage,
         emptyMessages,
         beginThinking,

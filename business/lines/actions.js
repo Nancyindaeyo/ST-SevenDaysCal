@@ -55,7 +55,7 @@ export function createLinesActions(env = {}) {
             env.write?.({ raw: result.raw, ts: Date.now() }); refresh(); env.toast?.(result.model[Number(index)]?.pin ? '已锁定这条线' : '已解锁这条线');
         },
         async generate(travelContext) { return runExclusive(false, { reroll: true }, travelContext); },
-        async advance() { return runExclusive(env.silent?.(), undefined); },
+        async advance() { return runExclusive(env.silent?.(), undefined, env.latestFloorTravel?.({ auto: false }) || null); },
         async reroll(travelContext) { return runExclusive(false, { reroll: true }, travelContext); },
         isEditing: () => editing,
         invalidatePreflight(reason = 'manual-abort') {

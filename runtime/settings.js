@@ -37,7 +37,8 @@ export const DEFAULT_SETTINGS = {
     notifyMode: 'lite',  // 通知提醒档：'off'=全静音 / 'lite'(默认)=仅你手动生成·刷新时提示 / 'full'=另在后台自动改动点线面历时提示（真改动才弹）
     linesEnabled : true, // master switch: false disables line generation/advance and latent injection; inline display is independently controlled
     linesInterval: 2,
-    linesMode: 'turns',  // 'turns' | 'days' | 'manual'
+    linesMode: 'manual',  // 'turns' | 'days' | 'manual' — 新装默认手动，好先写本轮大纲
+    linesAdvanceIncludeLatest: true, // 手动推进时把最新 AI 楼标成「本楼刚落地」；自动推进始终带
     linesInject: false,  // 潜伏注入：活跃线隐形注入主楼 AI（IN_CHAT/SYSTEM）；默认关（改 AI 行为+token 成本，opt-in）
     dashedEnabled: false, // 冷知识自动生成/楼层展示：跟线多生成两条；历史与面板手动生成不受此开关删除或阻断
     dashedCleanupEnabled: true, // 冷知识历史自动清理：只限制未锁条目，锁定项不计入数量
@@ -110,6 +111,8 @@ export function getSettings() {
     s.theaterCount = Number.isInteger(n) && n >= 1 && n <= 3 ? n : 2;
     const interval = Math.floor(Number(s.ledgerReconcileInterval));
     s.ledgerReconcileInterval = Number.isInteger(interval) && interval >= 1 ? interval : 3;
+    // 面判定曾绑死 outlineInject：老用户缺字段时跟当时的注入对齐，避免突然停判定。
+    if (!Object.prototype.hasOwnProperty.call(s, 'outlineJudgeEnabled')) s.outlineJudgeEnabled = s.outlineInject === true;
     return s;
 }
 

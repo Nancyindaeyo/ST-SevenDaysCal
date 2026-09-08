@@ -1,6 +1,7 @@
 import { createSpaceChat } from './chat.js';
 import { createSpaceContext } from './context.js';
 import { createSpaceIdentity, sameSpaceIdentity } from './identity.js';
+import { createSpaceGuide } from './guide.js';
 import { getSpaceChatPlaceholder } from './prompts.js';
 import { createSpaceRenderer } from './render.js';
 import { createSpaceRepository } from './repository.js';
@@ -34,22 +35,45 @@ export function createSpaceFeature(env = {}) {
         ui,
     });
     ui.bindControllers({ chat, renderer });
+    const guide = createSpaceGuide({
+        loadConfig: env.loadConfig,
+        postCompletion: env.postCompletion,
+        temperature: env.temperature,
+        context: env.context,
+        openSettings: env.openSettings,
+        toast: (message, error) => env.ui?.toast?.(message, error),
+        collectContext: env.collectGuideContext,
+        applyDraft: env.applyGuideDraft,
+        generateBeat: env.generateBeat,
+        onChange: () => {
+            if (!env.isOpen?.()) return;
+            if (guide.isActive()) ui.renderGuide(guide.snapshot());
+            else ui.renderHistory(chat.history());
+        },
+    });
+    ui.bindGuide(guide);
 
     const open = () => {
         ui.setPlaceholder(env.placeholder?.() || getSpaceChatPlaceholder());
         chat.load();
-        ui.renderHistory(chat.history());
+        if (guide.isActive()) ui.renderGuide(guide.snapshot());
+        else ui.renderHistory(chat.history());
     };
     const onChatChanged = ({ enabled = true } = {}) => {
         chatRevision += 1;
         chat.abort('chat-boundary');
+        guide.leave();
         if (!enabled) return;
         repository.clearMemory();
         ui.emptyMessages();
     };
     const abortAll = (reason = 'manual-abort') => {
         chat.abort(reason);
-        if (env.isOpen?.()) ui.renderHistory(chat.history());
+        guide.abort(reason);
+        if (env.isOpen?.()) {
+            if (guide.isActive()) ui.renderGuide(guide.snapshot());
+            else ui.renderHistory(chat.history());
+        }
     };
     const invalidateStoreKind = kind => {
         if (kind === 'space-chat') chat.abort('store-clear');
@@ -71,6 +95,7 @@ export function createSpaceFeature(env = {}) {
         renderer,
         ui,
         chat,
+        guide,
         bindUi: ui.bind,
         open,
         onChatChanged,
