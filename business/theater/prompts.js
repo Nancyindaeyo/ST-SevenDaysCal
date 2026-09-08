@@ -1,18 +1,62 @@
 import { THEATER_COUNT_DEFAULT, THEATER_TARGET_CHARS } from './constants.js';
 import { normalizeTheaterCount } from './recipe.js';
 
+function faceOrder(count) {
+    return Array.from({ length: count }, (_, i) => String(i + 1)).join(' → ');
+}
+
+function openingTags(count) {
+    return Array.from({ length: count }, (_, i) => `<theater data-face="${i + 1}">`).join('、');
+}
+
+function facePlan(recipes) {
+    if (!recipes.length) {
+        return '未抽到现成配方：按正文自行想不同体裁（问卷 / 回望 / 聊天记录 / IF 等），不要同构续写。';
+    }
+    return recipes.map((recipe, i) => [
+        `【第 ${i + 1} 面｜输出 data-face="${i + 1}"】`,
+        `来源：${recipe.bookName || '未名书'}｜${recipe.title || '(无标题)'}`,
+        `配方：`,
+        recipe.stripped,
+        `局部硬要求：只执行本面配方。不要借用其他面的体裁、题目或结局，不要复制另一面正文后换皮。`,
+    ].join('\n')).join('\n\n');
+}
+
+function outputProtocol(count) {
+    return [
+        `棱多面输出【每轮必需】:`,
+        `- 直接连续输出 ${count} 个互相平级、各自完整闭合的 <theater>，data-face 顺序固定为 ${faceOrder(count)}。`,
+        `- 各面的实际开标签依次为：${openingTags(count)}。每个开标签后先写一行【短标题】，再写纯文字正文，然后 </theater>。`,
+        `- ${count} 个标题必须互不相同；据本面实际内容命名，不用母本名或分类名代替。`,
+        `- 禁止把多面塞进同一个 <theater>；每面只执行同编号计划，不得交换编号、合并或复制另一面。`,
+        `- 只写纯文字。禁止 HTML、CSS、JavaScript、<style>、<script>、<snow>、<toto>、<details>、代码块和解释。`,
+        `- 每条约 ${THEATER_TARGET_CHARS} 字，问卷按题量写完即可。若长度紧张，精简次要描写，但仍须输出恰好 ${count} 面并全部闭合。`,
+        `- 只有第 ${count} 面的 </theater> 完整闭合后才结束；中间各面闭合后立即继续下一面，不得追加面外说明。`,
+    ].join('\n');
+}
+
+function executionLock(recipes, count, boxed) {
+    const faceLocks = recipes.length
+        ? recipes.map((recipe, i) => `第 ${i + 1} 面：${recipe.bookName || '未名书'}｜${recipe.title || '(无标题)'}。只写这一面的配方。`)
+        : [`第 1 面至第 ${count} 面：按正文自行想不同体裁，不得同构。`];
+    return [
+        `<棱近输出短锁>`,
+        boxed
+            ? `本轮只输出 1 个完整闭合的 <theater data-face="1">；框里的配方就是这一面，不要另抽。`
+            : `本轮必须按 data-face="1" 至 "${count}" 顺序输出 ${count} 个平级、各自闭合的 <theater>；禁止单个 <theater> 内嵌多面。`,
+        ...faceLocks,
+        `具象的感官与动作，避免概括与套路化开头结尾。`,
+        `只有第 ${count} 面闭合后才结束，不得少面、合并、追加面外文字。`,
+        `</棱近输出短锁>`,
+    ].join('\n');
+}
+
 export function buildWriteMessages(userInput, story = null, settings = {}, extras = {}) {
     const context = story || { sysBlocks: [], userName: '用户', charName: '角色' };
     const recipes = Array.isArray(extras.recipes) ? extras.recipes : [];
     const headers = Array.isArray(extras.headers) ? extras.headers : [];
     const boxed = extras.boxed === true;
     const count = recipes.length || normalizeTheaterCount(extras.count ?? settings.theaterCount, THEATER_COUNT_DEFAULT);
-    const recipeBlock = recipes.length
-        ? recipes.map((recipe, i) => `【抽签 ${i + 1}｜${recipe.bookName || '未名书'}｜${recipe.title || '(无标题)'}】\n${recipe.stripped}`).join('\n\n')
-        : '未抽到现成配方：按正文自行想不同体裁（问卷 / 回望 / 聊天记录 / IF 等），不要同构续写。';
-    const bindBlock = recipes.length
-        ? recipes.map((_, i) => `- 第 ${i + 1} 条按抽签 ${i + 1} 写，不要混用其他抽签，不要另起没抽到的体裁。`).join('\n')
-        : '';
     const headerBlock = headers.length
         ? `【抽中书的纯文字规范（已剥除 HTML / 插入指令；不是整本世界书）】\n${headers.map(item => item.stripped).join('\n\n')}`
         : '';
@@ -22,25 +66,16 @@ export function buildWriteMessages(userInput, story = null, settings = {}, extra
         settings.theaterStylePrompt ? String(settings.theaterStylePrompt).trim() : '',
         ...(Array.isArray(context.sysBlocks) ? context.sysBlocks : []),
         headerBlock,
-        `【硬性约束】`,
-        `- 只写纯文字。禁止输出 HTML、CSS、JavaScript、<style>、<script>、<snow>、<toto>、<details>。`,
-        `- 事先已经抽签。只写抽中的配方，不要读取或发明未抽中的条目。`,
-        `- 一次写出 ${count} 条彼此不同的番外，不要同构续写，不要互相解释。`,
-        `- 每条约 ${THEATER_TARGET_CHARS} 字，问卷按题量写完即可，不要为凑字注水。`,
-        `- 具象的感官与动作，避免概括与套路化开头结尾。`,
-        `- 用下面的松格式直接开写。不要前言后语，不要代码块包裹。标题可以省略。`,
-        bindBlock,
-        `【输出格式】`,
-        `【番外】`,
-        `标题：短标题`,
-        `正文从此处写起。`,
-        `要几条就重复几次【番外】。共 ${count} 条。`,
-        `【抽到的配方】`,
-        recipeBlock,
+        `事先已经抽签。只写抽中的配方，不要读取或发明未抽中的条目。一次请求写完 ${count} 面，不要同构续写，不要互相解释。`,
+        `逐面冻结计划【各面平级；不得互相借用】:\n${facePlan(recipes)}`,
+        outputProtocol(count),
     ].filter(Boolean);
     const userParts = [
-        request ? `【作者额外要求】\n${request}` : (boxed ? '框里的配方就是本条，不要另抽，只写这一条。' : '作者没有额外要求：只靠正文、角色世界书与抽签配方写。'),
-        `请直接写出 ${count} 条番外。`,
+        request ? `【作者额外要求】\n${request}` : (boxed ? '框里的配方就是本面，不要另抽。' : '作者没有额外要求：只靠正文、角色世界书与逐面计划写。'),
+        executionLock(recipes, count, boxed),
+        count > 1
+            ? `现在依据逐面抽取计划，依次完成 ${count} 个独立成品，每个单独闭合 <theater>；不解释、不复述规则、不合并。`
+            : `现在依据近输出短锁完成唯一成品。不要解释，直接输出完整 <theater data-face="1">...</theater>。`,
     ];
     return [{ role: 'system', content: sysParts.join('\n\n') }, { role: 'user', content: userParts.join('\n\n') }];
 }

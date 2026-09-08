@@ -1,6 +1,8 @@
 import { theaterId } from './schema.js';
 import { THEATER_TARGET_CHARS } from './constants.js';
 
+const FACE_BLOCK = /<theater\b([^>]*)>([\s\S]*?)<\/theater>/gi;
+const OPEN_FACE = /<theater\b([^>]*)>([\s\S]+)$/i;
 const PIECE_BLOCK = /<theater_piece\b([^>]*)>([\s\S]*?)<\/theater_piece>/gi;
 const OPEN_PIECE = /<theater_piece\b([^>]*)>([\s\S]+)$/i;
 const MARK = /(?:^|\n)\s*(?:【\s*番外[^\n】]*】|#{1,3}\s*番外[^\n]*)\s*(?:\n|$)/g;
@@ -20,21 +22,28 @@ function stripPieceMarkup(text) {
         .replace(/```(?:html|css|js|javascript|xml)?\s*[\s\S]*?```/gi, '')
         .replace(/<script\b[\s\S]*?<\/script>/gi, '')
         .replace(/<style\b[\s\S]*?<\/style>/gi, '')
-        .replace(/<\/?(?:html|head|body|snow|toto)[^>]*>/gi, '')
+        .replace(/<\/?(?:html|head|body|snow|toto|theater|theater_piece)[^>]*>/gi, '')
         .trim();
 }
 
 function unwrapFences(text) {
-    let source = String(text || '').trim();
+    const source = String(text || '').trim();
     const whole = /^```(?:xml|html|text|markdown|json)?\s*\n?([\s\S]*?)\n?```$/i.exec(source);
     if (whole) return whole[1].trim();
     return source.replace(/```(?:xml|html|text|markdown)?\s*\n?([\s\S]*?)\n?```/gi, '$1').trim();
 }
 
 function headingBody(block) {
-    const titleMatch = /^(?:标题|title)\s*[：:]\s*(.+)\s*$/im.exec(block);
-    const title = titleMatch ? String(titleMatch[1] || '').trim() : '';
-    let body = titleMatch ? String(block).replace(titleMatch[0], '') : String(block || '');
+    const text = String(block || '').trim();
+    const bracket = /^【([^】]{1,40})】\s*/.exec(text);
+    if (bracket) return { title: bracket[1].trim(), body: stripPieceMarkup(text.slice(bracket[0].length)) };
+    const titleMatch = /^(?:标题|title)\s*[：:]\s*(.+)\s*$/im.exec(text);
+    const title = titleMatch ? String(titleMatch[1] || '').trim() : innerTag(text, 'title');
+    let body = titleMatch ? text.replace(titleMatch[0], '') : text;
+    if (!titleMatch && title) {
+        body = text.replace(/<(?:title|form_name|form_seed|theme_name|theme_seed)\b[^>]*>[\s\S]*?<\/(?:title|form_name|form_seed|theme_name|theme_seed)>/gi, '');
+        body = innerTag(text, 'body') || body;
+    }
     body = body.replace(/^(?:正文|body)\s*[：:]\s*/im, '').trim();
     return { title, body: stripPieceMarkup(body) };
 }
@@ -62,31 +71,29 @@ function toPiece({ title, body, extras, index }) {
     };
 }
 
-function xmlBody(inner) {
-    return stripPieceMarkup(innerTag(inner, 'body') || inner.replace(/<(?:title|form_name|form_seed|theme_name|theme_seed)\b[^>]*>[\s\S]*?<\/(?:title|form_name|form_seed|theme_name|theme_seed)>/gi, '').trim());
-}
-
-function collectXmlPieces(source, extras) {
-    const pieces = [];
-    for (const match of source.matchAll(PIECE_BLOCK)) {
-        const piece = toPiece({
-            title: innerTag(match[2] || '', 'title') || attr(match[1], 'title'),
-            body: xmlBody(match[2] || ''),
-            extras,
-            index: pieces.length,
-        });
-        if (piece) pieces.push(piece);
+function collectNamedBlocks(source, closedRe, openRe, extras) {
+    const found = [];
+    closedRe.lastIndex = 0;
+    for (const match of source.matchAll(closedRe)) {
+        const face = Number(attr(match[1], 'data-face') || attr(match[1], 'face') || found.length + 1);
+        const { title, body } = headingBody(match[2] || '');
+        const index = Number.isInteger(face) && face >= 1 ? face - 1 : found.length;
+        const piece = toPiece({ title: title || attr(match[1], 'title'), body, extras, index });
+        if (piece) found.push({ index, piece });
     }
-    if (pieces.length) return pieces;
-    const open = OPEN_PIECE.exec(source);
-    if (!open) return [];
-    const piece = toPiece({
-        title: innerTag(open[2] || '', 'title') || attr(open[1], 'title'),
-        body: xmlBody(open[2] || ''),
-        extras,
-        index: 0,
-    });
-    return piece ? [piece] : [];
+    if (!found.length) {
+        openRe.lastIndex = 0;
+        const open = openRe.exec(source);
+        if (open) {
+            const face = Number(attr(open[1], 'data-face') || attr(open[1], 'face') || 1);
+            const { title, body } = headingBody(open[2] || '');
+            const index = Number.isInteger(face) && face >= 1 ? face - 1 : 0;
+            const piece = toPiece({ title: title || attr(open[1], 'title'), body, extras, index });
+            if (piece) found.push({ index, piece });
+        }
+    }
+    found.sort((a, b) => a.index - b.index);
+    return found.map(item => item.piece);
 }
 
 function collectMarkedPieces(source, extras) {
@@ -106,12 +113,14 @@ function collectMarkedPieces(source, extras) {
 export function parseTheaterPieces(raw, { makeId = theaterId, request = '', templateSource, recipes = [], batchId = '', ts = Date.now() } = {}) {
     const extras = { makeId, request, templateSource, recipes, batchId, ts };
     const source = unwrapFences(raw);
-    const pieces = collectXmlPieces(source, extras);
-    if (pieces.length) return pieces;
+    const faces = collectNamedBlocks(source, FACE_BLOCK, OPEN_FACE, extras);
+    if (faces.length) return faces;
+    const xml = collectNamedBlocks(source, PIECE_BLOCK, OPEN_PIECE, extras);
+    if (xml.length) return xml;
     const marked = collectMarkedPieces(source, extras);
     if (marked.length) return marked;
     if (!source) return [];
-    const body = stripPieceMarkup(source.replace(/<\/?theater_piece\b[^>]*>/gi, '').trim());
+    const body = stripPieceMarkup(source);
     const piece = toPiece({ title: '', body, extras, index: 0 });
     return piece ? [piece] : [];
 }

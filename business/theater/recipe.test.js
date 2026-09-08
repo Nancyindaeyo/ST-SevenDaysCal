@@ -65,6 +65,10 @@ test('parseTheaterPieces reads tagged blocks and falls back to one blob', () => 
     assert.equal(fenced[0].raw, '答');
     const unclosed = parseTheaterPieces('<theater_piece><title>开</title><body>没写完', { makeId: () => 'u' });
     assert.equal(unclosed[0].raw, '没写完');
+    const faces = parseTheaterPieces('<theater data-face="2">【问答】第二面</theater>\n<theater data-face="1">【回望】第一面</theater>', { makeId: (() => { let n = 0; return () => `t-${++n}`; }) });
+    assert.equal(faces.length, 2);
+    assert.equal(faces[0].raw, '第一面');
+    assert.equal(faces[1].title, '问答');
 });
 
 test('export book splits liked pieces into 展现形式 and 主题', () => {
@@ -129,24 +133,26 @@ test('pool loads every selected book then draws N, not the first book only', asy
     assert.deepEqual(drawn.recipes.map(item => item.bookName).sort(), ['小兔', '小回', '极光'].sort());
 });
 
-test('write prompt forbids HTML and asks for N loose 番外 blocks', () => {
+test('write prompt freezes each face then asks for sibling theater wrappers', () => {
     const messages = buildWriteMessages('想看回望', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
         count: 2,
         recipes: [
-            { title: '回望', stripped: '回顾正文' },
-            { title: '问卷', stripped: '问卷正文' },
+            { title: '回望', stripped: '回顾正文', bookName: '小回' },
+            { title: '问卷', stripped: '问卷正文', bookName: '极光' },
         ],
     });
-    assert.match(messages[0].content, /禁止输出 HTML/);
-    assert.match(messages[0].content, /【番外】/);
-    assert.match(messages[0].content, /一次写出 2 条/);
-    assert.match(messages[0].content, /第 1 条按抽签 1 写/);
+    assert.match(messages[0].content, /禁止 HTML/);
+    assert.match(messages[0].content, /逐面冻结计划/);
+    assert.match(messages[0].content, /data-face="1"/);
+    assert.match(messages[0].content, /第 2 面｜输出 data-face="2"/);
+    assert.match(messages[1].content, /棱近输出短锁/);
+    assert.match(messages[1].content, /依次完成 2 个独立成品/);
     assert.equal(messages[0].content.includes('自行想'), false);
     const boxed = buildWriteMessages('这是一条很长的世界书内容', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
         boxed: true,
         recipes: [{ title: '装置', stripped: '这是一条很长的世界书内容', bookName: '极光' }],
     });
-    assert.match(boxed[0].content, /一次写出 1 条/);
+    assert.match(boxed[1].content, /只输出 1 个/);
     assert.equal(boxed[1].content.includes('这是一条很长的世界书内容'), false);
 });
 
