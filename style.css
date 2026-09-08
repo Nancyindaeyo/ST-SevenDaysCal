@@ -5434,6 +5434,162 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     white-space: nowrap;
 }
 
+/* ─── 坐标 · 快照 / 摘抄分栏 ─────────────────────────────────────────────── */
+.sp-anchor-shelf {
+    display    : inline-flex;
+    align-items: stretch;
+    gap        : 2px;
+    padding    : 2px;
+    border     : 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background : var(--sp-surface);
+    flex       : 0 1 auto;
+    min-width  : 0;
+}
+.sp-anchor-shelf-tab {
+    border     : none;
+    background : transparent;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    font       : inherit;
+    font-size  : var(--sp-fs-70);
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    padding    : 3px 10px;
+    border-radius: 999px;
+    line-height: 1.4;
+}
+.sp-anchor-shelf-tab.sp-anchor-shelf-on {
+    background: var(--sp-surface-high);
+    color     : var(--sp-on-surface);
+}
+.sp-anchor-shelf-n {
+    font-weight: 500;
+    opacity    : 0.72;
+    margin-left: 2px;
+}
+.sp-anchor-clip {
+    width      : auto !important;
+    padding    : 0 8px !important;
+    font-size  : var(--sp-fs-70);
+    letter-spacing: 0.04em;
+}
+.sp-anchor-clip.sp-anchor-clip-ready {
+    color     : var(--sp-primary);
+    background: var(--sp-hover-bg);
+}
+.sp-anchor-clip-hint {
+    margin     : 10px 0 0;
+    font-size  : var(--sp-fs-70);
+    line-height: 1.55;
+    color      : var(--sp-subtle);
+}
+
+/* ─── 坐标 · 书评摘抄 ───────────────────────────────────────────────────── */
+.sp-excerpt-search-wrap {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    margin     : 2px 0 12px;
+    padding    : 0 10px;
+    border     : 1px solid var(--sp-divider);
+    border-radius: 12px;
+    background : var(--sp-surface);
+    color      : var(--sp-subtle);
+}
+.sp-excerpt-search-wrap i { flex-shrink: 0; font-size: var(--sp-fs-72); opacity: 0.7; }
+.sp-excerpt-search {
+    flex       : 1;
+    min-width  : 0;
+    border     : none !important;
+    background : transparent !important;
+    box-shadow : none !important;
+    padding    : 8px 0 !important;
+}
+.sp-excerpt-list { display: flex; flex-direction: column; gap: 12px; }
+.sp-excerpt-card {
+    position     : relative;
+    padding      : 14px 14px 12px 16px;
+    background   : var(--sp-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 14px;
+    border-left  : 3px solid var(--sp-primary);
+}
+.sp-excerpt-quote {
+    margin     : 0 0 10px;
+    padding    : 0;
+    border     : none;
+    font-size  : var(--sp-fs-90);
+    line-height: 1.7;
+    color      : var(--sp-on-surface);
+    white-space: pre-wrap;
+    word-break : break-word;
+}
+.sp-excerpt-quote::before {
+    content    : '「';
+    color      : var(--sp-primary);
+    font-size  : 1.15em;
+    margin-right: 1px;
+    font-weight: 500;
+}
+.sp-excerpt-quote::after {
+    content   : '」';
+    color     : var(--sp-primary);
+    font-size : 1.15em;
+    margin-left: 1px;
+}
+.sp-excerpt-note {
+    margin     : 0 0 10px;
+    padding    : 8px 10px;
+    border-radius: 8px;
+    background : var(--sp-chip-bg);
+    font-size  : var(--sp-fs-78);
+    line-height: 1.65;
+    color      : var(--sp-on-surface);
+    white-space: pre-wrap;
+    word-break : break-word;
+}
+.sp-excerpt-note-empty { color: var(--sp-subtle); font-style: italic; background: transparent; padding-left: 0; }
+.sp-excerpt-meta {
+    display    : flex;
+    flex-wrap  : wrap;
+    gap        : 8px;
+    font-size  : var(--sp-fs-64);
+    color      : var(--sp-subtle);
+    letter-spacing: 0.02em;
+}
+.sp-excerpt-actions {
+    display        : flex;
+    flex-wrap      : wrap;
+    justify-content: flex-end;
+    gap            : 6px;
+    margin-top     : 10px;
+}
+.sp-excerpt-empty {
+    padding    : 18px 8px 8px;
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-80);
+    line-height: 1.7;
+}
+.sp-excerpt-empty p { margin: 0 0 8px; }
+.sp-excerpt-composer {
+    margin-bottom: 12px;
+    padding      : 12px 12px 10px;
+    border       : 1px dashed var(--sp-primary);
+    border-radius: 12px;
+    background   : var(--sp-surface-high);
+}
+.sp-excerpt-composer-kicker {
+    font-size     : var(--sp-fs-64);
+    font-weight   : 600;
+    letter-spacing: 0.12em;
+    color         : var(--sp-primary);
+    margin-bottom : 8px;
+}
+.sp-excerpt-composer .sp-excerpt-quote { font-size: var(--sp-fs-84); }
+.sp-excerpt-composer-foot { display: flex; justify-content: flex-end; gap: 6px; margin-top: 8px; }
+.sp-excerpt-note-input { width: 100%; min-height: 72px; resize: vertical; }
+
 /* ─── 坐标 · 标签管理面 ─────────────────────────────────────────────────── */
 .sp-anchor-tagmgr-new {
     display      : flex;

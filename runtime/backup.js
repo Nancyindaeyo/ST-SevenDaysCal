@@ -2,6 +2,7 @@
 // 不碰聊天正文、不碰别的插件的 chat_metadata / 世界书。
 import { THEATER_EXPORT_BOOK, THEATER_TEMPLATE_BOOK } from '../business/theater/constants.js';
 import { INDEX_NAME, emptyIndex, fileNameOf, normalizeIndex } from '../business/coordinate/schema.js';
+import { EXCERPTS_NAME, emptyExcerpts, normalizeExcerpts } from '../business/coordinate/excerpt-schema.js';
 
 export const BACKUP_KIND = 'gouhua-backup';
 export const BACKUP_VERSION = 1;
@@ -114,6 +115,7 @@ export function summarizeBackup(pack) {
     const chats = Array.isArray(pack.chats) ? pack.chats : [];
     const localCount = pack.localStorage && typeof pack.localStorage === 'object' ? Object.keys(pack.localStorage).length : 0;
     const coordCount = Array.isArray(pack.coordinates?.items) ? pack.coordinates.items.length : 0;
+    const excerptCount = Array.isArray(pack.excerpts?.items) ? pack.excerpts.items.length : 0;
     const bookCount = Array.isArray(pack.worldbooks) ? pack.worldbooks.length : 0;
     const lines = [
         `导出时间：${pack.exportedAt || '未知'}`,
@@ -122,7 +124,8 @@ export function summarizeBackup(pack) {
         `本机草稿/位置：${localCount} 项`,
         `当前聊天账本：${hasOwnRoots(pack.currentChat?.roots) ? '有' : '无'}`,
         `其它聊天账本：${chats.length} 份`,
-        `坐标收藏：${coordCount} 条`,
+        `坐标收藏：${coordCount} 条快照`,
+        `坐标摘抄：${excerptCount} 条`,
         `构画世界书：${bookCount} 本`,
     ];
     if (pack.skipped?.chatsFailed) lines.push(`导出时未能读取的聊天：${pack.skipped.chatsFailed}`);
@@ -365,6 +368,28 @@ async function importCoordinates(ports, snapshot) {
     return items.length;
 }
 
+async function exportExcerpts(ports) {
+    if (typeof ports.readJson !== 'function') return emptyExcerpts();
+    const result = await ports.readJson(EXCERPTS_NAME);
+    if (result?.missing || !result?.value) return emptyExcerpts();
+    return normalizeExcerpts(result.value) || emptyExcerpts();
+}
+
+async function importExcerpts(ports, snapshot) {
+    if (!snapshot || typeof ports.uploadJson !== 'function' || typeof ports.readJson !== 'function') return 0;
+    const existing = await ports.readJson(EXCERPTS_NAME);
+    const current = !existing?.missing && existing?.value ? (normalizeExcerpts(existing.value) || emptyExcerpts()) : emptyExcerpts();
+    const incoming = normalizeExcerpts(snapshot) || emptyExcerpts();
+    const byId = new Map(current.items.map(item => [item.id, item]));
+    for (const item of incoming.items) if (item?.id) byId.set(item.id, item);
+    await ports.uploadJson(EXCERPTS_NAME, {
+        version: incoming.version || current.version || 1,
+        items: [...byId.values()],
+    });
+    ports.invalidateCoordinates?.();
+    return incoming.items.length;
+}
+
 function progress(ports, info) {
     try { ports.onProgress?.(info); } catch { /* 进度回调失败不阻断导出 */ }
 }
@@ -381,12 +406,13 @@ export function createBackupController(ports = {}) {
                 pluginId: BACKUP_PLUGIN_ID,
                 pluginVersion: String(ports.pluginVersion || ''),
                 exportedAt: new Date().toISOString(),
-                note: '构画迁移包。含设置（可能含 API Key）、聊天账本、本机草稿、坐标、构画世界书。不含聊天正文。',
+                note: '构画迁移包。含设置（可能含 API Key）、聊天账本、本机草稿、坐标快照与摘抄、构画世界书。不含聊天正文。',
                 settings: clone(ports.getSettings?.() || {}),
                 localStorage: collectLocalStorage(ports.localStorage || globalThis.localStorage),
                 currentChat: current ? { ...current, storageMode: ports.storageStatus?.()?.mode || 'chat', roots: currentRoots } : null,
                 chats: [],
                 coordinates: null,
+                excerpts: null,
                 worldbooks: [],
                 skipped: { chatsFailed: 0, externalChats: 0 },
             };
@@ -416,6 +442,8 @@ export function createBackupController(ports = {}) {
             progress(ports, { phase: 'coordinates', message: '正在导出坐标…' });
             try { pack.coordinates = await exportCoordinates(ports); }
             catch { pack.coordinates = { index: emptyIndex(), items: [] }; }
+            try { pack.excerpts = await exportExcerpts(ports); }
+            catch { pack.excerpts = emptyExcerpts(); }
 
             progress(ports, { phase: 'worldbooks', message: '正在导出构画世界书…' });
             pack.worldbooks = await exportWorldbooks(ports);
@@ -424,7 +452,7 @@ export function createBackupController(ports = {}) {
 
         async importPack(pack, { overwrite = true } = {}) {
             if (!isGouhuaBackup(pack)) throw new Error('不是构画迁移包');
-            const result = { settings: 0, local: 0, currentChat: false, chats: 0, chatsSkipped: 0, chatsExternal: 0, coordinates: 0, worldbooks: 0 };
+            const result = { settings: 0, local: 0, currentChat: false, chats: 0, chatsSkipped: 0, chatsExternal: 0, coordinates: 0, excerpts: 0, worldbooks: 0 };
 
             result.local = applyLocalStorage(ports.localStorage || globalThis.localStorage, pack.localStorage, { draftsOnly: true });
             result.settings = applySettingsPatch(ports.getSettings?.(), pack.settings);
@@ -435,6 +463,7 @@ export function createBackupController(ports = {}) {
 
             progress(ports, { phase: 'coordinates', message: '正在导入坐标…' });
             result.coordinates = await importCoordinates(ports, pack.coordinates);
+            result.excerpts = await importExcerpts(ports, pack.excerpts);
 
             const ctx = ports.getContext?.() || {};
             const current = currentChatIdentity(ctx);

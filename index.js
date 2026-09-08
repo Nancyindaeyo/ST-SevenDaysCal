@@ -2035,7 +2035,19 @@ jQuery(async () => {
             toast: (message, action, error) => showToast(message, action, error),
             saveChatDebounced: () => scriptCore.saveChatDebounced(),
             warn: (message, error) => console.warn(message, error),
-            confirm: message => spConfirm({ title: String(message).includes('收藏') ? '删除收藏' : '删除标签', body: message }),
+            confirm: message => {
+                const text = String(message);
+                const title = text.includes('摘抄') ? '删除摘抄' : text.includes('收藏') ? '删除收藏' : '删除标签';
+                return spConfirm({ title, body: text });
+            },
+            sendToSpace: async text => {
+                const message = String(text || '').trim();
+                if (!message) return { status: 'failed' };
+                spaceFeature.guide?.leave?.();
+                $in('.sp-view-btn[data-view="space"]').trigger('click');
+                await new Promise(resolve => setTimeout(resolve, 0));
+                return spaceFeature.chat.send(message);
+            },
             selectMany: options => customDialog.selectMany(options),
             svg: cls => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg>`,
         },
@@ -2044,6 +2056,7 @@ jQuery(async () => {
     coordinateRuntime.feature.bindInteractionCapture($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.bindUi($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.bindDelete($in('#sp-anchor-wrap')?.[0] || null);
+    coordinateRuntime.feature.bindExcerpts($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.bindGestures($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.refreshSavedKeys();
     activeChatBoundaryIdentity = captureChatBoundary();
@@ -6498,7 +6511,10 @@ function createGouhuaBackupController(onProgress) {
         headers: () => getContext()?.getRequestHeaders?.() || { 'Content-Type': 'application/json' },
         readJson: name => readCoordinateJson(coordPorts, name),
         uploadJson: (name, value) => uploadCoordinateJson(coordPorts, name, value),
-        invalidateCoordinates: () => coordinateRuntime?.repository?.invalidate?.(),
+        invalidateCoordinates: () => {
+            coordinateRuntime?.repository?.invalidate?.();
+            coordinateRuntime?.excerpts?.invalidate?.();
+        },
         loadWorldInfo: name => getContext()?.loadWorldInfo?.(name),
         saveWorldInfo: (name, data, immediate) => getContext()?.saveWorldInfo?.(name, data, immediate),
         updateWorldInfoList: () => getContext()?.updateWorldInfoList?.(),
