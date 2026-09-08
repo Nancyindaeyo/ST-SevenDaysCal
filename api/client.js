@@ -187,7 +187,7 @@ export async function postChatCompletion(options = {}) {
     }
 }
 
-async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, promptMode = PROMPT_MODES.MECHANICAL, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
+async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, promptMode = PROMPT_MODES.MECHANICAL, bypassPreset = false, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
     const signal = normalizeAbortSignal(inputSignal);
     throwIfPreAborted(signal);
     // 总开关硬闸：插件关闭时挡住一切生成（手动 + 后台判定），防任何路径漏网。tag 供调用方识别、静默处理。
@@ -206,7 +206,7 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
     // 默认失败安全：只有调用方显式声明 creative 才追加强化创作层和用户写作规范；
     // 未声明、拼错或未知值都只得到基础处理层，避免新的机械调用误吃创作指令。
     const creative = promptMode === PROMPT_MODES.CREATIVE;
-    const userExtra = creative ? (getSettings().customPrompt || '').trim() : '';
+    const userExtra = creative && !bypassPreset ? (getSettings().customPrompt || '').trim() : '';
     const promptLayers = [BASE_PROCESSING_PROMPT];
     if (creative) promptLayers.push(DEFAULT_JAILBREAK, ...(userExtra ? [userExtra] : []));
     const custom = substituteParams(expandRequestPlaceholders(promptLayers.join('\n\n'), { userName: requestUserName, charName: requestCharName }));
@@ -229,6 +229,7 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
         presence_penalty      : 0,
         frequency_penalty     : 0,
     };
+    if (bypassPreset) body.custom_prompt_post_processing = '';
     if (Number.isFinite(maxTokens))   body.max_tokens  = maxTokens;
     if (Number.isFinite(temperature)) body.temperature = temperature;
     // 剔除参数：把用户指定的字段从 body 删掉，规避不接受这些参数的兼容端点报 400
@@ -378,6 +379,6 @@ export async function callTheaterApi(messages, { maxTokens = 30000, signal = nul
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) throw makeDiagnosticError('config-missing');
     const ctx = getContext();
-    if (!userName && !charName) return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, userName: ctx?.name1 || '用户', charName: ctx?.name2 || '角色', promptMode, diagnosticModule, diagnosticSink });
-    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, userName: userName || ctx?.name1 || '用户', charName: charName || ctx?.name2 || '角色', promptMode, diagnosticModule, diagnosticSink });
+    const names = { userName: userName || ctx?.name1 || '用户', charName: charName || ctx?.name2 || '角色' };
+    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, ...names, promptMode, diagnosticModule, diagnosticSink, bypassPreset: true });
 }

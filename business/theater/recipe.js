@@ -57,15 +57,6 @@ function weightedPick(list, random) {
     return list[list.length - 1];
 }
 
-function shuffleCopy(list, random) {
-    const out = list.slice();
-    for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(random() * (i + 1));
-        [out[i], out[j]] = [out[j], out[i]];
-    }
-    return out;
-}
-
 export function worldInfoEntries(data) {
     const entries = data?.entries;
     if (!entries) return [];
@@ -107,27 +98,56 @@ function toRecipe(entry, bookName = '') {
     };
 }
 
-export function drawTheaterRecipes(entries, count = 2, { random = Math.random, bookName = '' } = {}) {
-    const want = normalizeTheaterCount(count);
+function slotsOfBook(entries, bookName) {
     const { headers, grouped, ungrouped } = splitTheaterPool(entries);
     const slots = [
-        ...[...grouped.values()].map(list => () => weightedPick(list, random)),
-        ...ungrouped.map(entry => () => entry),
+        ...[...grouped.values()].map(list => ({ kind: 'group', list })),
+        ...ungrouped.map(entry => ({ kind: 'entry', list: [entry] })),
     ];
-    const recipes = [];
-    const seen = new Set();
-    for (const slot of shuffleCopy(slots, random)) {
-        if (recipes.length >= want) break;
-        const entry = slot();
-        const key = `${entry?.uid ?? ''}::${entry?.comment ?? ''}::${String(entry?.content || '').slice(0, 80)}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        const recipe = toRecipe(entry, bookName);
-        if (!recipe) continue;
-        recipes.push(recipe);
-    }
     return {
         headers: headers.map(entry => toRecipe(entry, bookName)).filter(Boolean),
-        recipes,
+        slots,
     };
+}
+
+export function drawTheaterRecipesAcrossBooks(books, count = 2, { random = Math.random } = {}) {
+    const want = normalizeTheaterCount(count);
+    const libraries = [];
+    for (const book of books || []) {
+        const name = String(book?.name || book?.bookName || '').trim();
+        const packed = slotsOfBook(book?.entries || [], name);
+        libraries.push({ name, ...packed });
+    }
+    const recipes = [];
+    const usedBooks = new Set();
+    const usedKeys = new Set();
+    while (recipes.length < want) {
+        const available = libraries.filter(library => library.slots.length);
+        if (!available.length) break;
+        const unused = available.filter(library => !usedBooks.has(library.name));
+        const pool = unused.length ? unused : available;
+        const library = pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))];
+        const slotAt = Math.min(library.slots.length - 1, Math.floor(random() * library.slots.length));
+        const slot = library.slots.splice(slotAt, 1)[0];
+        const candidates = slot.list.slice();
+        let recipe = null;
+        while (candidates.length && !recipe) {
+            const entry = slot.kind === 'group' ? weightedPick(candidates, random) : candidates[0];
+            const at = candidates.indexOf(entry);
+            if (at >= 0) candidates.splice(at, 1);
+            recipe = toRecipe(entry, library.name);
+        }
+        if (!recipe) continue;
+        const key = `${library.name}:${recipe.uid}:${recipe.title}`;
+        if (usedKeys.has(key)) continue;
+        usedKeys.add(key);
+        usedBooks.add(library.name);
+        recipes.push(recipe);
+    }
+    const headers = libraries.filter(library => usedBooks.has(library.name)).flatMap(library => library.headers);
+    return { headers, recipes };
+}
+
+export function drawTheaterRecipes(entries, count = 2, { random = Math.random, bookName = '' } = {}) {
+    return drawTheaterRecipesAcrossBooks([{ name: bookName, entries }], count, { random });
 }

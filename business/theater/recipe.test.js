@@ -1,10 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTheaterHeaderEntry, stripTheaterRecipe, drawTheaterRecipes, normalizeTheaterCount } from './recipe.js';
+import { isTheaterHeaderEntry, stripTheaterRecipe, drawTheaterRecipes, drawTheaterRecipesAcrossBooks, normalizeTheaterCount } from './recipe.js';
 import { parseTheaterPieces } from './pieces.js';
 import { buildTheaterExportBook, likedTheaterPieces } from './export-book.js';
 import { buildWriteMessages } from './prompts.js';
 import { THEATER_WORLD_INFO_SCOPES } from './context.js';
+import { createTheaterPool } from './pool.js';
 
 test('header entries are the 必开/头/尾 rows, not lottery types', () => {
     assert.equal(isTheaterHeaderEntry('使用必开（头）'), true);
@@ -69,11 +70,70 @@ test('export book splits liked pieces into 展现形式 and 主题', () => {
     assert.equal(likedTheaterPieces([[{ liked: true, raw: 'a' }, { liked: false, raw: 'b' }]]).length, 1);
 });
 
+test('cross-book lottery draws N entries and keeps unused books off the prompt', () => {
+    const books = [
+        { name: '小回', entries: [
+            { uid: 0, comment: '使用必开（头）', content: '禁 HTML' },
+            { uid: 1, comment: '回望', content: '回顾正文。', group: '1' },
+            { uid: 11, comment: '一百问', content: '互相提问。', group: '1' },
+            { uid: 12, comment: '日记', content: '写今天。', group: '2' },
+        ] },
+        { name: '极光', entries: [
+            { uid: 2, comment: '使用必开（尾）', content: '禁重复' },
+            { uid: 3, comment: '装置', content: '角色在装置里提问。', group: 'a' },
+        ] },
+        { name: '小兔', entries: [
+            { uid: 4, comment: 'IF', content: '世界规则改写成决斗。' },
+        ] },
+    ];
+    const three = drawTheaterRecipesAcrossBooks(books, 3, { random: () => 0 });
+    assert.equal(three.recipes.length, 3);
+    assert.deepEqual([...new Set(three.recipes.map(item => item.bookName))].sort(), ['小兔', '小回', '极光'].sort());
+    assert.equal(three.recipes.some(item => /必开/.test(item.title)), false);
+    const two = drawTheaterRecipesAcrossBooks(books, 2, { random: () => 0 });
+    assert.equal(two.recipes.length, 2);
+    assert.equal(new Set(two.recipes.map(item => item.bookName)).size, 2);
+    const used = new Set(two.recipes.map(item => item.bookName));
+    const prompt = buildWriteMessages('', { userName: '我', charName: '他', sysBlocks: ['【角色世界书】角色设定'] }, {}, two).map(m => m.content).join('\n');
+    assert.match(prompt, /角色设定/);
+    assert.equal(prompt.includes('世界规则改写成决斗'), used.has('小兔'));
+    assert.equal(prompt.includes('角色在装置里提问'), used.has('极光'));
+    const one = drawTheaterRecipesAcrossBooks(books, 1, { random: () => 0 });
+    assert.equal(one.recipes.length, 1);
+    assert.ok(one.headers.every(item => item.bookName === one.recipes[0].bookName));
+    assert.equal(one.headers.some(item => item.bookName !== one.recipes[0].bookName), false);
+    const onePrompt = buildWriteMessages('', { sysBlocks: [] }, {}, one)[0].content;
+    assert.equal(onePrompt.includes('世界规则改写成决斗'), false);
+    assert.equal(onePrompt.includes('角色在装置里提问'), false);
+});
+
+test('pool loads every selected book then draws N, not the first book only', async () => {
+    const loaded = [];
+    const pool = createTheaterPool({
+        loadWorldInfo: async name => {
+            loaded.push(name);
+            return { entries: [{ uid: 1, comment: name, content: `${name}条目正文` }] };
+        },
+    });
+    const drawn = await pool.draw({ books: ['小回', '极光', '小兔'], count: 3, random: () => 0 });
+    assert.deepEqual(loaded, ['小回', '极光', '小兔']);
+    assert.equal(drawn.recipes.length, 3);
+    assert.deepEqual(drawn.recipes.map(item => item.bookName).sort(), ['小兔', '小回', '极光'].sort());
+});
+
 test('write prompt forbids HTML and asks for N theater_piece blocks', () => {
-    const messages = buildWriteMessages('想看回望', { userName: '我', charName: '他', sysBlocks: [] }, {}, { count: 2, recipes: [{ title: '回望', stripped: '回顾正文' }] });
+    const messages = buildWriteMessages('想看回望', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
+        count: 2,
+        recipes: [
+            { title: '回望', stripped: '回顾正文' },
+            { title: '问卷', stripped: '问卷正文' },
+        ],
+    });
     assert.match(messages[0].content, /禁止输出 HTML/);
     assert.match(messages[0].content, /theater_piece/);
     assert.match(messages[0].content, /一次写出 2 条/);
+    assert.match(messages[0].content, /第 1 个 theater_piece 必须按抽签 1 写/);
+    assert.equal(messages[0].content.includes('自行想'), false);
 });
 
 test('theater background world info is character books only', () => {

@@ -3,14 +3,17 @@ import { normalizeTheaterCount } from './recipe.js';
 
 export function buildWriteMessages(userInput, story = null, settings = {}, extras = {}) {
     const context = story || { sysBlocks: [], userName: '用户', charName: '角色' };
-    const count = normalizeTheaterCount(extras.count ?? settings.theaterCount, THEATER_COUNT_DEFAULT);
     const recipes = Array.isArray(extras.recipes) ? extras.recipes : [];
     const headers = Array.isArray(extras.headers) ? extras.headers : [];
+    const count = recipes.length || normalizeTheaterCount(extras.count ?? settings.theaterCount, THEATER_COUNT_DEFAULT);
     const recipeBlock = recipes.length
-        ? recipes.map((recipe, i) => `【抽签 ${i + 1} · ${recipe.title || '(无标题)'}】\n${recipe.stripped}`).join('\n\n')
-        : '未抽到现成配方：按正文自行想 1～3 种不同体裁（问卷 / 回望 / 聊天记录 / IF 等），不要同构续写。';
+        ? recipes.map((recipe, i) => `【抽签 ${i + 1}｜${recipe.bookName || '未名书'}｜${recipe.title || '(无标题)'}】\n${recipe.stripped}`).join('\n\n')
+        : '未抽到现成配方：按正文自行想不同体裁（问卷 / 回望 / 聊天记录 / IF 等），不要同构续写。';
+    const bindBlock = recipes.length
+        ? recipes.map((_, i) => `- 第 ${i + 1} 个 theater_piece 必须按抽签 ${i + 1} 写，不要混用其他抽签，不要另起没抽到的体裁。`).join('\n')
+        : '';
     const headerBlock = headers.length
-        ? `【书内纯文字规范（已剥除 HTML / 插入指令）】\n${headers.map(item => item.stripped).join('\n\n')}`
+        ? `【抽中书的纯文字规范（已剥除 HTML / 插入指令；不是整本世界书）】\n${headers.map(item => item.stripped).join('\n\n')}`
         : '';
     const request = String(userInput || '').trim();
     const sysParts = [
@@ -20,10 +23,12 @@ export function buildWriteMessages(userInput, story = null, settings = {}, extra
         headerBlock,
         `【硬性约束】`,
         `- 只写纯文字。禁止输出 HTML、CSS、JavaScript、<style>、<script>、<snow>、<toto>、<details>。`,
+        `- 事先已经抽签。只写抽中的配方，不要读取或发明未抽中的条目。`,
         `- 一次写出 ${count} 条彼此不同的番外，不要同构续写，不要互相解释。`,
         `- 每条约 ${THEATER_TARGET_CHARS} 字（问卷、一百问、IF 都按这个收，不要拉到几千字）。`,
         `- 具象的感官与动作，避免概括与套路化开头结尾。`,
         `- 必须按下面的 XML 输出，不要前言后语，不要代码块包裹。`,
+        bindBlock,
         `【输出格式】`,
         `<theater_piece>`,
         `<title>短标题</title>`,
@@ -38,7 +43,7 @@ export function buildWriteMessages(userInput, story = null, settings = {}, extra
         recipeBlock,
     ].filter(Boolean);
     const userParts = [
-        request ? `【作者额外要求】\n${request}` : '作者没有额外要求：只靠正文与抽签配方写。',
+        request ? `【作者额外要求】\n${request}` : '作者没有额外要求：只靠正文、角色世界书与抽签配方写。',
         `请直接输出 ${count} 个 <theater_piece>。`,
     ];
     return [{ role: 'system', content: sysParts.join('\n\n') }, { role: 'user', content: userParts.join('\n\n') }];
