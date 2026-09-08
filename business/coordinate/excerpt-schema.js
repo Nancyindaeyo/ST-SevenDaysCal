@@ -27,6 +27,7 @@ export function normalizeExcerpt(item) {
         floorIndex: Number.isFinite(Number(src.floorIndex)) ? Number(src.floorIndex) : null,
         quote: clipText(src.quote, QUOTE_MAX),
         note: clipText(src.note, NOTE_MAX, { keepBreaks: true }),
+        tags: Array.isArray(src.tags) ? [...new Set(src.tags.map(id => String(id)).filter(Boolean))] : [],
         ts: Number(src.ts) || 0,
     };
 }
@@ -40,10 +41,12 @@ export function normalizeExcerpts(value) {
 }
 
 export function matchExcerpt(item, query) {
+    const hay = [item?.quote, item?.note, item?.charName, item?.chatName, ...(item?.tagNames || [])]
+        .map(value => String(value || ''))
+        .join('\n');
     const raw = String(query || '').trim().toLowerCase();
     if (!raw) return true;
-    const hay = [item?.quote, item?.note, item?.charName, item?.chatName].map(value => String(value || '').toLowerCase()).join('\n');
-    return raw.split(/\s+/).filter(Boolean).every(word => hay.includes(word));
+    return raw.split(/\s+/).filter(Boolean).every(word => hay.toLowerCase().includes(word));
 }
 
 export function excerptBytes(item) {
@@ -53,17 +56,10 @@ export function excerptBytes(item) {
 export function formatExcerptForSpace(item) {
     const quote = String(item?.quote || '').trim();
     const note = String(item?.note || '').trim();
-    const who = item?.charName ? `「${item.charName}」` : '收藏';
+    const who = String(item?.charName || '').trim() || '未名';
     const floor = item?.floorIndex != null ? `第 ${item.floorIndex} 楼` : '未知楼层';
-    return [
-        '请评价这段摘抄。不要改账本，只谈这段文字本身：语气、人物、叙事效果，以及我的点评有没有说到点子上。',
-        '',
-        `出自${who} ${floor}。`,
-        '',
-        '原文：',
-        `「${quote}」`,
-        '',
-        '我的点评：',
-        note || '（还没写点评，请直接评原文。）',
-    ].join('\n');
+    const lines = [`【摘抄】${who} · ${floor}`, `「${quote}」`];
+    if (note) lines.push(`点评：${note}`);
+    lines.push('');
+    return lines.join('\n');
 }

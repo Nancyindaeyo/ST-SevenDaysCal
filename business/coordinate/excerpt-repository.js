@@ -69,5 +69,18 @@ export function createExcerptRepository({ ports = createCoordinateHostPorts() } 
             await saveIndex();
             return true;
         }),
+        stripTag: id => serial(async () => {
+            const want = String(id || '');
+            if (!want) return 0;
+            const idx = await readIndex();
+            let n = 0;
+            idx.items = idx.items.map(item => {
+                if (!item.tags?.includes(want)) return item;
+                n++;
+                return { ...item, tags: item.tags.filter(tag => tag !== want) };
+            });
+            if (n) await saveIndex();
+            return n;
+        }),
     };
 }

@@ -88,6 +88,7 @@ q::after {
    below wires the main --sp-* tokens to prefer ST theme vars, falling back
    here when ST vars aren't defined. */
 .sp-night {
+    color-scheme: dark;
     --sp-sheet-bg-legacy    : #272829;
     --sp-surface-legacy     : #61677A;
     --sp-surface-high-legacy: #757B8E;
@@ -116,6 +117,7 @@ q::after {
     --sp-chat-bg-legacy: #1e2028;
 }
 .sp-day {
+    color-scheme: light;
     --sp-sheet-bg-legacy    : #FAF9F6;
     --sp-surface-legacy     : #F0F3F5;
     --sp-surface-high-legacy: #DCEAF3;
@@ -5142,8 +5144,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-anchor-btn.sp-anchor-saved { opacity: 1; color: var(--SmartThemeQuoteColor, #d0bcff); }
 .sp-anchor-btn.sp-anchor-busy  { opacity: 0.35; pointer-events: none; }
 
-/* TauriTavern .mes_buttons { overflow-x:hidden }：必须是 mes_button，插在编辑钮前。
-   图标用坐标轴 SVG，不用 fa-star——原生端常装第三方 star 扩展，再叠一颗五角星会看成两个收藏。 */
+/* TauriTavern .mes_buttons { overflow-x:hidden }：必须是 mes_button，插在编辑钮前。 */
 #chat .mes_buttons .sp-anchor-btn,
 #chat .extraMesButtons .sp-anchor-btn {
     display    : inline-flex;
@@ -5177,6 +5178,16 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 
 /* 跳回来源楼层的高亮脉冲（作用于 #chat 里的 .mes → 全局） */
+#chat .mes.sp-anchor-locate-flash {
+    outline: 2px solid var(--SmartThemeQuoteColor, #e8c547);
+    outline-offset: -2px;
+    animation: sp-anchor-locate-pulse 1.4s ease-out;
+}
+@keyframes sp-anchor-locate-pulse {
+    0%   { background-color: color-mix(in oklab, var(--SmartThemeQuoteColor, #e8c547) 28%, transparent); }
+    100% { background-color: transparent; }
+}
+
 /* 面板本体 */
 #sp-anchor-wrap     { overflow: hidden; }
 .sp-anchor-body     { flex: 1; min-height: 0; display: flex; flex-direction: column; }
@@ -5364,6 +5375,8 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 /* 只当透明壳：视觉框只留 Shadow 内的 .sp-anchor-snap 一层，双框显拥挤 */
 .sp-anchor-full-host {
     overflow-x   : auto;
+    user-select  : text;
+    -webkit-user-select: text;
 }
 .sp-anchor-full-ts { margin-top: 10px; text-align: center; font-size: var(--sp-fs-66); color: var(--sp-subtle); }
 
@@ -5419,6 +5432,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-anchor-tagmgr-head {
     padding: 3px 10px;
     gap    : 6px;
+    flex-wrap: wrap;
 }
 .sp-anchor-chars-head .sp-anchor-head-title,
 .sp-anchor-tagmgr-head .sp-anchor-head-title {
@@ -5441,6 +5455,45 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     font-size: var(--sp-fs-72);
     white-space: nowrap;
 }
+.sp-anchor-browse {
+    display    : inline-flex;
+    align-items: stretch;
+    gap        : 2px;
+    padding    : 2px;
+    border     : 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background : var(--sp-sheet-bg);
+    flex       : 0 1 auto;
+}
+.sp-anchor-browse-tab {
+    border     : none;
+    background : transparent;
+    color      : var(--sp-subtle);
+    cursor     : pointer;
+    font       : inherit;
+    font-size  : var(--sp-fs-68);
+    font-weight: 600;
+    padding    : 3px 8px;
+    border-radius: 999px;
+}
+.sp-anchor-browse-tab.sp-anchor-browse-on {
+    background: var(--sp-surface-high);
+    color     : var(--sp-on-surface);
+}
+.sp-anchor-group-card {
+    display      : flex;
+    align-items  : center;
+    gap          : 10px;
+    width        : 100%;
+    padding      : 10px 12px;
+    text-align   : left;
+    background   : var(--sp-surface);
+    border       : 1px solid var(--sp-divider);
+    border-radius: 10px;
+    cursor       : pointer;
+    color        : var(--sp-on-surface);
+}
+.sp-anchor-group-card:hover { background: var(--sp-surface-high); }
 
 /* ─── 坐标 · 快照 / 摘抄分栏 ─────────────────────────────────────────────── */
 .sp-anchor-shelf {
@@ -5502,10 +5555,11 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     padding    : 0 10px;
     border     : 1px solid var(--sp-divider);
     border-radius: 12px;
-    background : var(--sp-surface);
+    background : var(--sp-sheet-bg);
     color      : var(--sp-subtle);
 }
 .sp-excerpt-search-wrap i { flex-shrink: 0; font-size: var(--sp-fs-72); opacity: 0.7; }
+.sp-anchor-search,
 .sp-excerpt-search {
     flex       : 1;
     min-width  : 0;
@@ -5513,6 +5567,14 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     background : transparent !important;
     box-shadow : none !important;
     padding    : 8px 0 !important;
+    color      : var(--sp-on-surface) !important;
+}
+.sp-anchor-search::-webkit-search-cancel-button,
+.sp-anchor-search::-webkit-search-decoration { -webkit-appearance: none; appearance: none; display: none; }
+.sp-search-empty {
+    margin     : 8px 2px 0;
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-78);
 }
 .sp-excerpt-list { display: flex; flex-direction: column; gap: 12px; }
 .sp-excerpt-card {
@@ -5566,6 +5628,13 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     color      : var(--sp-subtle);
     letter-spacing: 0.02em;
 }
+.sp-excerpt-tags {
+    display    : flex;
+    flex-wrap  : wrap;
+    gap        : 4px;
+    margin-top : 6px;
+}
+.sp-excerpt-tags:empty { display: none; }
 .sp-excerpt-actions {
     display        : flex;
     flex-wrap      : wrap;

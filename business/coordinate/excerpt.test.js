@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace, QUOTE_MAX } from './excerpt-schema.js';
 import { createExcerptRepository } from './excerpt-repository.js';
+import { groupItemsByTag, matchQuery, hayOf } from './browse.js';
+import { filterSearchList } from './excerpt-ui.js';
 
 test('clipText collapses space and caps length', () => {
     assert.equal(clipText('  a \n  b  ', 20), 'a b');
@@ -14,24 +16,64 @@ test('clipText collapses space and caps length', () => {
 
 test('matchExcerpt searches quote and note with all tokens', () => {
     const item = normalizeExcerpt({ id: '1', quote: '月光落在窗台', note: '这一句很冷', charName: '春' });
+    item.tagNames = ['甜'];
     assert.equal(matchExcerpt(item, ''), true);
     assert.equal(matchExcerpt(item, '月光 冷'), true);
     assert.equal(matchExcerpt(item, '春 窗台'), true);
+    assert.equal(matchExcerpt(item, '甜'), true);
     assert.equal(matchExcerpt(item, '没有的词'), false);
 });
 
-test('normalizeExcerpts drops empty quotes', () => {
-    const next = normalizeExcerpts({ version: 1, items: [{ id: 'a', quote: '留着' }, { id: 'b', quote: '   ' }, null] });
+test('normalizeExcerpts keeps tags and drops empty quotes', () => {
+    const next = normalizeExcerpts({ version: 1, items: [{ id: 'a', quote: '留着', tags: ['t1', 't1'] }, { id: 'b', quote: '   ' }, null] });
     assert.equal(next.items.length, 1);
     assert.equal(next.items[0].id, 'a');
+    assert.deepEqual(next.items[0].tags, ['t1']);
 });
 
-test('formatExcerptForSpace asks 间 to review without touching ledgers', () => {
+test('formatExcerptForSpace quotes without sending instructions that auto-apply ledgers', () => {
     const text = formatExcerptForSpace({ quote: '原文一句', note: '我觉得好', charName: '春', floorIndex: 2 });
-    assert.match(text, /请评价这段摘抄/);
-    assert.match(text, /不要改账本/);
+    assert.match(text, /【摘抄】/);
+    assert.match(text, /春/);
     assert.match(text, /「原文一句」/);
-    assert.match(text, /我觉得好/);
+    assert.match(text, /点评：我觉得好/);
+    assert.equal(text.endsWith('\n'), true);
+});
+
+test('groupItemsByTag splits tagged and untagged', () => {
+    const tags = [{ id: 'sweet', name: '甜' }, { id: 'hurt', name: '痛' }];
+    const items = [
+        { id: '1', tags: ['sweet'] },
+        { id: '2', tags: ['sweet', 'hurt'] },
+        { id: '3', tags: [] },
+    ];
+    const { groups, untagged } = groupItemsByTag(items, tags);
+    assert.equal(groups[0].items.length, 2);
+    assert.equal(groups[1].items.length, 1);
+    assert.equal(untagged.length, 1);
+    assert.equal(matchQuery(hayOf(['月光', '春']), '月光'), true);
+    assert.equal(matchQuery('月光', '没有'), false);
+});
+
+test('filterSearchList hides unmatched cards without rebuilding', () => {
+    const cards = [
+        { hidden: false, getAttribute: () => '月光 春' },
+        { hidden: false, getAttribute: () => '雨 冬' },
+    ];
+    const empty = { hidden: true };
+    const root = {
+        querySelector: sel => {
+            if (sel === '[data-filter-list]') return { querySelectorAll: () => cards };
+            if (sel === '.sp-search-empty') return empty;
+            return null;
+        },
+    };
+    assert.equal(filterSearchList(root, '月光'), 1);
+    assert.equal(cards[0].hidden, false);
+    assert.equal(cards[1].hidden, true);
+    assert.equal(empty.hidden, true);
+    assert.equal(filterSearchList(root, '没有'), 0);
+    assert.equal(empty.hidden, false);
 });
 
 test('excerpt repository keeps snapshots untouched in its own file', async () => {
@@ -56,11 +98,14 @@ test('excerpt repository keeps snapshots untouched in its own file', async () =>
         encode: value => Buffer.from(String(value), 'utf8').toString('base64'),
     };
     const repo = createExcerptRepository({ ports });
-    const saved = await repo.add({ quote: '选中的一句', note: '点评', charName: '春', snapshotId: 'snap-1' });
+    const saved = await repo.add({ quote: '选中的一句', note: '点评', charName: '春', snapshotId: 'snap-1', tags: ['sweet'] });
     assert.equal(saved.quote, '选中的一句');
+    assert.deepEqual(saved.tags, ['sweet']);
     assert.equal(await repo.count(), 1);
     const listed = await repo.list();
     assert.equal(listed[0].snapshotId, 'snap-1');
+    assert.equal(await repo.stripTag('sweet'), 1);
+    assert.deepEqual((await repo.get(saved.id)).tags, []);
     await repo.remove(saved.id);
     assert.equal(await repo.count(), 0);
 });

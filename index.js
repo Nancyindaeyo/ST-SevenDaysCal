@@ -2033,6 +2033,7 @@ jQuery(async () => {
             chatName: () => { const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return el?.value || el?.textContent?.trim() || getContext().chatId || '当前聊天'; },
             capture: el => { const ctx = getContext?.() || {}; return captureSnapshotElement(el, { documentRef: document, DOMPurify: globalThis.DOMPurify, messageFormatting: ctx.messageFormatting }); },
             toast: (message, action, error) => showToast(message, action, error),
+            theme: () => getEffectiveTheme(),
             saveChatDebounced: () => scriptCore.saveChatDebounced(),
             warn: (message, error) => console.warn(message, error),
             confirm: message => {
@@ -2044,9 +2045,20 @@ jQuery(async () => {
                 const message = String(text || '').trim();
                 if (!message) return { status: 'failed' };
                 spaceFeature.guide?.leave?.();
-                $in('.sp-view-btn[data-view="space"]').trigger('click');
-                await new Promise(resolve => setTimeout(resolve, 0));
-                return spaceFeature.chat.send(message);
+                const ok = await openPluginViewWithPrefill('space', '#sp-space-input', message);
+                return { status: ok ? 'quoted' : 'failed' };
+            },
+            scrollToFloor: (chatId, floor) => {
+                const ctx = getContext?.() || {};
+                if (chatId != null && String(ctx.chatId) !== String(chatId)) return false;
+                const mid = Number(floor);
+                if (!Number.isInteger(mid) || mid < 0) return false;
+                const mes = document.querySelector(`#chat .mes[mesid="${mid}"]`);
+                if (!mes) return false;
+                mes.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                mes.classList.add('sp-anchor-locate-flash');
+                globalThis.setTimeout(() => mes.classList.remove('sp-anchor-locate-flash'), 1600);
+                return true;
             },
             selectMany: options => customDialog.selectMany(options),
             svg: cls => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg>`,
