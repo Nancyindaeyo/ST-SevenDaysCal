@@ -66,6 +66,7 @@ import {
     storageStatus,
 } from './runtime/external-chat-storage.js';
 import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
+import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfaceParticipant } from './runtime/chat-surface.js';
 import { createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { normalizeTagRules } from './utils/tag-names.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
@@ -217,6 +218,20 @@ import {
 // 坐标与楼内框各自持有唯一 runtime 句柄。
 let coordinateRuntime = null;
 let inlineFeature = null;
+
+// TauriTavern 打开聊天虚拟化后，投影变化不会伪造 CHARACTER_MESSAGE_RENDERED。
+// 必须在第一次 projection 前注册；第三方扩展常常赶不上，失败则退回 DOM 观察。
+const chatSurfaceRegistration = registerChatSurfaceParticipant({
+    didMount({ element, mesid }) {
+        coordinateRuntime?.feature?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
+        return () => coordinateRuntime?.feature?.unmountMessageButton?.(element);
+    },
+    didCommitContent({ element, mesid }) {
+        inlineFeature?.mountElement?.(element);
+        coordinateRuntime?.feature?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
+    },
+});
+const chatSurfaceOwnsDom = Boolean(chatSurfaceRegistration && isManagedChatSurface());
 
 function refreshInlineWindow(immediate = false) { return inlineFeature?.refresh?.(immediate); }
 function _clearAllInlineBoxes() { return inlineFeature?.clear?.(); }
@@ -2619,6 +2634,7 @@ inlineFeature = createInlineFeature({
     coordinateChanged: () => coordinateRuntime?.feature?.onChatDomChanged?.(),
     isStreaming: () => linesFeature.isStreaming(),
     syncTheme: () => syncVectorGlyphTheme(document, currentTheme, (getSettings().themeMode || 'auto') !== 'auto'),
+    watchChatDom: !chatSurfaceOwnsDom,
 });
 if (document.querySelector('#chat')) inlineFeature.init();
 // ─── 线·伏笔潜伏注入（隐形注入主楼 AI）────────────────────────────────────────
@@ -2840,6 +2856,7 @@ function injectFab() {
         </button>
     </div>`;
     document.documentElement.insertAdjacentHTML('beforeend', html);
+    markTauriMobileSurface(document.getElementById(FAB_ID), 'free-window');
 
     let wasMobile = isMobile();
     window.addEventListener('resize', () => {
@@ -3606,6 +3623,7 @@ function injectModal() {
     host.id = MODAL_ID;
     host.className = `sp-root sp-${currentTheme}`;
     host.style.cssText = 'display:none;position:fixed;z-index:2000001';
+    markTauriMobileSurface(host, 'fullscreen-window');
     const root = host.attachShadow({ mode: 'open' });
     _spShadow = root;
     // 键盘边界：shadow 内 input 的 keydown 是 composed 事件，冒泡到 document 时 ST 的

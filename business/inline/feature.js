@@ -533,7 +533,15 @@ export function createInlineFeature(env = {}) {
         if (immediate) recompute();
         else refreshTimer = setTimeout(() => { refreshTimer = null; recompute(); }, 120);
     };
+    const mountElement = el => {
+        if (!el) return;
+        const current = computeWindow();
+        const latest = el === current.currentEl;
+        if (current.winSet.has(el) && (latest || inViewport(el))) mount(el, latest);
+        else unmount(el);
+    };
     const bindChatObserver = () => {
+        if (env.watchChatDom === false) return;
         const chat = doc?.querySelector?.('#chat');
         if (!chat) {
             clearTimer(chatRetryTimer);
@@ -573,5 +581,5 @@ export function createInlineFeature(env = {}) {
         delegated = false;
         clear();
     };
-    return { init, refresh, clear, destroy, computeWindow, mount, unmount, computeRenderDepth };
+    return { init, refresh, clear, destroy, computeWindow, mount, mountElement, unmount, computeRenderDepth };
 }

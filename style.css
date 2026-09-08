@@ -5120,7 +5120,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
    坐标·收藏楼层
    ═══════════════════════════════════════════════════════════════════════════ */
 
-/* 楼层内「收藏此楼」按钮（挂在 ST 楼层头部 char 名旁，不在面板内 → 全局样式） */
+/* 楼层内「收藏此楼」按钮（挂在 ST 楼层头部操作条，不在面板内 → 全局样式） */
 .sp-anchor-btn {
     display        : inline-flex;
     align-items    : center;
@@ -5141,6 +5141,32 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-anchor-btn-svg             { width: 15px; height: 15px; display: block; }
 .sp-anchor-btn.sp-anchor-saved { opacity: 1; color: var(--SmartThemeQuoteColor, #d0bcff); }
 .sp-anchor-btn.sp-anchor-busy  { opacity: 0.35; pointer-events: none; }
+
+/* TauriTavern .mes_buttons { overflow-x:hidden }：必须是 mes_button，插在编辑钮前。
+   不用独立 <button> 尺寸/位移，否则会被裁掉，或落到角色名里看不见。 */
+#chat .mes_buttons .sp-anchor-btn,
+#chat .extraMesButtons .sp-anchor-btn {
+    display    : inline-block;
+    width      : auto;
+    height     : auto;
+    margin     : 0;
+    padding    : 1px 3px;
+    flex-shrink: 0;
+    font-size  : inherit;
+    color      : inherit;
+    transform  : none;
+}
+#chat .mes_buttons .sp-anchor-btn:hover,
+#chat .mes_buttons .sp-anchor-btn:active,
+#chat .extraMesButtons .sp-anchor-btn:hover,
+#chat .extraMesButtons .sp-anchor-btn:active {
+    transform: none;
+}
+#chat .mes_buttons .sp-anchor-btn.sp-anchor-saved,
+#chat .extraMesButtons .sp-anchor-btn.sp-anchor-saved {
+    opacity: 1;
+    color  : var(--SmartThemeQuoteColor, #e8c547);
+}
 
 /* 跳回来源楼层的高亮脉冲（作用于 #chat 里的 .mes → 全局） */
 /* 面板本体 */
