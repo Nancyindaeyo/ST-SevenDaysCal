@@ -54,7 +54,27 @@ export function createTheaterRepository({ storage, metadata, persist, keyForChat
     return {
         loadDrafts: chatId => readDrafts(chatId),
         pushDraft: (chatId, piece) => { const list = readDrafts(chatId); return writeDrafts(chatId, [...list, cloneTheaterPiece(piece)]); },
+        pushDrafts: (chatId, pieces) => { const list = readDrafts(chatId); const next = [...list, ...(Array.isArray(pieces) ? pieces : []).map(cloneTheaterPiece).filter(Boolean)]; return writeDrafts(chatId, next); },
         updateDraft: (chatId, id, patch, baseline) => { const list = readDrafts(chatId); const i = list.findIndex(p => String(p.id) === String(id)); if (i < 0) return { ok: false, error: new Error('draft-not-found') }; if (baseline && theaterPieceBaseline(list[i]) !== baseline) return { ok: false, conflict: true, commitState: 'conflict', error: new Error('theater-piece-conflict') }; list[i] = { ...list[i], ...patch, id: list[i].id }; return writeDrafts(chatId, list); },
+        updateSaved: (target, id, patch, baseline) => enqueuePermanent(async () => {
+            const fixed = resolveTarget(target);
+            if (!fixed.isCurrent()) return { ok: false, cancelled: true };
+            const m = readMeta(fixed); if (!m) return { ok: false, error: new Error('metadata-unavailable') };
+            const i = m.saved.findIndex(p => String(p.id) === String(id)); if (i < 0) return { ok: false, missing: true };
+            if (baseline && theaterPieceBaseline(m.saved[i]) !== baseline) return { ok: false, conflict: true, commitState: 'conflict' };
+            const before = m.saved.slice();
+            m.saved = before.map((item, idx) => idx === i ? { ...item, ...patch, id: item.id } : item);
+            try {
+                if (metadataSaver?.capture && fixed.target) {
+                    const captured = metadataSaver.capture(fixed.target, { ...(fixed.metadataSnapshot || {}), 'sp-theater': m });
+                    const saved = captured ? await metadataSaver.dispatch(captured, { isCurrent: fixed.isCurrent }) : { ok: true };
+                    if (!saved?.ok && saved?.commitState !== 'unknown') { m.saved = before; return saved; }
+                    return { ok: true, ...saved };
+                }
+                await fixed.persist?.();
+                return { ok: true };
+            } catch (error) { m.saved = before; return { ok: false, error }; }
+        }),
         deleteDraft: (chatId, id, baseline) => { const list = readDrafts(chatId); const current = list.find(p => String(p.id) === String(id)); if (!current) return { ok: false, missing: true }; if (baseline && theaterPieceBaseline(current) !== baseline) return { ok: false, conflict: true, commitState: 'conflict', error: new Error('theater-piece-conflict') }; return writeDrafts(chatId, list.filter(p => String(p.id) !== String(id))); },
         loadSaved: target => cloneTheaterList(readMeta(target)?.saved || []),
         promoteToSaved: (target, piece, options = {}) => enqueuePermanent(async () => {

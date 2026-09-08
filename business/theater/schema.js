@@ -12,9 +12,16 @@ export function theaterId(randomUUID = globalThis.crypto?.randomUUID) {
 export function normalizeTheaterPiece(piece) {
     if (!piece || typeof piece !== 'object') return null;
     const copy = clone(piece);
-    if (!copy.id) copy.id = theaterId();
-    copy.id = String(copy.id);
-    return copy;
+        if (!copy.id) copy.id = theaterId();
+        copy.id = String(copy.id);
+        copy.liked = copy.liked === true;
+        copy.html = '';
+        copy.batchId = copy.batchId == null ? '' : String(copy.batchId);
+        copy.formName = String(copy.formName || '').trim();
+        copy.formSeed = String(copy.formSeed || '').trim();
+        copy.themeName = String(copy.themeName || '').trim();
+        copy.themeSeed = String(copy.themeSeed || '').trim();
+        return copy;
 }
 
 export function normalizeTheaterList(value) {

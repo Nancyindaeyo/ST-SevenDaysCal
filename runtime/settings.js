@@ -58,7 +58,14 @@ export const DEFAULT_SETTINGS = {
     // 读不到戳（漏打 / 「谷雨」无月日）才由 almanacAutoDetect 决定是否隔 N 楼调一次 API 兜底。点纯下游连带跟随，无独立判定。
     almanacAutoDetect    : true,  // 读不到戳时用 API 兜底判定（戳关时＝历自动判定总开关，回落老行为）
     almanacJudgeInterval : 3,     // API 兜底节奏：每几条 AI 回复兜底一次
-    scheduleAutoDetect   : false, // 点·后台自动跟随「今天」：开＝历今天变了自动重排点（多一次 API）；关（默认）＝只手动刷新点时对齐今天
+    scheduleAutoDetect   : false, // 已废弃：旧「点后台跟随今天」。点/线对齐改走 ledgerReconcileEnabled
+    ledgerReconcileEnabled: false, // 点/线按正文自动对齐：每 N 条 AI 楼打补丁；默认关
+    ledgerReconcileInterval: 3,    // 自动对齐节奏：每几条 AI 回复一次，最小 1
+    // 棱（小剧场）
+    theaterStylePrompt   : '',   // 写作 agent 文风提示词
+    theaterBeautifyPrompt: '',   // 已废弃：棱固定纯文字，不再走美化
+    theaterCount         : 2,    // 一次生成条数 1–3
+    theaterPoolBooks     : [],   // 棱抽取用世界书名（酒馆已导入、不绑角色卡）
     // 暗账·标注：每 N 楼构画 AI 从正文捞「需按时间追踪」的新事件写入 sp-ledger（伤情/身心/约定/周期）。
     // 独立开关+间隔，关掉即不触发 API；默认关（opt-in，多一路后台判定+API 成本，照 outlineInject 的克制）。
     ledgerCaptureEnabled : false, // 暗账标注：默认关
@@ -82,9 +89,6 @@ export const DEFAULT_SETTINGS = {
     extraTags      : '',         // extra strip list — forcibly delete these tags + their content
     customPrompt   : '',         // 创作链自定义写作规范；机械链只使用统一基础处理层
     spacePersona   : '',         // 间·人格覆盖：空=用内置默认语气（ADVISOR_TONE_GUIDE）；非空=换间的语气/行文/人格（顾问身份恒保留、不可覆盖）
-    // 棱（小剧场）
-    theaterStylePrompt   : '',   // 写作 agent 文风提示词
-    theaterBeautifyPrompt: '',   // 美化 agent 提示词（空=用内置默认）
     // 坐标（收藏楼层）
     anchorInlineBtn      : true,               // 楼层头部显示「收藏此楼」入口（关掉则只能从别处收藏，暂无）
     anchorSizeWarnBytes  : 8 * 1024 * 1024,    // 坐标收藏占用预警阈值（快照带样式偏大，给足余量）
@@ -100,6 +104,12 @@ export function getSettings() {
     // 展开默认对象时数组仍会共享引用；设置层必须持有自己的容器。
     if (s.calendarTemplates === DEFAULT_SETTINGS.calendarTemplates) s.calendarTemplates = [];
     if (s.calendarTemplateBindings === DEFAULT_SETTINGS.calendarTemplateBindings) s.calendarTemplateBindings = {};
+    if (s.theaterPoolBooks === DEFAULT_SETTINGS.theaterPoolBooks) s.theaterPoolBooks = [];
+    if (!Array.isArray(s.theaterPoolBooks)) s.theaterPoolBooks = [];
+    const n = Math.floor(Number(s.theaterCount));
+    s.theaterCount = Number.isInteger(n) && n >= 1 && n <= 3 ? n : 2;
+    const interval = Math.floor(Number(s.ledgerReconcileInterval));
+    s.ledgerReconcileInterval = Number.isInteger(interval) && interval >= 1 ? interval : 3;
     return s;
 }
 
@@ -221,4 +231,9 @@ export function saveLinesMode(mode) {
     const valid = (mode === 'days' || mode === 'manual') ? mode : 'turns';
     getSettings().linesMode = valid;
     saveSettingsDebounced();
+}
+
+export function getLedgerReconcileInterval() {
+    const v = parseInt(getSettings().ledgerReconcileInterval, 10);
+    return Number.isFinite(v) && v >= 1 ? v : 3;
 }

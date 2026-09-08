@@ -6,14 +6,14 @@ export function createLinesActions(env = {}) {
     let editing = false;
     let editToken = null;
     const refresh = () => { env.setCached?.(env.render?.(env.readRaw?.() || '')); env.refreshPanel?.(); env.refreshInline?.(); };
-    const runExclusive = async (silent, options) => {
+    const runExclusive = async (silent, options, travelContext) => {
         if (preparing || editing || env.isBusy?.()) return;
         const reservation = env.beginPreflight?.() || Object.freeze({ token: Symbol('lines-preflight') });
         preparing = reservation;
         try {
             if (!await env.precheck?.()) return;
             if (preparing !== reservation || env.preflightCurrent?.(reservation) === false) return { status: 'cancelled', reason: 'stale-preflight' };
-            return await env.runGenerate?.(silent, options, null, reservation);
+            return await env.runGenerate?.(silent, options, travelContext || null, reservation);
         } finally {
             if (preparing === reservation) {
                 preparing = null;
@@ -54,9 +54,9 @@ export function createLinesActions(env = {}) {
             if (!result.ok) return env.toast?.('这条线已不存在，请刷新面板', true);
             env.write?.({ raw: result.raw, ts: Date.now() }); refresh(); env.toast?.(result.model[Number(index)]?.pin ? '已锁定这条线' : '已解锁这条线');
         },
-        async generate() { return runExclusive(false, { reroll: true }); },
+        async generate(travelContext) { return runExclusive(false, { reroll: true }, travelContext); },
         async advance() { return runExclusive(env.silent?.(), undefined); },
-        async reroll() { return runExclusive(false, { reroll: true }); },
+        async reroll(travelContext) { return runExclusive(false, { reroll: true }, travelContext); },
         isEditing: () => editing,
         invalidatePreflight(reason = 'manual-abort') {
             const reservation = preparing;

@@ -70,7 +70,7 @@ export function createOutlineGeneration({
             }
             const raw = await callApi?.({
                 ctx,
-                prompt: buildOutlinePrompt(userName, charName, 'user'),
+                prompt: [buildOutlinePrompt(userName, charName, 'user'), apiOptions?.promptAddon].filter(Boolean).join('\n\n'),
                 config,
                 userName,
                 charName,

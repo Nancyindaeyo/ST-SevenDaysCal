@@ -68,7 +68,7 @@ export function createPointController(env) {
         env.state.isGenerating = false;
         env.setButton(null);
     }
-    async function triggerGenerate() {
+    async function triggerGenerate(travelContext = null) {
         if (env.state.isGenerating || env.editing?.()) return;
         if (env.syncing()) { env.toast('点正在同步到今天，稍候', null, true); return; }
         const view = env.view(); const char = view === 'char' ? String(env.char() || '').trim() : '';
@@ -78,7 +78,7 @@ export function createPointController(env) {
         if (!participantCurrent(owner) || !env.evaluate({ manager: env.owners, owner, chatId: env.chatId(), chatRevision: env.owners.currentChatRevision(), pluginEnabled: env.enabled() }).canCommit) { cleanupManualOwner(owner); return; }
         owner.previousCachedSchedule = env.state.cachedSchedule; owner.previousView = view; owner.previousChar = char; activeManualOwner = owner; env.state.cachedSchedule = null; env.state.isGenerating = true; env.setButton('generating');
         if (!env.panelVisible()) env.showPanel(); env.setBody(env.loading('正在规划', 'sp-abort-generate'));
-        void runGenerate(null, owner);
+        void runGenerate(travelContext, owner);
     }
     async function runGenerate(travelContext = null, owner = null) {
         const diagnostic = createGenerationDiagnosticScope('point');

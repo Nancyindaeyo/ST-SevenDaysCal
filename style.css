@@ -420,6 +420,42 @@ q::after {
     position: relative;
 }
 .sp-content-head:active { cursor: grabbing; }
+
+.sp-refresh-bar {
+    flex-shrink: 0;
+    padding: 8px 12px 10px;
+    border-bottom: 1px solid var(--sp-divider);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: var(--sp-sheet-bg);
+}
+.sp-refresh-bar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
+}
+.sp-refresh-bar-label {
+    font-size: var(--sp-fs-80);
+    color: var(--sp-subtle);
+}
+.sp-refresh-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--sp-fs-80);
+    color: var(--sp-subtle);
+}
+.sp-refresh-field .sp-input { min-height: 2.4em; resize: vertical; }
+.sp-refresh-bar-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.sp-schedule-header .sp-refresh-schedule,
+.sp-lines-tools .sp-refresh-lines,
+.sp-outline-header .sp-refresh-outline { display: none; }
 @media (max-width: 640px) {
     .sp-content-head { cursor: default; touch-action: auto; }
     .sp-content-head:active { cursor: default; }
@@ -4468,6 +4504,38 @@ select.sp-input { appearance: none; cursor: pointer; }
     justify-content: flex-end;
     align-items    : center;
 }
+.sp-theater-like {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--sp-fs-80);
+    cursor: pointer;
+    user-select: none;
+}
+.sp-theater-export-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 8px 0 0;
+}
+.sp-theater-batch { display: flex; flex-direction: column; gap: 8px; }
+.sp-theater-piece {
+    border: 1px solid var(--sp-divider);
+    border-radius: 8px;
+    padding: 0;
+}
+.sp-theater-piece-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+    cursor: pointer;
+    list-style: none;
+}
+.sp-theater-piece-summary::-webkit-details-marker { display: none; }
+.sp-theater-piece-title { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 
 /* ── Result region (sanitized beautify HTML) ── */
 .sp-theater-result {

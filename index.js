@@ -9,6 +9,9 @@ import {
 } from './state.js';
 import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
+import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
+import { refreshBarHtml, readRefreshBar } from './business/refresh/bar.js';
+import { createRefreshController } from './business/refresh/controller.js';
 import { createCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
@@ -39,7 +42,7 @@ import {
 import { escapeHtml, escapeAttr, autoGrowTextarea, cleanText } from './utils/dom.js';
 import { _cnToNumber, _CN_MONTH_ALIAS, extractDayFromTime } from './utils/cn-date.js';
 import { weatherGlyph, maskKey } from './utils/format.js';
-import { getSettings, parseExcludeParams, loadCfg, loadUtilityCfg, saveCfg, loadApiPresets, upsertApiPreset, deleteApiPreset, renameApiPreset, fabEnabled, pluginEnabled, injectEnabled, getLinesInterval, saveLinesInterval, getLinesMode, saveLinesMode } from './runtime/settings.js';
+import { getSettings, parseExcludeParams, loadCfg, loadUtilityCfg, saveCfg, loadApiPresets, upsertApiPreset, deleteApiPreset, renameApiPreset, fabEnabled, pluginEnabled, injectEnabled, getLinesInterval, saveLinesInterval, getLinesMode, saveLinesMode, getLedgerReconcileInterval } from './runtime/settings.js';
 import { postChatCompletion, callCustomApi, callMemoryApi, callTheaterApi, bindApiClient, GEN_TEMPERATURE } from './api/client.js';
 import { normalizeApiUrl } from './api/sse.js';
 import { safeDiagnosticLog, diagnosticMessage, makeDiagnosticError, shouldNotifyGeneration, classifyGenerationError } from './api/diagnostics.js';
@@ -322,6 +325,17 @@ function latestFloorBoundaryIdentity() {
     if (messageId < 0) return null;
     return Object.freeze({ ...captureChatBoundary(), messageId, swipeId: Number(ctx.chat?.[messageId]?.swipe_id ?? 0), contentSignature: _floorSig(messageId) || 'empty' });
 }
+function downloadJsonFile(filename, text) {
+    const blob = new Blob([String(text ?? '')], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
 function consumeDateBootstrap(messageId) {
     const pending = pendingDateBootstrap;
     if (!pending) return false;
@@ -337,9 +351,10 @@ function createTheaterHostFeature() {
         storage: globalThis.localStorage, coreModule: scriptCore, getContext, callTheaterApi,
         buildWorldInfoContext: ctx => buildWorldInfoContext(ctx), readCardExtras: ctx => readCardExtras(ctx), getMemText: () => getMemText(),
         names: () => ({ userName: getContext().name1 || '用户', charName: getContext().name2 || '角色' }),
-        settings: () => { const s = getSettings(); return { theaterStylePrompt: typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '', theaterBeautifyPrompt: typeof s.theaterBeautifyPrompt === 'string' ? s.theaterBeautifyPrompt : '' }; },
-        onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('小剧场美化失败，已保留原稿', null, true); },
+        settings: () => { const s = getSettings(); return { theaterStylePrompt: typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '', theaterCount: s.theaterCount, theaterPoolBooks: Array.isArray(s.theaterPoolBooks) ? s.theaterPoolBooks : [] }; },
+        onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
         stage: text => { if (theaterMode) setTheaterBody(loadingHtml(`正在${text}`, 'sp-abort-theater')); }, renderAiMessageHtml,
+        downloadJson: downloadJsonFile,
         ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore }),
     });
     return runtime.feature;
@@ -1259,12 +1274,16 @@ function cancelTimeTravelForDeletion() {
 }
 
 function appendTravelPromptContext(prompt, travelContext = null) {
-    if (!travelContext || travelContext.feedback !== 'time-travel') return prompt;
-    const target = travelContext.targetDate;
-    const targetText = target && Number.isInteger(Number(target.month)) && Number.isInteger(Number(target.day))
-        ? `目标日期：${target.month}月${target.day}日`
-        : '';
-    return [prompt, travelContext.promptAddon, targetText].filter(Boolean).join('\n\n');
+    if (!travelContext) return prompt;
+    if (travelContext.feedback === 'time-travel') {
+        const target = travelContext.targetDate;
+        const targetText = target && Number.isInteger(Number(target.month)) && Number.isInteger(Number(target.day))
+            ? `目标日期：${target.month}月${target.day}日`
+            : '';
+        return [prompt, travelContext.promptAddon, targetText].filter(Boolean).join('\n\n');
+    }
+    if (travelContext.promptAddon) return [prompt, travelContext.promptAddon].filter(Boolean).join('\n\n');
+    return prompt;
 }
 
 // 扩展目录绝对路径（引自身 style.css 进 shadow）；ST 站点根（引 fontawesome.min.css，
@@ -1292,7 +1311,7 @@ const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" f
 const MODULE_INTROS = {
     schedule:
         _iLede('「点」从故事里的“今天”开始，为我／TA 安排接下来 3 天的事项，并把更远的事另列在“未来”；它不是人物此刻状态卡。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；是否出现、格式完整与时间合理取决于模型是否遵循提示词和主楼剧情质量，缺失或不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('默认不会随日期变化自动重排，也不会潜伏注入主楼 AI。想更新就手动刷新；若要“今天”变化后后台重排，可在设置 → 推进设置 → 日期与点开启“点：后台自动跟随「今天」”（会额外调用 API）。') +
+        _iSub('默认不会随日期变化自动重排，也不会潜伏注入主楼 AI。想更新用面板顶上的刷新条：勾选点／线／冷知识／面，「按正文对齐」打补丁，「重新生成」则按原因重做。设置 → 推进设置 → 日期与对齐里可打开「点/线按正文自动对齐」。') +
         _iKey('fa-rotate-right', '生成／刷新', '按最新剧情重做未锁事项；新结果会覆盖旧的未锁数据') +
         _iKey('fa-thumbtack',    '固定 TA',    '只把当前 TA 留在 TA▾ 抽屉，方便下次查看；不是锁定事项') +
         _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条点的操作都收在这里') +
@@ -1352,11 +1371,11 @@ const MODULE_INTROS = {
         _iKey('fa-plus',           '应用到点／线／轴', '按上面的规则写入对应模块') +
         _iKey('fa-calendar-check', '应用历法',    '确认冲突处理后换用这套历法'),
     theater:
-        _iLede('「棱」＝小剧场：按当前故事背景写独立短篇／番外，结果不进入正式角色扮演楼层。可直接填写要求，也可从模板起草；模板库在设置 → 数据设置 → 小剧场模板库。') +
-        _iKey('fa-shuffle', '随机',     '只从模板库随机填入一份模板；确认或修改输入后，还要点“生成小剧场”') +
-        _iKey('fa-file-lines', '模板内容', '查看这次生成实际使用的模板文字') +
-        _iKey('fa-expand',  '全屏浏览', '铺满视口阅读；再次点击或按 Esc 退出') +
-        _iSub('［重新生成］沿用当前小剧场的主题／模板再生成一版。可先改标题再点［永久保存］存到本对话；草稿最多 10 条，新稿会挤掉最旧草稿。草稿和永久稿列表里的［删除］只删除对应稿件。'),
+        _iLede('「棱」＝纯文字番外：按当前正文和挂载世界书抽签，一次出 1～3 条，每条约 1500 字。不再做 HTML 美化。世界书只给棱读，不要绑到角色卡。喜欢的条目可导出为新世界书「构画-棱-兔子镜母本」，再自己导进兔子镜。') +
+        _iKey('fa-shuffle', '随机模板', '只从手写模板库随机填入一份；确认后再点生成。主要还是靠挂载世界书抽签。') +
+        _iKey('fa-wand-magic-sparkles', '生成番外', '可空输入。按正文 + 抽签一次写出几条纯文字。') +
+        _iKey('fa-heart', '喜欢', '勾选后点「导出已选」生成新世界书母本，不是把原书再导一遍。') +
+        _iSub('［重新生成］再抽一轮。可先改标题再点［永久保存］。草稿最多 12 条。'),
     anchor:
         _iLede('「坐标」收藏的是 AI 楼层正文的副本，方便以后回看，不是完整样式快照。入口受设置 → 通用设置 → 显示与通知管理里的“收藏此楼入口”控制，只会出现在 AI 楼；收藏后可立即选择标签，再点同一枚按钮会取消收藏。') +
         _iSub('收藏夹按角色 → 聊天 → 楼层分组，可用标签筛选和管理。删除收藏只删副本，不会删除或改动原楼层。') +
@@ -1690,6 +1709,48 @@ const spaceFeature = createSpaceFeature({
     },
 });
 let theaterMode          = false;
+const refreshController = createRefreshController({
+    context: getContext,
+    loadConfig: loadCfg,
+    callApi: callCustomApi,
+    calendar: loadCalDesc,
+    cleanText,
+    pluginEnabled,
+    enabled: () => getSettings().ledgerReconcileEnabled === true,
+    interval: getLedgerReconcileInterval,
+    isSuppressed: messageId => isAutomationSuppressed(messageId, AUTOMATION_MODULES.POINT) || isAutomationSuppressed(messageId, AUTOMATION_MODULES.LINES),
+    readPointRaw: () => readStore(getCacheKey('user', ''))?.raw || '',
+    readLinesRaw: () => readStore(getLinesCacheKey())?.raw || '',
+    writePointRaw: async raw => {
+        const key = getCacheKey('user', '');
+        const saved = readStore(key) || {};
+        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+    },
+    writeLinesRaw: async raw => {
+        const key = getLinesCacheKey();
+        const saved = readStore(key) || {};
+        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+    },
+    regenPoint: travel => pointController.triggerGenerate(travel),
+    regenLines: travel => linesFeature.actions.reroll(travel),
+    regenDashed: opts => linesFeature.dashed.run(opts),
+    regenOutline: opts => outlineFeature.generation.trigger(opts),
+    onPatched: () => {
+        const saved = readStore(getCacheKey('user', ''));
+        if (saved?.raw) {
+            pointState.cachedSchedule = renderSchedule(saved.raw, saved.userName || '用户', currentView, loadCalDesc());
+            if (!outlineMode && !linesMode && !spaceMode && !theaterMode && !axisState.almanacMode) setBody(pointState.cachedSchedule);
+        }
+        linesFeature.refreshPanel?.();
+        syncLatestScheduleBlock();
+        refreshInlineWindow(true);
+    },
+    toastAlways: (msg, isError) => showToast(msg, null, !!isError),
+});
+function syncRefreshBar(view = _lastMainView) {
+    const show = view === 'schedule' || view === 'lines' || view === 'outline';
+    $in('#sp-refresh-bar').css('display', show ? 'flex' : 'none');
+}
 // 暗历内联编辑态/归档折叠态/批量模式已随 ledger 渲染层迁入 business/ledger/render.js
 // （经 getLedgerEditor、归档/批量 actions 与 resetLedgerRenderState 复位）。
 const _injectTexts      = {};
@@ -1949,6 +2010,7 @@ jQuery(async () => {
         axisCalendarManager.close();
         _lastMainView = 'schedule';
         coordinateRuntime?.feature?.onChatChanged({ chatId: getContext()?.chatId ?? null, chatMetadataRef: getContext()?.chatMetadata ?? null, enabled: pluginEnabled() });
+        refreshController.resetCounter();
         const loadingChatId = String(getContext()?.chatId || '');
         await loadExternalChat({ force: true });
         if (String(getContext()?.chatId || '') !== loadingChatId) return;
@@ -2060,10 +2122,11 @@ jQuery(async () => {
         // 轴日历块：独立于线主开关，刷新当前渲染窗口（最新 AI 楼读活态，历史楼读快照；只读，无生成）
         syncLatestAlmanacBlock();
         syncLatestScheduleBlock();   // 点·日程条：同上，随新楼补挂（只读）
+        const mid = Number(messageId);
+        await refreshController.onAiFloor(mid);
         // Master switch: linesEnabled=false disables auto-advance + inline block
         if (getSettings().linesEnabled === false) return;
-        const mid = Number(messageId);
-        await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
+        await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: refreshController.didReconcile(mid) || isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
         return;
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
@@ -2571,16 +2634,7 @@ function runAnchorAftermath() {
     const _linesDay = almTodayAnchor();
     void linesFeature.onDateAftermath({ messageId: _linesFloorId, chatId: getContext().chatId, day: _linesDay ? `${+_linesDay.month}-${+_linesDay.day}` : null });
     if (axisState.almanacMode) renderAlmanacPanel();
-    // 点·后台自动跟随「今天」：仅在开关开时才自动重排点（每次一 API）；关（默认）时点原地不动，
-    // 用户想对齐今天时去点面板手动刷新即可。syncPointToToday 内部还有「点从未生成过就 no-op」守卫，双保险。
-    // 时旅首楼：点重排由显式步骤接管（POINT step），此处跳过自动跟随，防重复 API。
-    if (getSettings().scheduleAutoDetect === true) {
-        const floorId = (getContext().chat?.length ?? 1) - 1;
-        const pointSuppressed = Number.isInteger(floorId) && floorId >= 0 && isAutomationSuppressed(floorId, AUTOMATION_MODULES.POINT);
-        if (!pointSuppressed && schedulePointNeedsSync({ view: 'user', charName: '' })) {
-            syncPointToToday(true, { targetScope: { view: 'user', charName: '' } });
-        }
-    }
+    // 点不再随「今天」后台整表重排；点/线对齐走刷新条或 ledgerReconcileEnabled。
 }
 
 // schedulePointNeedsSync() —— 判断后台跟随/时旅流程是否仍有 pending follow-up 需要补同步。
@@ -2842,6 +2896,8 @@ function injectModal() {
                         </div>
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
+
+                    ${refreshBarHtml({ selected: ['point', 'lines'] })}
 
                     <!-- Settings overlay: covers content-col only, sidebar stays visible -->
                     <div id="sp-settings-overlay" class="sp-settings-overlay" style="display:none">
@@ -3184,8 +3240,14 @@ function injectModal() {
                                         <p class="sp-cfg-hint">只换<strong>语气 / 行文 / 人格色彩</strong>；「间仍是创作顾问、不推进剧情、不扮演故事角色」这条内核<strong>恒定保留</strong>（写得再放飞它也不会跑去演戏）。<b>只作用于「间」</b>，不影响面·和间聊聊。支持 <code>{{char}}</code> / <code>{{user}}</code>。</p>
                                     </details>
                                     <details id="sp-theater-section" class="sp-settings-subsection sp-prompt-theater-write"><summary>棱 · 写作提示词</summary>
+                                        <p class="sp-cfg-hint">棱固定输出纯文字番外，不再做 HTML 美化。一次 1～3 条，每条约 ${THEATER_TARGET_CHARS} 字。挂载的世界书只给棱抽签读，不要绑到角色卡。</p>
+                                        <label class="sp-mode-opt"><span>一次数量</span><input id="sp-theater-count" class="sp-input sp-interval-input" type="number" min="1" max="3" value="${escapeAttr(String(getSettings().theaterCount || THEATER_COUNT_DEFAULT))}"><span>条（上限 3）</span></label>
                                         <label class="sp-cfg-label">写作提示词（文风 + 范文）</label>
                                         <textarea id="sp-theater-style" class="sp-input sp-theater-cfg-textarea" placeholder="指定文体基调、节奏、感官描写要求，禁套路化开头结尾；也可直接贴 1-2 段你认可的文笔让 AI 模仿其笔触…"></textarea>
+                                        <label class="sp-cfg-label">抽取用世界书（多选）</label>
+                                        <p class="sp-cfg-hint">把小回 / 极光 / 小兔等导入酒馆后在此勾选。棱会剥除 HTML、交互和主楼插入指令。导出喜欢的条目会写成「${THEATER_EXPORT_BOOK}」。</p>
+                                        <input id="sp-theater-pool-search" class="sp-input sp-wi-exclude-search" type="search" placeholder="查找世界书…">
+                                        <div id="sp-theater-pool-list" class="sp-wi-exclude-list"></div>
                                     </details>
                                 </div>
                             </details>
@@ -3258,13 +3320,15 @@ function injectModal() {
                                 <summary class="sp-settings-layer-title">推进设置</summary>
                                 <div class="sp-settings-layer-body">
                                     <details class="sp-settings-section" id="sp-axis-section">
-                                        <summary class="sp-settings-section-title">日期与点</summary>
+                                        <summary class="sp-settings-section-title">日期与对齐</summary>
                                         <div class="sp-settings-section-body">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-almanac-autodetect" ${getSettings().almanacAutoDetect !== false ? 'checked' : ''}><span>读不到时间戳时，用 API 兜底判定日期</span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复兜底一次</span></label>
                                             <p class="sp-cfg-hint">有戳时每楼直接读、<b>不调 API</b>；只有漏打戳、或戳没写月日（如「谷雨」）时，才隔几楼调一次 API 从正文推算日期补上。<b>关掉＝只认戳、绝不为日期调 API</b>。</p>
-                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-schedule-autodetect" ${getSettings().scheduleAutoDetect === true ? 'checked' : ''}><span>点：后台自动跟随「今天」</span></label>
-                                            <p class="sp-cfg-hint">开＝「今天」一推进就<b>自动在后台重排点</b>到今天（<b>每次多一趟 API</b>）。<b>关（默认）＝点原地不动、不后台调 API</b>；你想让点对齐今天时，去点面板<b>手动刷新一次</b>即可（刷新出来的点就从今天起排）。不常用点、想省 API 的就别开。</p>
+                                            <hr class="sp-mem-divider">
+                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile" ${getSettings().ledgerReconcileEnabled === true ? 'checked' : ''}><span>点/线按正文自动对齐</span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-reconcile-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLedgerReconcileInterval()))}"><span>条 AI 回复对齐一次</span></label>
+                                            <p class="sp-cfg-hint">默认关。开了以后每隔几条 AI 楼，用最新正文给未锁的点和线打纠偏补丁（完成/推迟/改描述），不整表洗牌。冷知识和面不自动改。结束后一定会 toast。时旅占闸的楼会跳过。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-pace-lines-section">
@@ -3512,6 +3576,28 @@ function injectModal() {
     $linesWrap.on('click', '.sp-lines-dashed-lock', function () { linesFeature.dashed.toggle($(this).attr('data-id')); });
     $linesWrap.on('click', '.sp-lines-dashed-delete', function () { linesFeature.dashed.remove($(this).attr('data-id')); });
     $in('#sp-body').on('click', '#sp-gen-schedule-now, .sp-refresh-schedule', onRegenClick);
+    $in('#sp-refresh-bar').on('click', '.sp-refresh-all', function () {
+        $in('#sp-refresh-bar .sp-refresh-mod').prop('checked', true);
+    });
+    $in('#sp-refresh-align').on('click', async function () {
+        const form = readRefreshBar($in('#sp-refresh-bar'));
+        const selected = form.selected.filter(name => name === 'point' || name === 'lines');
+        if (!selected.length) { showToast('对齐只会动点和线，请至少勾选其中一项', null, true); return; }
+        showToast('正在按正文对齐…');
+        const result = await refreshController.align({ ...form, selected });
+        if (result?.status === 'updated') showToast(result.summary);
+        else if (result?.status === 'invalid') showToast('请先勾选要动的模块', null, true);
+        else if (result?.status === 'skipped' && result.reason === 'empty') showToast('还没有点或线可以对齐', null, true);
+        else if (result?.status === 'failed') showToast(`对齐失败：${diagnosticMessage(result.error)}`, null, true);
+    });
+    $in('#sp-refresh-regen').on('click', async function () {
+        const form = readRefreshBar($in('#sp-refresh-bar'));
+        if (!form.selected.length) { showToast('请先勾选要重新生成的模块', null, true); return; }
+        if (!form.reason) { showToast('重新生成请先写「为什么刷新」', null, true); $in('#sp-refresh-reason').trigger('focus'); return; }
+        const result = await refreshController.regenerate(form);
+        if (result?.status === 'invalid') showToast('重新生成请先写「为什么刷新」', null, true);
+        else if (result?.status === 'skipped') showToast('请先勾选要重新生成的模块', null, true);
+    });
     // 点视图头部 📌：固定/取消固定当前 char（只在 char 视角出现）。名字取按钮 data-name，兜底 charViewName。
     $in('#sp-body').on('click', '.sp-point-pin-char', function () {
         onCharPinToggle($(this).attr('data-name'));
@@ -3667,8 +3753,7 @@ function injectModal() {
         batch: { scopes: BATCH_SCOPES, scope: getBatchScope, setScope: setBatchScope, selected: getBatchSelected, reset: batchReset, ids: batchScopeIds, exec: execBatch },
         toast: showToast, resetCapture: () => { ledgerCaptureCounter = 0; },
     });
-    // 轴面板「今天」栏：±1天 / 改（内联月日） / 自动（清锚）等操作经 runAnchorAftermath 共享善后；
-    // 点后台是否重排由 scheduleAutoDetect 决定。
+    // 轴面板「今天」栏：±1天 / 改（内联月日） / 自动（清锚）等操作经 runAnchorAftermath 共享善后。
     $almanac.on('click', '.sp-alm-today-prev', function () { almNudgeToday(-1); });
     $almanac.on('click', '.sp-alm-today-next', function () { almNudgeToday(1); });
     $almanac.on('click', '.sp-alm-today-edit', function () {
@@ -3914,6 +3999,7 @@ function injectModal() {
             $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
             $btn.addClass('sp-view-active');
             _lastMainView = view;   // 记住当前模块视图，供下次打开面板时恢复（同 chat）
+            syncRefreshBar(view);
         } else if (isSubBtn) {
             $inAll('.sp-sub-btn').removeClass('sp-view-active');
             $btn.addClass('sp-view-active');
@@ -4278,10 +4364,14 @@ function injectModal() {
         applyUiFont();
         showToast('已恢复默认字体');
     });
-    // 点·后台自动跟随「今天」：只写值。点无独立判定车，跟随经 runAnchorAftermath 门控，无计数器可重置。
-    $in('#sp-schedule-autodetect').on('change', function () {
-        getSettings().scheduleAutoDetect = this.checked;
+    $in('#sp-ledger-reconcile').on('change', function () {
+        getSettings().ledgerReconcileEnabled = this.checked;
         saveSettingsDebounced();
+        refreshController.resetCounter();
+    });
+    $in('#sp-ledger-reconcile-interval').on('change', function () {
+        const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 3)));
+        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter();
     });
     // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
     $in('#sp-ledger-inject').on('change', function () {
@@ -4627,6 +4717,7 @@ function resetPanelToScheduleHome() {
     $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
     $inAll('.sp-sub-btn').removeClass('sp-view-active');
     $in(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+    syncRefreshBar('schedule');
 }
 function openSchedule() {
     showPanel();
@@ -7035,13 +7126,55 @@ function refreshMemoryStatus() {
 function renderTheaterSection() {
     const s = getSettings();
     $in('#sp-theater-style').val(typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '');
+    $in('#sp-theater-count').val(String(s.theaterCount || THEATER_COUNT_DEFAULT));
+    void renderTheaterPoolList();
     void theaterFeature?.refreshUi();
+}
+
+async function renderTheaterPoolList() {
+    const $list = $in('#sp-theater-pool-list');
+    if (!$list.length) return;
+    const names = [...new Set((await getAllWorldNames(getContext()) || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
+    const selected = new Set(getSettings().theaterPoolBooks || []);
+    if (!names.length) {
+        $list.html('<span class="sp-cfg-hint">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选。</span>');
+        return;
+    }
+    $list[0].innerHTML = names.map(name => {
+        const on = selected.has(name);
+        return `<label class="sp-wi-exclude-row${on ? ' sp-wi-exclude-on' : ''}" data-name="${escapeAttr(name)}"><input type="checkbox" class="sp-theater-pool-cb" data-name="${escapeAttr(name)}"${on ? ' checked' : ''}><span class="sp-wi-exclude-name">${escapeHtml(name)}</span></label>`;
+    }).join('');
+    const query = String($in('#sp-theater-pool-search').val() || '').trim().toLowerCase();
+    if (query) {
+        $list.find('.sp-wi-exclude-row').each(function () {
+            const name = String($(this).data('name') || '').toLowerCase();
+            $(this).toggle(name.includes(query));
+        });
+    }
 }
 
 // 棱设置分节的事件（config 字段即改即存；模板 CRUD。缓存治理已移交存储管理面板）
 function bindTheaterHandlers() {
-    // 棱 section 会被布局 seam 拆成提示词/数据两个抽屉；绑定共同祖先，避免指向已移除旧节点。
     theaterFeature?.bindSettings($in('.sp-settings-body'));
+    $in('#sp-theater-count').on('change', function () {
+        const n = Math.max(1, Math.min(3, Math.floor(Number(this.value) || THEATER_COUNT_DEFAULT)));
+        getSettings().theaterCount = n; this.value = String(n); saveSettingsDebounced();
+    });
+    $in('#sp-theater-pool-list').on('change', '.sp-theater-pool-cb', function () {
+        const name = String($(this).data('name') || '');
+        const books = new Set(getSettings().theaterPoolBooks || []);
+        if (this.checked) books.add(name); else books.delete(name);
+        getSettings().theaterPoolBooks = [...books];
+        saveSettingsDebounced();
+        $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
+    });
+    $in('#sp-theater-pool-search').on('input', function () {
+        const query = String(this.value || '').trim().toLowerCase();
+        $in('#sp-theater-pool-list .sp-wi-exclude-row').each(function () {
+            const name = String($(this).data('name') || '').toLowerCase();
+            $(this).toggle(!query || name.includes(query));
+        });
+    });
 }
 
 function bindMemoryHandlers() {

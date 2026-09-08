@@ -23,6 +23,6 @@ export function createTheaterFeature(env = {}) {
         destroy() { this.abort('destroyed'); this.ui?.destroy?.(); },
         get busy() { return controller.busy; },
     };
-    if (env.ui) feature.ui = createTheaterUi({ repository: env.repository, templates: env.templates, resolveRegen: env.resolveRegen, draftCap: env.draftCap, ...env.ui, feature });
+    if (env.ui) feature.ui = createTheaterUi({ repository: env.repository, templates: env.templates, resolveRegen: env.resolveRegen, draftCap: env.draftCap, exporter: env.exporter, ...env.ui, feature });
     return feature;
 }
