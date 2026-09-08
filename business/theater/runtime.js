@@ -9,6 +9,7 @@ import { createTheaterTemplates } from './templates.js';
 import { createTheaterPool } from './pool.js';
 import { createTheaterExporter } from './export-book.js';
 import { THEATER_TEMPLATE_BOOK, THEATER_DRAFT_CAP, THEATER_EXPORT_BOOK, theaterDraftKey } from './constants.js';
+import { resolveTheaterRegen } from './identity.js';
 import { getChatRoot, isExternalMode, persistExternalRoots, registerExternalStorageContext } from '../../runtime/external-chat-storage.js';
 
 export function createTheaterRuntime(host = {}) {
@@ -45,10 +46,13 @@ export function createTheaterRuntime(host = {}) {
     const feature = createTheaterFeature({
         repository, templates, generation, storyContext, owners, captureTarget, draftCap: THEATER_DRAFT_CAP, exporter,
         drawPool: (settings) => pool.draw({ books: settings?.theaterPoolBooks, count: settings?.theaterCount }),
-        resolveRegen: (piece, fallback) => ({ input: String(piece?.request || piece?.templateSource?.input || fallback || '').trim(), templateSource: piece?.templateSource?.input ? { ...piece.templateSource, input: String(piece.templateSource.input).trim() } : null }),
+        resolveRegen: resolveTheaterRegen,
         generate: (...args) => generation(...args), chatId: () => host.getContext?.().chatId, chatRevision: () => owners.currentChatRevision(),
         names: host.names, settings: host.settings, storyContext: owner => storyContext(owner), stage: host.stage, current: () => {},
-        ui: { host: host.ports },
+        ui: {
+            host: host.ports,
+            pickPoolEntry: avoidKey => pool.pickRandom({ books: host.settings?.()?.theaterPoolBooks, avoidKey }),
+        },
     });
     return { feature, owners, repository, generation, templates, storyContext, captureTarget, pool, exporter };
 }

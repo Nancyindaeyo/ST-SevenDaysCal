@@ -6,12 +6,12 @@ import { normalizeTheaterCount } from './recipe.js';
 import { createGenerationDiagnosticScope, makeDiagnosticError } from '../../api/diagnostics.js';
 
 export function createTheaterGeneration({ write, buildWriteMessages, onDiagnostic, makeId = () => theaterId() } = {}) {
-    return async function generateTheater(input, { signal, onStage, templateSource, userName, charName, storyContext, settings = {}, recipes = [], headers = [], count, isCurrent = () => true, diagnosticScope = null } = {}) {
+    return async function generateTheater(input, { signal, onStage, templateSource, userName, charName, storyContext, settings = {}, recipes = [], headers = [], count, boxed = false, isCurrent = () => true, diagnosticScope = null } = {}) {
         const diagnostic = diagnosticScope || createGenerationDiagnosticScope('theater-generation');
         const frozenStoryContext = { ...(storyContext || {}), userName, charName };
-        const pieceCount = normalizeTheaterCount(count ?? settings.theaterCount, THEATER_COUNT_DEFAULT);
+        const pieceCount = boxed ? 1 : normalizeTheaterCount(count ?? settings.theaterCount, THEATER_COUNT_DEFAULT);
         onStage?.('折射');
-        const raw = await write(buildWriteMessages(input, { userName, charName, storyContext: frozenStoryContext }, settings, { recipes, headers, count: pieceCount }), { maxTokens: 30000, signal, userName, charName, promptMode: 'creative', diagnosticModule: 'theater-generation', diagnosticSink: diagnostic.sink });
+        const raw = await write(buildWriteMessages(input, { userName, charName, storyContext: frozenStoryContext }, settings, { recipes, headers, count: pieceCount, boxed }), { maxTokens: 30000, signal, userName, charName, promptMode: 'creative', diagnosticModule: 'theater-generation', diagnosticSink: diagnostic.sink });
         if (!String(raw || '').trim()) throw diagnostic.rejected(makeDiagnosticError('empty-output', { phase: 'empty-output' }), { phase: 'parse', reasonCode: 'theater-empty-draft' });
         if (!isCurrent()) throw Object.assign(new Error('theater-owner-stale'), { name: 'AbortError' });
         const batchId = makeId();

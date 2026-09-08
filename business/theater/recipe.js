@@ -151,3 +151,37 @@ export function drawTheaterRecipesAcrossBooks(books, count = 2, { random = Math.
 export function drawTheaterRecipes(entries, count = 2, { random = Math.random, bookName = '' } = {}) {
     return drawTheaterRecipesAcrossBooks([{ name: bookName, entries }], count, { random });
 }
+
+export function poolEntryKey(item) {
+    return `${item?.bookName || ''}:${item?.uid ?? ''}`;
+}
+
+export function listPlayablePoolEntries(books = []) {
+    const items = [];
+    for (const book of books || []) {
+        const name = String(book?.name || book?.bookName || '').trim();
+        for (const entry of worldInfoEntries(book)) {
+            if (entry?.disable === true) continue;
+            const comment = String(entry.comment || '').trim();
+            if (isTheaterHeaderEntry(comment)) continue;
+            const content = String(entry.content || '').trim();
+            if (!content) continue;
+            items.push({
+                uid: entry.uid,
+                bookName: name,
+                title: comment || '(无标题)',
+                content,
+            });
+        }
+    }
+    return items;
+}
+
+export function pickRandomPoolEntry(books, { random = Math.random, avoidKey = '' } = {}) {
+    const items = listPlayablePoolEntries(books);
+    if (!items.length) return null;
+    const skip = String(avoidKey || '');
+    const choices = skip && items.length > 1 ? items.filter(item => poolEntryKey(item) !== skip) : items;
+    const pool = choices.length ? choices : items;
+    return pool[Math.min(pool.length - 1, Math.floor(random() * pool.length))] || null;
+}

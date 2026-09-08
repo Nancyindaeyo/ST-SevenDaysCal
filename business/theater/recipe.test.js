@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isTheaterHeaderEntry, stripTheaterRecipe, drawTheaterRecipes, drawTheaterRecipesAcrossBooks, normalizeTheaterCount } from './recipe.js';
+import { isTheaterHeaderEntry, stripTheaterRecipe, drawTheaterRecipes, drawTheaterRecipesAcrossBooks, normalizeTheaterCount, pickRandomPoolEntry, poolEntryKey } from './recipe.js';
 import { parseTheaterPieces } from './pieces.js';
 import { buildTheaterExportBook, likedTheaterPieces } from './export-book.js';
 import { buildWriteMessages } from './prompts.js';
@@ -57,6 +57,14 @@ test('parseTheaterPieces reads tagged blocks and falls back to one blob', () => 
     const plain = parseTheaterPieces('没有标签的一整篇', { makeId: () => 'x' });
     assert.equal(plain.length, 1);
     assert.equal(plain[0].raw, '没有标签的一整篇');
+    const marked = parseTheaterPieces('【番外】\n标题：回望\n第一段\n\n【番外】\n第二段', { makeId: (() => { let n = 0; return () => `m-${++n}`; }) });
+    assert.equal(marked.length, 2);
+    assert.equal(marked[0].title, '回望');
+    assert.equal(marked[1].raw, '第二段');
+    const fenced = parseTheaterPieces('```xml\n<theater_piece><title>问</title><body>答</body></theater_piece>\n```', { makeId: () => 'f' });
+    assert.equal(fenced[0].raw, '答');
+    const unclosed = parseTheaterPieces('<theater_piece><title>开</title><body>没写完', { makeId: () => 'u' });
+    assert.equal(unclosed[0].raw, '没写完');
 });
 
 test('export book splits liked pieces into 展现形式 and 主题', () => {
@@ -121,7 +129,7 @@ test('pool loads every selected book then draws N, not the first book only', asy
     assert.deepEqual(drawn.recipes.map(item => item.bookName).sort(), ['小兔', '小回', '极光'].sort());
 });
 
-test('write prompt forbids HTML and asks for N theater_piece blocks', () => {
+test('write prompt forbids HTML and asks for N loose 番外 blocks', () => {
     const messages = buildWriteMessages('想看回望', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
         count: 2,
         recipes: [
@@ -130,10 +138,44 @@ test('write prompt forbids HTML and asks for N theater_piece blocks', () => {
         ],
     });
     assert.match(messages[0].content, /禁止输出 HTML/);
-    assert.match(messages[0].content, /theater_piece/);
+    assert.match(messages[0].content, /【番外】/);
     assert.match(messages[0].content, /一次写出 2 条/);
-    assert.match(messages[0].content, /第 1 个 theater_piece 必须按抽签 1 写/);
+    assert.match(messages[0].content, /第 1 条按抽签 1 写/);
     assert.equal(messages[0].content.includes('自行想'), false);
+    const boxed = buildWriteMessages('这是一条很长的世界书内容', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
+        boxed: true,
+        recipes: [{ title: '装置', stripped: '这是一条很长的世界书内容', bookName: '极光' }],
+    });
+    assert.match(boxed[0].content, /一次写出 1 条/);
+    assert.equal(boxed[1].content.includes('这是一条很长的世界书内容'), false);
+});
+
+test('random pool pick uses entry content and skips headers', () => {
+    const books = [
+        { name: '小回', entries: [
+            { uid: 0, comment: '使用必开（头）', content: '禁 HTML' },
+            { uid: 1, comment: '回望', content: '回顾正文。' },
+        ] },
+        { name: '极光', entries: [
+            { uid: 2, comment: '装置', content: '<div>问卷题</div>' },
+        ] },
+    ];
+    const first = pickRandomPoolEntry(books, { random: () => 0 });
+    assert.equal(first.title, '回望');
+    assert.equal(first.content, '回顾正文。');
+    const second = pickRandomPoolEntry(books, { random: () => 0, avoidKey: poolEntryKey(first) });
+    assert.equal(second.title, '装置');
+    assert.equal(second.content, '<div>问卷题</div>');
+});
+
+test('pool random fill loads checked books and returns raw content', async () => {
+    const pool = createTheaterPool({
+        loadWorldInfo: async name => ({ entries: [{ uid: 1, comment: name, content: `${name}原文` }] }),
+    });
+    const pick = await pool.pickRandom({ books: ['小回', '极光'], random: () => 0 });
+    assert.equal(pick.content, '小回原文');
+    const other = await pool.pickRandom({ books: ['小回', '极光'], random: () => 0, avoidKey: poolEntryKey(pick) });
+    assert.equal(other.content, '极光原文');
 });
 
 test('theater background world info is character books only', () => {

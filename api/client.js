@@ -187,7 +187,7 @@ export async function postChatCompletion(options = {}) {
     }
 }
 
-async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, promptMode = PROMPT_MODES.MECHANICAL, bypassPreset = false, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
+async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, acceptPartial = false, promptMode = PROMPT_MODES.MECHANICAL, bypassPreset = false, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
     const signal = normalizeAbortSignal(inputSignal);
     throwIfPreAborted(signal);
     // 总开关硬闸：插件关闭时挡住一切生成（手动 + 后台判定），防任何路径漏网。tag 供调用方识别、静默处理。
@@ -304,7 +304,7 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
                     );
                 }
             } else if (stream) {
-                const content = await readSseContent(res, { allowEmptyOutput });
+                const content = await readSseContent(res, { allowEmptyOutput, acceptPartial });
                 if ((!content && !allowEmptyOutput) || isPlaceholderContent(content)) throw makeDiagnosticError('empty-output', { phase: 'empty-output' });
                 return content;
             } else {
@@ -315,7 +315,7 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
                     throw makeDiagnosticError('invalid-json', { phase: 'response' });
                 }
                 if (data?.error) throw makeDiagnosticError('response-error', { phase: 'response' });
-                return extractCompletion(data, { allowEmptyOutput });
+                return extractCompletion(data, { allowEmptyOutput, acceptPartial });
             }
         } catch (err) {
             if (timedOut) throw makeDiagnosticError('timeout', { phase: 'request', timeoutSec, status: Number(diagnosticLifecycle?.httpStatus) || undefined });
@@ -380,5 +380,5 @@ export async function callTheaterApi(messages, { maxTokens = 30000, signal = nul
     if (!cfg.url || !cfg.key) throw makeDiagnosticError('config-missing');
     const ctx = getContext();
     const names = { userName: userName || ctx?.name1 || '用户', charName: charName || ctx?.name2 || '角色' };
-    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, ...names, promptMode, diagnosticModule, diagnosticSink, bypassPreset: true });
+    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, ...names, promptMode, diagnosticModule, diagnosticSink, bypassPreset: true, acceptPartial: true });
 }
