@@ -1,5 +1,6 @@
 import { renderTheaterPieceHtml } from './render.js';
 import { buildTheaterSnapshot } from './snapshot.js';
+import { selectTheaterView, theaterPieceOpen } from './view.js';
 import { classifyGenerationError } from '../../api/diagnostics.js';
 
 // 棱 UI 只编排注入的宿主能力；它不读取 SillyTavern 全局对象，也不拥有生成状态。
@@ -8,7 +9,13 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     host.captureTarget ||= injectedCapture;
     const esc = host.escapeHtml || (value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])));
     const attr = host.escapeAttr || esc;
-    const state = { current: null, templates: [], source: null, retry: null, lastRandom: null, bound: false, mountRoot: null, fsEsc: null, imageCleanup: null, settingsRoots: [], generationSeq: 0, templateSeq: 0, abortPending: false, batchId: '', poolNames: [], poolQuery: '' };
+    const state = { current: null, templates: [], source: null, retry: null, lastRandom: null, bound: false, mountRoot: null, fsEsc: null, imageCleanup: null, settingsRoots: [], generationSeq: 0, templateSeq: 0, abortPending: false, batchId: '', solo: false, poolNames: [], poolQuery: '' };
+    const dataOf = (el, key) => {
+        const node = el?.closest?.(`[data-${key}]`) || el;
+        const attr = node?.getAttribute?.(`data-${key}`);
+        if (attr != null && attr !== '') return attr;
+        return host.data?.(el, key);
+    };
     const currentChat = () => host.getChatId?.() ?? '';
     const isCurrent = target => target?.isCurrent ? target.isCurrent() : true;
     const body = html => host.setBody?.(html);
@@ -80,11 +87,11 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     };
     const render = () => {
         const drafts = (repository.loadDrafts(currentChat()) || []).slice().reverse();
-        const currentExists = state.current?.id && drafts.some(piece => String(piece.id) === String(state.current.id)); const piece = state.current = currentExists ? state.current : (drafts[0] || null);
-        const batchId = state.batchId || piece?.batchId || '';
-        const batch = batchId ? drafts.filter(item => String(item.batchId) === String(batchId)) : (piece ? [piece] : []);
+        const selected = selectTheaterView(drafts, { current: state.current, batchId: state.batchId, solo: state.solo });
+        const piece = state.current = selected.piece;
+        const batch = selected.batch;
         const likedCount = drafts.filter(item => item.liked).length;
-        const result = batch.length ? `<div class="sp-theater-batch">${batch.map((item, i) => renderPieceCard(item, i === 0 || String(item.id) === String(piece?.id))).join('')}</div>` : '<div class="sp-empty sp-theater-result-empty"><i class="fa-solid fa-masks-theater"></i><p>可留空抽 1～3 条。随机模板会从勾选世界书抽一条内容填进框；框里有字时只写这一条。</p></div>';
+        const result = batch.length ? `<div class="sp-theater-batch">${batch.map(item => renderPieceCard(item, theaterPieceOpen(item, piece))).join('')}</div>` : '<div class="sp-empty sp-theater-result-empty"><i class="fa-solid fa-masks-theater"></i><p>可留空抽 1～3 条。随机模板会从勾选世界书抽一条内容填进框；框里有字时只写这一条。</p></div>';
         const source = piece?.templateSource?.input ? `<div class="sp-theater-source-wrap"><button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="查看本次实际使用内容"><i class="fa-solid fa-file-lines"></i><span>配方 · ${esc(piece.templateSource.title || '(无标题)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i></button><div id="sp-theater-source-detail" class="sp-theater-source-detail" style="display:none"><div class="sp-theater-source-caption">本次实际使用内容</div><pre>${esc(piece.templateSource.input)}</pre></div></div>` : '';
         const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">收藏</button></div>` : '';
         const exportBar = `<div class="sp-theater-export-row"><span class="sp-cfg-hint">已喜欢 ${likedCount} 条</span><button type="button" class="sp-btn sp-theater-export"${likedCount ? '' : ' disabled'}>导出已选为新世界书</button></div>`;
@@ -135,6 +142,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             if (currentChat() !== requestChatId) return result;
             state.current = result.piece || state.current;
             state.batchId = result.piece?.batchId || result.pieces?.[0]?.batchId || '';
+            state.solo = false;
             if (state.source?.uid === selectedSource?.uid && state.source?.input === selectedSource?.input) state.source = null;
             if (host.isOpen?.()) {
                 render();
@@ -173,9 +181,9 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     };
     const bind = root => {
         if (state.bound) return; state.bound = true; state.mountRoot = root;
-        root.on('click.sp-theater-ui', '.sp-theater-tpl-pick', function () { const tpl = state.templates.find(item => String(item.uid) === String(host.data?.(this, 'uid'))); if (!tpl) return; host.val?.('#sp-theater-input', tpl.text); state.source = { uid: tpl.uid, title: tpl.title, input: tpl.text }; host.closePicker?.(); host.focus?.('#sp-theater-input'); });
+        root.on('click.sp-theater-ui', '.sp-theater-tpl-pick', function () { const tpl = state.templates.find(item => String(item.uid) === String(dataOf(this, 'uid'))); if (!tpl) return; host.val?.('#sp-theater-input', tpl.text); state.source = { uid: tpl.uid, title: tpl.title, input: tpl.text }; host.closePicker?.(); host.focus?.('#sp-theater-input'); });
         root.on('change.sp-theater-ui', '#sp-theater-pool-panel-list .sp-theater-pool-cb', function () {
-            const name = String(host.data?.(this, 'name') || '');
+            const name = String(dataOf(this, 'name') || '');
             if (!name) return;
             const books = new Set(host.getPoolBooks?.() || []);
             if (this.checked) books.add(name); else books.delete(name);
@@ -203,9 +211,17 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             host.closePicker?.();
             host.toast?.(`已填入「${pick.title || '无标题'}」，再按可换一条。框里有内容时只生成这一条`);
         });
-        root.on('click.sp-theater-ui', '.sp-theater-view', function () { const piece = findPiece(host.data?.(this, 'id')); if (piece) { state.current = piece; render(); host.scrollTop?.(); } });
-        root.on('click.sp-theater-ui', '.sp-theater-del-draft', async function () { const target = host.captureTarget?.(currentChat()); const id = host.data?.(this, 'id'); const baseline = repository.draftBaseline?.(target?.chatId, id); if (await host.confirm?.('删除草稿', '确定删除这条小剧场草稿吗？') && isCurrent(target)) { const result = repository.deleteDraft(target.chatId, id, baseline); if (result?.ok && isCurrent(target)) render(); else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true); } });
-        root.on('click.sp-theater-ui', '.sp-theater-collect', async function () { const piece = findPiece(host.data?.(this, 'id')); if (piece) await collectPiece(piece); });
+        root.on('click.sp-theater-ui', '.sp-theater-view', function () {
+            const piece = findPiece(dataOf(this, 'id'));
+            if (!piece) return;
+            state.current = piece;
+            state.solo = true;
+            state.batchId = '';
+            render();
+            host.scrollTop?.();
+        });
+        root.on('click.sp-theater-ui', '.sp-theater-del-draft', async function () { const target = host.captureTarget?.(currentChat()); const id = dataOf(this, 'id'); const baseline = repository.draftBaseline?.(target?.chatId, id); if (await host.confirm?.('删除草稿', '确定删除这条小剧场草稿吗？') && isCurrent(target)) { if (String(state.current?.id) === String(id)) { state.current = null; state.solo = false; state.batchId = ''; } const result = repository.deleteDraft(target.chatId, id, baseline); if (result?.ok && isCurrent(target)) render(); else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true); } });
+        root.on('click.sp-theater-ui', '.sp-theater-collect', async function () { const piece = findPiece(dataOf(this, 'id')); if (piece) await collectPiece(piece); });
         root.on('click.sp-theater-ui', '.sp-theater-save', async function () {
             if (!state.current) return;
             const target = host.captureTarget?.(currentChat());
@@ -223,7 +239,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         // resolveTheaterRegen(state.current, textarea) is supplied by the feature boundary.
         root.on('click.sp-theater-ui', '.sp-theater-regen', function () { if (feature.busy || !state.current) return; const regen = resolveRegen(state.current, host.val?.('#sp-theater-input') || ''); state.source = regen.templateSource; host.val?.('#sp-theater-input', regen.input); generate(regen.input); });
         root.on('change.sp-theater-ui', '.sp-theater-like-cb', function () {
-            const id = host.data?.(this, 'id'); const liked = !!this.checked;
+            const id = dataOf(this, 'id'); const liked = !!this.checked;
             const target = host.captureTarget?.(currentChat());
             const baseline = repository.draftBaseline?.(currentChat(), id);
             const result = repository.updateDraft?.(currentChat(), id, { liked }, baseline);
@@ -315,7 +331,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const closeVisual = () => exitFullscreen();
     const clearRetry = () => { state.retry = null; };
     const clearTransient = () => { state.imageCleanup?.(); state.imageCleanup = null; removeFullscreenEsc(); host.setFullscreen?.(false); host.setSheetFlat?.(false); host.setBodyFullscreenLock?.(false); };
-    const resetForChat = () => { closeVisual(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = ''; state.poolNames = []; };
+    const resetForChat = () => { closeVisual(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = ''; state.solo = false; state.poolNames = []; };
     const cleanup = root => {
         (root || state.mountRoot)?.off?.('.sp-theater-ui');
         for (const entry of state.settingsRoots) entry.root?.off?.('.sp-theater-ui');
@@ -328,7 +344,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         (state.mountRoot)?.off?.('.sp-theater-ui');
         for (const entry of state.settingsRoots) entry.root?.off?.('.sp-theater-ui');
         state.settingsRoots = []; state.mountRoot = null; state.bound = false;
-        removeFullscreenEsc(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = '';
+        removeFullscreenEsc(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = ''; state.solo = false;
     };
     return { render, bind, bindSettings, refreshTemplates, refreshPoolList, generate, closeVisual, clearRetry, clearTransient, resetForChat, cleanup, destroy, get state() { return state; } };
 }
