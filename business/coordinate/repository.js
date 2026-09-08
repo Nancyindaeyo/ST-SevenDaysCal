@@ -1,4 +1,4 @@
-import { INDEX_NAME, emptyIndex, normalizeIndex, fileNameOf, toMeta, formatBytes, SIZE_WARN_BYTES } from './schema.js';
+import { INDEX_NAME, emptyIndex, normalizeIndex, fileNameOf, toMeta, formatBytes, SIZE_WARN_BYTES, SNAP_NOTE_MAX } from './schema.js';
 import { uploadJson, readJson, deleteJson, createCoordinateHostPorts } from '../../runtime/coordinate-host-ports.js';
 
 function strHash(input) {
@@ -65,6 +65,12 @@ export function createCoordinateRepository({ ports = createCoordinateHostPorts()
         renameTag: (id, name) => serial(async () => { const idx = await readIndex(); const tag = idx.tags.find(x => x.id === id); const nm = String(name || '').trim(); if (tag && nm && tag.name !== nm) { tag.name = nm; await saveIndex(); } }),
         recolorTag: (id, color) => serial(async () => { const idx = await readIndex(); const tag = idx.tags.find(x => x.id === id); if (tag) { tag.color = String(color || ''); await saveIndex(); } }),
         setItemTags: (id, tags) => serial(async () => { const item = await api.getItem(id); if (!item) return; item.tags = Array.isArray(tags) ? [...tags] : []; await api._addItemUnlocked(item); }),
+        setItemNote: (id, note) => serial(async () => {
+            const item = await api.getItem(id);
+            if (!item) return null;
+            item.note = String(note || '').replace(/\s+/g, ' ').trim().slice(0, SNAP_NOTE_MAX);
+            return api._addItemUnlocked(item);
+        }),
         findItemIdsByFloor: async (chatId, floor) => (await readIndex()).items.filter(item => String(item.chatId) === String(chatId) && (Number(item.messageId) === Number(floor) || Number(item.floorIndex) === Number(floor))).map(item => item.id),
         listByChat: async () => { const buckets = new Map(); for (const item of await api.getAllItems()) { const key = item.chatIdHash != null ? `h:${item.chatIdHash}` : `c:${item.chatId || '(unknown)'}`; const bucket = buckets.get(key) || { chatId: item.chatId, chatIdHash: item.chatIdHash ?? null, chatName: item.chatName || '(未命名聊天)', charName: item.charName || '', items: [], latestTs: 0 }; bucket.items.push(item); if ((item.ts || 0) >= bucket.latestTs) { bucket.latestTs = item.ts || 0; bucket.chatId = item.chatId ?? bucket.chatId; bucket.chatName = item.chatName || bucket.chatName; bucket.charName = item.charName || bucket.charName; } buckets.set(key, bucket); } return [...buckets.values()].map(bucket => ({ ...bucket, count: bucket.items.length, items: bucket.items.sort((a, b) => (Number(b.floorIndex) || 0) - (Number(a.floorIndex) || 0) || (Number(b.ts) || 0) - (Number(a.ts) || 0)) })).sort((a, b) => b.latestTs - a.latestTs); },
         deleteTag: id => serial(async () => { const idx = await readIndex(); const oldTags = idx.tags.map(tag => ({ ...tag })); const affected = idx.items.filter(item => item.tags?.includes(id)).map(item => ({ meta: item, tags: [...(item.tags || [])] })); const changedItems = []; try { for (const entry of affected) { const item = await api.getItem(entry.meta.id); if (!item) continue; item.tags = (item.tags || []).filter(tag => tag !== id); await uploadJson(ports, fileNameOf(item.id), item); changedItems.push({ id: item.id, item }); } idx.tags = idx.tags.filter(tag => tag.id !== id); for (const entry of affected) entry.meta.tags = entry.tags.filter(tag => tag !== id); await saveIndex(); return affected.length; } catch (error) { idx.tags = oldTags; for (const entry of affected) entry.meta.tags = entry.tags; throw error; } }),

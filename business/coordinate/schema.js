@@ -2,6 +2,7 @@ export const INDEX_NAME = 'sp-anchor-index.json';
 export const FILE_PREFIX = 'sp-anchor-';
 export const SIZE_WARN_BYTES = 8 * 1024 * 1024;
 export const SCHEMA_VERSION = 1;
+export const SNAP_NOTE_MAX = 80;
 
 export function emptyIndex() { return { version: SCHEMA_VERSION, items: [], tags: [] }; }
 
@@ -27,6 +28,7 @@ export function normalizeMeta(item) {
         messageId: item.messageId ?? null,
         floorIndex: item.floorIndex ?? null,
         textPreview: String(item.textPreview || ''),
+        note: String(item.note || '').replace(/\s+/g, ' ').trim().slice(0, SNAP_NOTE_MAX),
         ts: Number(item.ts) || 0,
         bytes: Number(item.bytes) || 0,
         tags: Array.isArray(item.tags) ? [...item.tags] : [],
@@ -50,6 +52,7 @@ export function toMeta(item) {
         messageId: item?.messageId,
         floorIndex: item?.floorIndex,
         textPreview: item?.textPreview,
+        note: item?.note,
         ts: item?.ts,
         bytes: itemBytes(item),
         tags: item?.tags,

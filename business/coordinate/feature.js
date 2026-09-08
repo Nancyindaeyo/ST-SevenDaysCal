@@ -4,6 +4,7 @@ import { captureMesText, sanitizeSnapshot, makePreview } from './capture.js';
 import { createCoordinateRenderer, createFullscreenController } from './render.js';
 import { clearReplyMarker, normalizeId, readReplyMarker, replyVersion, writeReplyMarker } from './identity.js';
 import { clipText, NOTE_MAX, QUOTE_MAX } from './excerpt-schema.js';
+import { SNAP_NOTE_MAX } from './schema.js';
 import { bindSnapSelection, filterSearchList, readShadowSelection } from './excerpt-ui.js';
 
 export function createCoordinateFeature({ repository, excerpts = null, root = null, capture = captureMesText, ports = null, host = {} } = {}) {
@@ -245,11 +246,17 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         });
         const inputOff = ui.bind(target, 'input', event => {
             if (event.isComposing) return;
-            const el = event.target?.closest?.('.sp-anchor-search');
-            if (!el) return;
-            event.stopPropagation();
-            ui.setSearch(el.value, el.dataset.shelf === 'clips' ? 'clips' : 'snaps');
-            filterSearchList(target, el.value);
+            const search = event.target?.closest?.('.sp-anchor-search');
+            if (search) {
+                event.stopPropagation();
+                ui.setSearch(search.value, search.dataset.shelf === 'clips' ? 'clips' : 'snaps');
+                filterSearchList(target, search.value);
+                return;
+            }
+            if (event.target?.closest?.('.sp-anchor-item-note-input, .sp-anchor-full-note-input')) {
+                event.stopPropagation();
+                filterSearchList(target, target.querySelector?.('.sp-anchor-search')?.value || '');
+            }
         });
         const composeOff = ui.bind(target, 'compositionend', event => {
             const el = event.target?.closest?.('.sp-anchor-search');
@@ -258,14 +265,38 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
             ui.setSearch(el.value, el.dataset.shelf === 'clips' ? 'clips' : 'snaps');
             filterSearchList(target, el.value);
         });
+        const saveNote = async event => {
+            const el = event.target?.closest?.('.sp-anchor-item-note-input, .sp-anchor-full-note-input');
+            if (!el) return;
+            event.stopPropagation();
+            const id = el.dataset.id || ui.itemId();
+            if (!id) return;
+            const note = clipText(el.value, SNAP_NOTE_MAX);
+            if (el.value !== note) el.value = note;
+            try { await repository.setItemNote(id, note); }
+            catch (error) { return host.toast?.(`备注保存失败：${error?.message || ''}`, null, true); }
+            const card = el.closest?.('[data-search]');
+            if (card && note && !String(card.getAttribute('data-search') || '').toLowerCase().includes(note.toLowerCase())) {
+                card.setAttribute('data-search', `${card.getAttribute('data-search') || ''}\n${note}`);
+            }
+        };
+        const blurOff = ui.bind(target, 'focusout', saveNote);
+        const noteKeyOff = ui.bind(target, 'keydown', event => {
+            const el = event.target?.closest?.('.sp-anchor-item-note-input, .sp-anchor-full-note-input');
+            if (!el) return;
+            event.stopPropagation();
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                el.blur();
+            }
+        });
         const guard = event => {
-            if (!event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search')) return;
+            if (!event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) return;
             event.stopPropagation();
         };
         const focusSearch = event => {
             const wrap = event.target?.closest?.('.sp-excerpt-search-wrap');
             if (!wrap) return;
-            event.stopPropagation();
             const input = wrap.querySelector?.('.sp-anchor-search');
             if (input && event.target !== input) input.focus();
         };
@@ -273,7 +304,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         const mouseOff = ui.bind(target, 'mousedown', focusSearch);
         const keyOffSearch = ui.bind(target, 'keydown', guard);
         const keyUpOff = ui.bind(target, 'keyup', guard);
-        return () => { clickOff?.(); inputOff?.(); composeOff?.(); downOff?.(); mouseOff?.(); keyOffSearch?.(); keyUpOff?.(); };
+        return () => { clickOff?.(); inputOff?.(); composeOff?.(); blurOff?.(); noteKeyOff?.(); downOff?.(); mouseOff?.(); keyOffSearch?.(); keyUpOff?.(); };
     };
         const tagColor = color => ['rose', 'amber', 'olive', 'teal', 'indigo', 'plum', 'slate', 'clay'].includes(String(color)) ? String(color) : 'slate';
     const api = {
@@ -298,6 +329,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         recolorTag: (id, color) => api.recolorTag(id, color),
         deleteTag: id => api.deleteTag(id),
         setItemTags: (id, tags) => api.setItemTags(id, tags),
+        setItemNote: (id, note) => controller.action(async () => repository.setItemNote(id, clipText(note, SNAP_NOTE_MAX))).then(result => result.value),
         renameChatId: (...args) => repository.renameChatId(...args),
         healChatByHash: (...args) => repository.healChatByHash(...args),
         adoptOrphans: (...args) => repository.adoptOrphans(...args),
@@ -306,7 +338,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         close() { controller.invalidate(); fullscreen.clear(); ui.clearInteraction?.(); ui.close(); controller.beginView('chars'); },
         bind(...args) { return ui.bind(...args); },
         bindInteractionCapture(target) { const clickOff = ui.bind(target, 'click', event => { const el = event.target?.closest?.('.sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-del, .sp-anchor-tagmgr-btn, .sp-tagmgr-swatch, .sp-tagmgr-del, .sp-tagmgr-del-yes, .sp-tagmgr-del-no, .sp-tagmgr-new-add'); if (el) ui.freezeInteraction?.(); if (el?.matches('.sp-tagmgr-swatch')) { event.stopImmediatePropagation(); el.closest('.sp-anchor-tagmgr-new') ? ui.setTagNewColor(el.dataset.color) : ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el?.matches('.sp-anchor-tagmgr-btn')) { event.stopImmediatePropagation(); ui.setRoute({ level: 'tags', tagEditId: null, tagDeleteId: null }); return renderer.render(); } if (el?.matches('.sp-tagmgr-del')) { event.stopImmediatePropagation(); ui.setTagDelete(el.closest('[data-id]')?.dataset.id); return renderer.tags(); } if (el?.matches('.sp-tagmgr-del-no')) { event.stopImmediatePropagation(); ui.setTagDelete(null); return renderer.tags(); } if (el?.matches('.sp-tagmgr-del-yes')) { event.stopImmediatePropagation(); const id = el.closest('[data-id]')?.dataset.id; return api.deleteTag(id).then(() => { if (ui.state().filter === id) ui.setFilter(null); ui.setTagDelete(null); return renderer.tags(); }).catch(error => { host.toast?.(`删除标签失败：${error?.message || ''}`, null, true); return renderer.tags(); }); } if (el?.matches('.sp-tagmgr-new-add')) { event.stopImmediatePropagation(); const input = target.querySelector('.sp-tagmgr-new-name'); if (!input?.value?.trim()) return; return api.addTag(input.value.trim(), ui.state().tagNewColor).then(() => renderer.tags()); } }, true); const keyOff = ui.bind(target, 'keydown', event => { const input = event.target?.closest?.('.sp-tagmgr-new-name'); if (event.key !== 'Enter' || !input?.value?.trim()) return; event.preventDefault(); event.stopImmediatePropagation(); api.addTag(input.value.trim(), ui.state().tagNewColor).then(() => renderer.tags()); }, true); return () => { clickOff?.(); keyOff?.(); }; },
-        bindUi(target) { const off = ui.bind(target, 'click', async event => { if (event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search')) { event.stopPropagation(); return; } const el = event.target?.closest?.('[data-to], [data-back], [data-browse], .sp-anchor-group-card, .sp-anchor-tagmgr-btn, .sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-filter-chip, .sp-anchor-char-card, .sp-anchor-chat-card, .sp-anchor-item-card, .sp-anchor-fullscreen, .sp-tagmgr-new-add, .sp-tagmgr-edit, .sp-tagmgr-save, .sp-tagmgr-cancel, .sp-tagmgr-swatch, .sp-tagmgr-del'); if (!el) return; const row = el.closest('[data-id]'); if (el.matches('[data-browse]')) { ui.setBrowse(el.dataset.browse); controller.beginView(ui.route()); return renderer.render(); } if (el.matches('.sp-anchor-group-card')) { ui.setGroup(el.dataset.group); return renderer.render(); } if (el.matches('.sp-anchor-tagmgr-btn')) { ui.setRoute('tags'); return renderer.render(); } if (el.matches('.sp-tagmgr-edit')) { ui.setTagEdit(row?.dataset.id, (await repository.getTags()).find(t => t.id === row?.dataset.id)?.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-swatch')) { ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-cancel')) { ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-tagmgr-save')) { const input = row?.querySelector('.sp-tagmgr-name-input'); await api.renameTag(row?.dataset.id, input?.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-anchor-tag-edit')) { ui.setFullTagEdit(true); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-chip')) { const item = await repository.getItem(ui.itemId()); const next = new Set(item?.tags || []); next.has(el.dataset.id) ? next.delete(el.dataset.id) : next.add(el.dataset.id); await api.setItemTags(ui.itemId(), [...next]); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-add')) { const input = target.querySelector('.sp-anchor-ftag-name'); if (input?.value?.trim()) { const tag = await api.addTag(input.value.trim(), 'slate'); const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } } if (el.matches('.sp-anchor-ftag-done')) { ui.setFullTagEdit(false); return renderer.full(ui.itemId()); } if (el.matches('.sp-tagmgr-new-add')) { const input = target.querySelector('.sp-tagmgr-new-name'); if (input?.value?.trim()) { await api.addTag(input.value.trim(), 'slate'); return renderer.tags(); } } if (el.matches('.sp-tagmgr-del')) { if (row && (await host.confirm?.(`删除标签「${row.textContent.trim()}」？`)) !== false) { await api.deleteTag(row.dataset.id); return renderer.tags(); } } if (el.matches('.sp-anchor-filter-chip')) { ui.setFilter(el.dataset.id); return renderer.render(); } if (el.matches('.sp-anchor-char-card')) { ui.setRoute({ level: 'items', charName: el.dataset.char, chatId: null }); return renderer.render(); } if (el.matches('.sp-anchor-chat-card')) { ui.setRoute('items', el.dataset.chatid); return renderer.render(); } if (el.matches('.sp-anchor-item-card')) { ui.captureFrom(); ui.setRoute('full', el.dataset.id); return renderer.full(el.dataset.id); } if (el.matches('.sp-anchor-fullscreen')) return fullscreen.toggle(); if (el.matches('[data-back]')) { ui.backFrom(); controller.beginView(ui.route()); return renderer.render(); } if (el.dataset.to) { ui.setRoute(el.dataset.to, el.dataset.chatid || null); return renderer.render(); } }); const keyOff = ui.bind(target, 'keydown', async event => { if (event.target?.closest?.('.sp-anchor-search, .sp-excerpt-search-wrap')) return; if (event.key !== 'Enter') return; const input = event.target?.closest?.('.sp-tagmgr-new-name, .sp-anchor-ftag-name, .sp-tagmgr-name-input'); if (!input?.value?.trim()) return; event.preventDefault(); if (input.matches('.sp-tagmgr-name-input')) { const row = input.closest('[data-id]'); await api.renameTag(row?.dataset.id, input.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } const tag = await api.addTag(input.value.trim(), 'slate'); if (input.matches('.sp-anchor-ftag-name')) { const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } return renderer.tags(); }); return () => { off?.(); keyOff?.(); fullscreen.destroy(); }; },
+        bindUi(target) { const off = ui.bind(target, 'click', async event => { if (event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) { event.stopPropagation(); return; } const el = event.target?.closest?.('[data-to], [data-back], [data-browse], .sp-anchor-group-card, .sp-anchor-tagmgr-btn, .sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-filter-chip, .sp-anchor-char-card, .sp-anchor-chat-card, .sp-anchor-item-open, .sp-anchor-fullscreen, .sp-tagmgr-new-add, .sp-tagmgr-edit, .sp-tagmgr-save, .sp-tagmgr-cancel, .sp-tagmgr-swatch, .sp-tagmgr-del'); if (!el) return; const row = el.closest('[data-id]'); if (el.matches('[data-browse]')) { ui.setBrowse(el.dataset.browse); controller.beginView(ui.route()); return renderer.render(); } if (el.matches('.sp-anchor-group-card')) { ui.setGroup(el.dataset.group); return renderer.render(); } if (el.matches('.sp-anchor-tagmgr-btn')) { ui.setRoute('tags'); return renderer.render(); } if (el.matches('.sp-tagmgr-edit')) { ui.setTagEdit(row?.dataset.id, (await repository.getTags()).find(t => t.id === row?.dataset.id)?.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-swatch')) { ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-cancel')) { ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-tagmgr-save')) { const input = row?.querySelector('.sp-tagmgr-name-input'); await api.renameTag(row?.dataset.id, input?.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-anchor-tag-edit')) { ui.setFullTagEdit(true); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-chip')) { const item = await repository.getItem(ui.itemId()); const next = new Set(item?.tags || []); next.has(el.dataset.id) ? next.delete(el.dataset.id) : next.add(el.dataset.id); await api.setItemTags(ui.itemId(), [...next]); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-add')) { const input = target.querySelector('.sp-anchor-ftag-name'); if (input?.value?.trim()) { const tag = await api.addTag(input.value.trim(), 'slate'); const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } } if (el.matches('.sp-anchor-ftag-done')) { ui.setFullTagEdit(false); return renderer.full(ui.itemId()); } if (el.matches('.sp-tagmgr-new-add')) { const input = target.querySelector('.sp-tagmgr-new-name'); if (input?.value?.trim()) { await api.addTag(input.value.trim(), 'slate'); return renderer.tags(); } } if (el.matches('.sp-tagmgr-del')) { if (row && (await host.confirm?.(`删除标签「${row.textContent.trim()}」？`)) !== false) { await api.deleteTag(row.dataset.id); return renderer.tags(); } } if (el.matches('.sp-anchor-filter-chip')) { ui.setFilter(el.dataset.id); return renderer.render(); } if (el.matches('.sp-anchor-char-card')) { ui.setRoute({ level: 'items', charName: el.dataset.char, chatId: null }); return renderer.render(); } if (el.matches('.sp-anchor-chat-card')) { ui.setRoute('items', el.dataset.chatid); return renderer.render(); } if (el.matches('.sp-anchor-item-open')) { ui.captureFrom(); ui.setRoute('full', el.closest('[data-id]')?.dataset.id); return renderer.full(el.closest('[data-id]')?.dataset.id); } if (el.matches('.sp-anchor-fullscreen')) return fullscreen.toggle(); if (el.matches('[data-back]')) { ui.backFrom(); controller.beginView(ui.route()); return renderer.render(); } if (el.dataset.to) { ui.setRoute(el.dataset.to, el.dataset.chatid || null); return renderer.render(); } }); const keyOff = ui.bind(target, 'keydown', async event => { if (event.target?.closest?.('.sp-anchor-search, .sp-excerpt-search-wrap, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) return; if (event.key !== 'Enter') return; const input = event.target?.closest?.('.sp-tagmgr-new-name, .sp-anchor-ftag-name, .sp-tagmgr-name-input'); if (!input?.value?.trim()) return; event.preventDefault(); if (input.matches('.sp-tagmgr-name-input')) { const row = input.closest('[data-id]'); await api.renameTag(row?.dataset.id, input.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } const tag = await api.addTag(input.value.trim(), 'slate'); if (input.matches('.sp-anchor-ftag-name')) { const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } return renderer.tags(); }); return () => { off?.(); keyOff?.(); fullscreen.destroy(); }; },
         bindGestures(target) { gestureCleanup?.(); const offStart = ui.bind(target, 'mousedown', event => { const el = event.target?.closest?.('.sp-anchor-fs-resize, .sp-anchor-fs-on .sp-anchor-head'); if (!el || (globalThis.innerWidth || 0) <= 640) return; if (el.matches('.sp-anchor-fs-on .sp-anchor-head') && event.target?.closest?.('button, .sp-icon-btn, .sp-anchor-back')) return; fullscreen.beginGesture(el.matches('.sp-anchor-fs-resize') ? 'resize' : 'move', event); }); const doc = host.document || globalThis.document; const move = event => fullscreen.moveGesture(event); const end = () => fullscreen.endGesture(); doc?.addEventListener?.('mousemove', move); doc?.addEventListener?.('mouseup', end); gestureCleanup = () => { offStart?.(); doc?.removeEventListener?.('mousemove', move); doc?.removeEventListener?.('mouseup', end); fullscreen.endGesture(); gestureCleanup = null; }; return gestureCleanup; },
         bindDelete(target) { return ui.bind(target, 'click', async event => { const el = event.target?.closest?.('.sp-anchor-del'); if (!el) return; if ((await host.confirm?.('删除这条收藏？')) === false) return; const itemId = ui.itemId(); await controller.delete(itemId, controller.snapshotRevision()); fullscreen.clear(); await refreshSavedKeys(); ui.backFrom(); return renderCurrent(() => renderer.render()); }); },
         bindExcerpts,

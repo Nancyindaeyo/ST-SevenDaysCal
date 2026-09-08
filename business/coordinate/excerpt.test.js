@@ -57,8 +57,8 @@ test('groupItemsByTag splits tagged and untagged', () => {
 
 test('filterSearchList hides unmatched cards without rebuilding', () => {
     const cards = [
-        { hidden: false, getAttribute: () => '月光 春' },
-        { hidden: false, getAttribute: () => '雨 冬' },
+        { hidden: false, getAttribute: () => '月光 春', querySelectorAll: () => [] },
+        { hidden: false, getAttribute: () => '雨 冬', querySelectorAll: () => [{ value: '备注里有月光' }] },
     ];
     const empty = { hidden: true };
     const root = {
@@ -68,12 +68,18 @@ test('filterSearchList hides unmatched cards without rebuilding', () => {
             return null;
         },
     };
-    assert.equal(filterSearchList(root, '月光'), 1);
+    assert.equal(filterSearchList(root, '月光'), 2);
     assert.equal(cards[0].hidden, false);
-    assert.equal(cards[1].hidden, true);
-    assert.equal(empty.hidden, true);
-    assert.equal(filterSearchList(root, '没有'), 0);
-    assert.equal(empty.hidden, false);
+    assert.equal(cards[1].hidden, false);
+    assert.equal(filterSearchList(root, '冬'), 1);
+    assert.equal(cards[0].hidden, true);
+    assert.equal(cards[1].hidden, false);
+});
+
+test('snapshot notes stay in the index meta', async () => {
+    const { normalizeMeta } = await import('./schema.js');
+    const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ' });
+    assert.equal(meta.note, '这是备注');
 });
 
 test('excerpt repository keeps snapshots untouched in its own file', async () => {

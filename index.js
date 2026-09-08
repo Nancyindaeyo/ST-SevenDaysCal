@@ -3661,7 +3661,7 @@ function injectModal() {
     // retarget、是真实 input）截断输入框内非 Esc 按键。放行 Esc：各全屏/菜单的 document 级退出仍需收到。
     root.addEventListener('keydown', ev => {
         if (ev.key === 'Escape') return;
-        const t = ev.target;
+        const t = ev.composedPath?.()[0] || ev.target;
         if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) ev.stopPropagation();
     });
     // shadow 内第一层 wrapper 必须带 sp-root + 主题类：style.css 的 `.sp-root ...` 前缀选择器、

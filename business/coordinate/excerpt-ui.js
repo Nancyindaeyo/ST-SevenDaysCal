@@ -44,7 +44,10 @@ export function filterSearchList(root, query) {
     const words = raw.split(/\s+/).filter(Boolean);
     let shown = 0;
     list.querySelectorAll('[data-search]').forEach(el => {
-        const hay = String(el.getAttribute('data-search') || '').toLowerCase();
+        const extra = typeof el.querySelectorAll === 'function'
+            ? [...el.querySelectorAll('.sp-anchor-item-note-input')].map(input => input.value).join('\n')
+            : '';
+        const hay = `${el.getAttribute('data-search') || ''}\n${extra}`.toLowerCase();
         const ok = !words.length || words.every(word => hay.includes(word));
         el.hidden = !ok;
         if (ok) shown++;
