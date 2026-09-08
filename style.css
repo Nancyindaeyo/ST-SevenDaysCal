@@ -4470,8 +4470,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     overscroll-behavior: contain;
     border-top    : 1px solid var(--sp-divider);
 }
-.sp-theater-tpl-picker-body::-webkit-scrollbar       { width: 4px; }
-.sp-theater-tpl-picker-body::-webkit-scrollbar-thumb { background: var(--sp-divider); border-radius: 2px; }
+.sp-theater-pool-panel-body { max-height: 320px; }
+.sp-theater-pool-panel-body .sp-cfg-hint { margin: 0 0 6px; }
+.sp-theater-pool-panel-body .sp-wi-exclude-list { max-height: none; }
 .sp-theater-tpl-pick {
     display      : block;
     width        : 100%;

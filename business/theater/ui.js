@@ -7,12 +7,33 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     host.captureTarget ||= injectedCapture;
     const esc = host.escapeHtml || (value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch])));
     const attr = host.escapeAttr || esc;
-    const state = { current: null, templates: [], source: null, retry: null, lastRandom: null, bound: false, mountRoot: null, fsEsc: null, imageCleanup: null, settingsRoots: [], generationSeq: 0, templateSeq: 0, abortPending: false, batchId: '' };
+    const state = { current: null, templates: [], source: null, retry: null, lastRandom: null, bound: false, mountRoot: null, fsEsc: null, imageCleanup: null, settingsRoots: [], generationSeq: 0, templateSeq: 0, abortPending: false, batchId: '', poolNames: [], poolQuery: '' };
     const currentChat = () => host.getChatId?.() ?? '';
     const isCurrent = target => target?.isCurrent ? target.isCurrent() : true;
     const body = html => host.setBody?.(html);
     const renderCard = (piece, saved) => `<div class="sp-theater-card" data-id="${attr(piece.id)}"><div class="sp-theater-card-head"><span class="sp-theater-card-title">${esc(piece.title || '(未命名)')}</span><span class="sp-theater-card-time">${esc(piece.ts ? new Date(piece.ts).toLocaleString('zh-CN', { hour12: false }) : '')}</span></div><div class="sp-theater-card-actions"><label class="sp-theater-like"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="${saved ? 'saved' : 'draft'}"${piece.liked ? ' checked' : ''}><span>喜欢</span></label><button class="sp-theater-view" data-id="${attr(piece.id)}">查看</button>${saved ? `<button class="sp-theater-del-saved" data-id="${attr(piece.id)}">删除</button>` : `<button class="sp-theater-promote" data-id="${attr(piece.id)}">永久保存</button><button class="sp-theater-del-draft" data-id="${attr(piece.id)}">删除</button>`}</div></div>`;
     const renderTemplateButtons = templates => templates.length ? templates.map(t => `<button type="button" class="sp-theater-tpl-pick" data-uid="${attr(t.uid)}">${esc(t.title)}</button>`).join('') : '<div class="sp-theater-list-empty">暂无模板，可在设置 · 棱里新增</div>';
+    const renderPoolRows = (names, selected, query) => {
+        if (!names.length) return '<div class="sp-theater-list-empty">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选，不要绑到角色卡。</div>';
+        const q = String(query || '').trim().toLowerCase();
+        const rows = names.filter(name => !q || name.toLowerCase().includes(q)).map(name => {
+            const on = selected.has(name);
+            return `<label class="sp-wi-exclude-row${on ? ' sp-wi-exclude-on' : ''}" data-name="${attr(name)}"><input type="checkbox" class="sp-theater-pool-cb" data-name="${attr(name)}"${on ? ' checked' : ''}><span class="sp-wi-exclude-name">${esc(name)}</span></label>`;
+        });
+        return rows.length ? rows.join('') : '<div class="sp-theater-list-empty">没有匹配的世界书</div>';
+    };
+    const refreshPoolList = async () => {
+        if (!host.setPanelPoolHtml) return [];
+        let names = [];
+        try { names = await host.listWorldNames?.() || []; } catch { names = []; }
+        state.poolNames = [...new Set((Array.isArray(names) ? names : []).filter(name => typeof name === 'string' && name))].sort((a, b) => a.localeCompare(b, 'zh'));
+        const selected = new Set(host.getPoolBooks?.() || []);
+        host.setPanelPoolCount?.(selected.size);
+        const query = String(host.val?.('#sp-theater-pool-panel-search') || state.poolQuery || '');
+        state.poolQuery = query;
+        host.setPanelPoolHtml?.(renderPoolRows(state.poolNames, selected, query));
+        return state.poolNames;
+    };
     const findPiece = id => [...(repository.loadDrafts(currentChat()) || []), ...(repository.loadSaved(injectedCapture() || null) || [])].find(piece => String(piece.id) === String(id));
     const renderManager = templates => {
         const count = (templates || []).length;
@@ -55,9 +76,14 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">永久保存</button></div>` : '';
         const exportBar = `<div class="sp-theater-export-row"><span class="sp-cfg-hint">已喜欢 ${likedCount} 条</span><button type="button" class="sp-btn sp-theater-export"${likedCount ? '' : ' disabled'}>导出已选为新世界书</button></div>`;
         const resultBlock = piece ? `<div class="sp-theater-result-wrap"><button class="sp-theater-fullscreen-btn" type="button" title="全屏浏览小剧场"><i class="fa-solid fa-expand"></i></button><button class="sp-theater-fold-toggle" type="button" style="display:none"><i class="fa-solid fa-chevron-down"></i><span class="sp-theater-fold-label">展开全文</span></button><div class="sp-theater-result sp-theater-result-collapsible" id="sp-theater-result">${result}</div></div>` : `<div class="sp-theater-result" id="sp-theater-result">${result}</div>`;
-        body(`<div class="sp-theater-input-area"><details class="sp-theater-tpl-picker" id="sp-theater-tpl-picker"><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>选择手写模板起草（可选）</span></summary><div class="sp-theater-tpl-picker-body" id="sp-theater-tpl-picker-list"><div class="sp-theater-list-empty">加载中…</div></div></details><textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="可留空。填写场景、人物状态、想看的走向…生成时会叠加挂载世界书抽签。">${esc(piece?.request || '')}</textarea><div class="sp-theater-btn-row"><button class="sp-btn sp-theater-random" title="从手写模板库随机填入一个模板，确认后再生成"><i class="fa-solid fa-shuffle"></i> 随机模板</button><button class="sp-btn sp-btn-primary sp-theater-generate">生成番外</button></div></div><hr class="sp-theater-divider">${resultBlock}${source}${op}${exportBar}<hr class="sp-theater-divider"><div class="sp-theater-lists"><details class="sp-theater-list-group" open><summary>草稿（最多 ${draftCap} 条，新挤旧）</summary><div class="sp-theater-list">${drafts.length ? drafts.map(p => renderCard(p, false)).join('') : '<div class="sp-theater-list-empty">暂无草稿</div>'}</div></details><details class="sp-theater-list-group"${saved.length ? ' open' : ''}><summary>已永久保存（本对话）</summary><div class="sp-theater-list">${saved.length ? saved.map(p => renderCard(p, true)).join('') : '<div class="sp-theater-list-empty">暂无永久保存</div>'}</div></details></div>`);
+        const selectedBooks = new Set(host.getPoolBooks?.() || []);
+        const poolOpen = host.isPanelPoolOpen?.() !== false;
+        state.poolQuery = String(host.val?.('#sp-theater-pool-panel-search') || state.poolQuery || '');
+        const poolBlock = `<details class="sp-theater-tpl-picker" id="sp-theater-pool-panel"${poolOpen ? ' open' : ''}><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>抽取用世界书</span><span class="sp-theater-tpl-library-count" id="sp-theater-pool-panel-count">${selectedBooks.size}</span></summary><div class="sp-theater-tpl-picker-body sp-theater-pool-panel-body"><p class="sp-cfg-hint">把小回 / 极光 / 小兔导入酒馆后在此勾选。只给棱抽签读，不要绑到角色卡。</p><input type="search" id="sp-theater-pool-panel-search" class="sp-input sp-wi-exclude-search" placeholder="查找世界书…" value="${attr(state.poolQuery)}"><div id="sp-theater-pool-panel-list" class="sp-wi-exclude-list"><div class="sp-theater-list-empty">加载中…</div></div></div></details>`;
+        body(`<div class="sp-theater-input-area">${poolBlock}<details class="sp-theater-tpl-picker" id="sp-theater-tpl-picker"><summary class="sp-theater-tpl-picker-summary"><i class="fa-solid fa-chevron-right sp-theater-tpl-picker-chevron"></i><span>选择手写模板起草（可选）</span></summary><div class="sp-theater-tpl-picker-body" id="sp-theater-tpl-picker-list"><div class="sp-theater-list-empty">加载中…</div></div></details><textarea id="sp-theater-input" class="sp-input sp-theater-textarea" placeholder="可留空。填写场景、人物状态、想看的走向…生成时会叠加挂载世界书抽签。">${esc(piece?.request || '')}</textarea><div class="sp-theater-btn-row"><button class="sp-btn sp-theater-random" title="从手写模板库随机填入一个模板，确认后再生成"><i class="fa-solid fa-shuffle"></i> 随机模板</button><button class="sp-btn sp-btn-primary sp-theater-generate">生成番外</button></div></div><hr class="sp-theater-divider">${resultBlock}${source}${op}${exportBar}<hr class="sp-theater-divider"><div class="sp-theater-lists"><details class="sp-theater-list-group" open><summary>草稿（最多 ${draftCap} 条，新挤旧）</summary><div class="sp-theater-list">${drafts.length ? drafts.map(p => renderCard(p, false)).join('') : '<div class="sp-theater-list-empty">暂无草稿</div>'}</div></details><details class="sp-theater-list-group"${saved.length ? ' open' : ''}><summary>已永久保存（本对话）</summary><div class="sp-theater-list">${saved.length ? saved.map(p => renderCard(p, true)).join('') : '<div class="sp-theater-list-empty">暂无永久保存</div>'}</div></details></div>`);
         measureFold();
         void refreshTemplates();
+        void refreshPoolList();
     };
     const refreshTemplates = async () => {
         const seq = ++state.templateSeq;
@@ -131,6 +157,20 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const bind = root => {
         if (state.bound) return; state.bound = true; state.mountRoot = root;
         root.on('click.sp-theater-ui', '.sp-theater-tpl-pick', function () { const tpl = state.templates.find(item => String(item.uid) === String(host.data?.(this, 'uid'))); if (!tpl) return; host.val?.('#sp-theater-input', tpl.text); state.source = { uid: tpl.uid, title: tpl.title, input: tpl.text }; host.closePicker?.(); host.focus?.('#sp-theater-input'); });
+        root.on('change.sp-theater-ui', '#sp-theater-pool-panel-list .sp-theater-pool-cb', function () {
+            const name = String(host.data?.(this, 'name') || '');
+            if (!name) return;
+            const books = new Set(host.getPoolBooks?.() || []);
+            if (this.checked) books.add(name); else books.delete(name);
+            host.setPoolBooks?.([...books]);
+            this.closest('.sp-wi-exclude-row')?.classList.toggle('sp-wi-exclude-on', this.checked);
+            host.setPanelPoolCount?.(books.size);
+            host.syncSettingsPoolList?.();
+        });
+        root.on('input.sp-theater-ui', '#sp-theater-pool-panel-search', function () {
+            state.poolQuery = String(this.value || '');
+            host.setPanelPoolHtml?.(renderPoolRows(state.poolNames, new Set(host.getPoolBooks?.() || []), state.poolQuery));
+        });
         root.on('click.sp-theater-ui', '.sp-theater-generate', function () { if (!feature.busy) generate(host.val?.('#sp-theater-input') || ''); });
         root.on('click.sp-theater-ui', '.sp-theater-random', async function () { if (feature.busy) return; let pool; try { pool = state.templates.length ? state.templates : await refreshTemplates(); } catch { pool = []; } if (!pool.length) return host.toast?.('模板库为空，先去设置 · 棱新增模板', null, true); const nonEmpty = pool.filter(t => String(t.text || '').trim()); if (!nonEmpty.length) return host.toast?.('模板库里没有可用的非空模板', null, true); const choices = nonEmpty.length > 1 ? nonEmpty.filter(t => String(t.uid) !== String(state.lastRandom)) : nonEmpty; const pick = choices[Math.floor(Math.random() * choices.length)] || nonEmpty[0]; const text = String(pick?.text || '').trim(); if (!text) return host.toast?.('随机到的模板内容为空，去设置补一下内容', null, true); state.lastRandom = pick.uid; state.source = { uid: pick.uid, title: pick.title, input: text }; host.val?.('#sp-theater-input', text); host.closePicker?.(); host.toast?.('已随机填入模板，请确认后再生成'); });
         root.on('click.sp-theater-ui', '.sp-theater-view', function () { const piece = findPiece(host.data?.(this, 'id')); if (piece) { state.current = piece; render(); host.scrollTop?.(); } });
@@ -243,7 +283,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const closeVisual = () => exitFullscreen();
     const clearRetry = () => { state.retry = null; };
     const clearTransient = () => { state.imageCleanup?.(); state.imageCleanup = null; removeFullscreenEsc(); host.setFullscreen?.(false); host.setSheetFlat?.(false); host.setBodyFullscreenLock?.(false); };
-    const resetForChat = () => { closeVisual(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = ''; };
+    const resetForChat = () => { closeVisual(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = ''; state.poolNames = []; };
     const cleanup = root => {
         (root || state.mountRoot)?.off?.('.sp-theater-ui');
         for (const entry of state.settingsRoots) entry.root?.off?.('.sp-theater-ui');
@@ -258,5 +298,5 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         state.settingsRoots = []; state.mountRoot = null; state.bound = false;
         removeFullscreenEsc(); state.generationSeq++; state.templateSeq++; state.abortPending = false; state.current = null; state.source = null; state.retry = null; state.templates = []; state.batchId = '';
     };
-    return { render, bind, bindSettings, refreshTemplates, generate, closeVisual, clearRetry, clearTransient, resetForChat, cleanup, destroy, get state() { return state; } };
+    return { render, bind, bindSettings, refreshTemplates, refreshPoolList, generate, closeVisual, clearRetry, clearTransient, resetForChat, cleanup, destroy, get state() { return state; } };
 }

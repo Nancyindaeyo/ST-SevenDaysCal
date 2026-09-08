@@ -2,7 +2,7 @@ import { classifyGenerationError, diagnosticMessage } from '../api/diagnostics.j
 
 // 棱宿主端口：所有 theater 专属 DOM/jQuery 操作集中于此。
 export function createTheaterHostPorts(d = {}) {
-    const { $, $in, inEl, documentRef = globalThis.document, getContext, captureTarget, theaterMode, modalId, setBody, loading, escapeHtml, escapeAttr, settings, saveSettingsDebounced, showToast, showPanel, confirm, spConfirm, scriptCore } = d;
+    const { $, $in, inEl, documentRef = globalThis.document, getContext, captureTarget, theaterMode, modalId, setBody, loading, escapeHtml, escapeAttr, settings, saveSettingsDebounced, showToast, showPanel, confirm, spConfirm, scriptCore, listWorldNames, syncSettingsPoolList } = d;
     return {
         getChatId: () => getContext()?.chatId, captureTarget: chatId => ({ ...captureTarget(chatId), target: scriptCore?.resolveChatStateTarget?.(), metadataSnapshot: { ...(getContext()?.chatMetadata || {}) } }),
         htmlOptions: () => ({ purifier: globalThis.DOMPurify, documentRef }), escapeHtml, escapeAttr, setBody, loading,
@@ -11,6 +11,12 @@ export function createTheaterHostPorts(d = {}) {
         showError: (error, options = {}) => { const retryable = options.retryable ?? classifyGenerationError(error) !== 'config-missing'; const retry = retryable ? '<button class="sp-gen-btn sp-theater-retry">重新生成</button>' : ''; setBody(`<div class="sp-error"><i class="fa-solid fa-circle-exclamation"></i><p>生成失败：${escapeHtml(diagnosticMessage(error))}</p>${retry}<button class="sp-btn sp-theater-back">返回</button></div>`); },
         data: (element, key) => $(element).data(key), val: (selector, value) => value === undefined ? $in(selector).val() : $in(selector).val(value), closePicker: () => $in('#sp-theater-tpl-picker').removeAttr('open'), confirm: spConfirm || confirm,
         scrollTop: () => $in('#sp-theater-body').scrollTop(0), setTemplateListHtml: html => $in('#sp-theater-tpl-picker-list').html(html), getManagerOpen: () => $in('#sp-theater-tpl-mgr').find('.sp-theater-tpl-library').prop('open'), setManagerHtml: html => { const mgr = $in('#sp-theater-tpl-mgr'); if (mgr.length) mgr.html(html); }, setStylePrompt: value => { settings().theaterStylePrompt = value; saveSettingsDebounced(); },
+        getPoolBooks: () => Array.isArray(settings().theaterPoolBooks) ? [...settings().theaterPoolBooks] : [],
+        setPoolBooks: books => { settings().theaterPoolBooks = Array.isArray(books) ? [...books] : []; saveSettingsDebounced(); },
+        isPanelPoolOpen: () => { const el = $in('#sp-theater-pool-panel')[0]; return el ? el.open : true; },
+        setPanelPoolHtml: html => $in('#sp-theater-pool-panel-list').html(html),
+        setPanelPoolCount: n => $in('#sp-theater-pool-panel-count').text(String(n)),
+        listWorldNames, syncSettingsPoolList,
         setAbortPending: () => { $in('#sp-abort-theater').prop('disabled', true).attr('aria-disabled', 'true').html('<i class="fa-solid fa-spinner fa-spin"></i>正在中止…'); $in('.sp-loading-text').text('正在中止…'); }, triggerFileInput: () => $in('#sp-theater-tpl-import-file').trigger('click'),
         isSourceOpen: () => $in('#sp-theater-source-detail').is(':visible'), setSourceVisible: open => $in('#sp-theater-source-detail').toggle(open), setSourceExpanded: open => $in('.sp-theater-source-toggle').attr('aria-expanded', String(open)), setSourceChevron: cls => $in('.sp-theater-source-chevron').attr('class', cls),
         isFullscreen: () => inEl('#sp-theater-result')?.classList.contains('sp-theater-fullscreen') === true, setFullscreen: on => inEl('#sp-theater-result')?.classList.toggle('sp-theater-fullscreen', on), setSheetFlat: on => inEl('.sp-sheet')?.classList.toggle('sp-fs-flat', on), setResultCollapsed: on => inEl('#sp-theater-result')?.classList.toggle('sp-theater-result-collapsed', on), setBodyFullscreenLock: on => documentRef.body.classList.toggle('sp-theater-fs-lock', on),

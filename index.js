@@ -359,7 +359,7 @@ function createTheaterHostFeature() {
         onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
         stage: text => { if (theaterMode) setTheaterBody(loadingHtml(`正在${text}`, 'sp-abort-theater')); }, renderAiMessageHtml,
         downloadJson: downloadJsonFile,
-        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore }),
+        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); } }),
     });
     return runtime.feature;
 }
@@ -1376,6 +1376,7 @@ const MODULE_INTROS = {
         _iKey('fa-calendar-check', '应用历法',    '确认冲突处理后换用这套历法'),
     theater:
         _iLede('「棱」＝纯文字番外：按当前正文和挂载世界书抽签，一次出 1～3 条，每条约 1500 字。不再做 HTML 美化。世界书只给棱读，不要绑到角色卡。喜欢的条目可导出为新世界书「构画-棱-兔子镜母本」，再自己导进兔子镜。') +
+        _iKey('fa-book', '抽取用世界书', '在棱页顶部勾选。把小回 / 极光 / 小兔导入酒馆后勾上即可，不要绑到角色卡。设置 → 提示词与标签 → 棱 · 写作与抽取世界书里也有同一份清单。') +
         _iKey('fa-shuffle', '随机模板', '只从手写模板库随机填入一份；确认后再点生成。主要还是靠挂载世界书抽签。') +
         _iKey('fa-wand-magic-sparkles', '生成番外', '可空输入。按正文 + 抽签一次写出几条纯文字。') +
         _iKey('fa-heart', '喜欢', '勾选后点「导出已选」生成新世界书母本，不是把原书再导一遍。') +
@@ -3243,8 +3244,8 @@ function injectModal() {
                                         <textarea id="sp-space-persona" class="sp-input sp-theater-cfg-textarea" placeholder="留空＝内置默认（柔和客观、含蓄内敛的中性顾问）。填了就换成你写的人格，如：深耕 ACG、熟知网络用语、爱用半个括号吐槽的重度宅女…"></textarea>
                                         <p class="sp-cfg-hint">只换<strong>语气 / 行文 / 人格色彩</strong>；「间仍是创作顾问、不推进剧情、不扮演故事角色」这条内核<strong>恒定保留</strong>（写得再放飞它也不会跑去演戏）。<b>只作用于「间」</b>，不影响面·和间聊聊。支持 <code>{{char}}</code> / <code>{{user}}</code>。</p>
                                     </details>
-                                    <details id="sp-theater-section" class="sp-settings-subsection sp-prompt-theater-write"><summary>棱 · 写作提示词</summary>
-                                        <p class="sp-cfg-hint">棱固定输出纯文字番外，不再做 HTML 美化。一次 1～3 条，每条约 ${THEATER_TARGET_CHARS} 字。挂载的世界书只给棱抽签读，不要绑到角色卡。</p>
+                                    <details id="sp-theater-section" class="sp-settings-subsection sp-prompt-theater-write"><summary>棱 · 写作与抽取世界书</summary>
+                                        <p class="sp-cfg-hint">棱固定输出纯文字番外，不再做 HTML 美化。一次 1～3 条，每条约 ${THEATER_TARGET_CHARS} 字。抽取用世界书也可以在棱页顶部勾选。挂载的书只给棱抽签读，不要绑到角色卡。</p>
                                         <label class="sp-mode-opt"><span>一次数量</span><input id="sp-theater-count" class="sp-input sp-interval-input" type="number" min="1" max="3" value="${escapeAttr(String(getSettings().theaterCount || THEATER_COUNT_DEFAULT))}"><span>条（上限 3）</span></label>
                                         <label class="sp-cfg-label">写作提示词（文风 + 范文）</label>
                                         <textarea id="sp-theater-style" class="sp-input sp-theater-cfg-textarea" placeholder="指定文体基调、节奏、感官描写要求，禁套路化开头结尾；也可直接贴 1-2 段你认可的文笔让 AI 模仿其笔触…"></textarea>
@@ -7277,6 +7278,7 @@ function bindTheaterHandlers() {
         getSettings().theaterPoolBooks = [...books];
         saveSettingsDebounced();
         $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
+        theaterFeature?.refreshPoolList?.();
     });
     $in('#sp-theater-pool-search').on('input', function () {
         const query = String(this.value || '').trim().toLowerCase();
