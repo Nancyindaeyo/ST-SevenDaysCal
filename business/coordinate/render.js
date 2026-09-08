@@ -33,11 +33,21 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         const root = queryRoot?.closest?.('.sp-root') || queryRoot?.querySelector?.('.sp-root') || documentRef?.querySelector?.('.sp-root');
         const cs = root ? globalThis.getComputedStyle?.(root) : null;
         const pick = (name, fallback) => String(cs?.getPropertyValue?.(name) || '').trim() || fallback;
+        const opaque = (value, fallback) => {
+            const v = String(value || '').trim();
+            if (!v) return fallback;
+            const lower = v.toLowerCase();
+            if (lower === 'transparent') return fallback;
+            if (/rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*,\s*0(?:\.0+)?\s*\)/.test(lower)) return fallback;
+            if (/\/\s*0(?:\.0+)?\s*\)/.test(lower)) return fallback;
+            return v;
+        };
         const night = getTheme?.() === 'night';
+        const legacyBg = pick('--sp-sheet-bg-legacy', night ? '#272829' : '#FAF9F6');
         return {
-            fg: pick('--sp-on-surface', night ? '#D8D9DA' : '#27323A'),
-            bg: pick('--sp-sheet-bg', night ? '#272829' : '#FAF9F6'),
-            link: pick('--sp-primary', night ? '#A8A49E' : '#457892'),
+            fg: opaque(pick('--sp-on-surface', ''), night ? '#D8D9DA' : '#27323A'),
+            bg: opaque(pick('--sp-sheet-bg', ''), legacyBg),
+            link: opaque(pick('--sp-primary', ''), night ? '#A8A49E' : '#457892'),
         };
     };
     async function chars() {
