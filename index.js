@@ -51,14 +51,18 @@ import {
     abortMigration,
     bindExternalChatStorage,
     buildCurrentChatDiagnosticPackage,
+    getChatRoot,
     isExternalMode,
     loadExternalChat,
     migrateCurrentChat,
+    persistExternalRoots,
     probeExternalBackend,
     pruneExternalSnapshots,
     refreshDiagnosticRetention,
     storageStatus,
 } from './runtime/external-chat-storage.js';
+import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
+import { createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { normalizeTagRules } from './utils/tag-names.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
 import { axisState } from './business/axis/state.js';
@@ -3384,6 +3388,15 @@ function injectModal() {
                                                     <button id="sp-storage-retry" class="sp-mem-btn" type="button" hidden>重试加载</button>
                                                 </div>
                                             </div>
+                                            <div class="sp-storage-mode-card">
+                                                <div class="sp-storage-group-head">导出 / 导入</div>
+                                                <p class="sp-cfg-hint">卸掉本体再装自己这份时，用迁移包把构画数据带走。点/线/面本来就在聊天文件里，卸插件通常不会丢；这份包另外打包设置（含 API）、本机草稿、坐标收藏、构画世界书，并备份能读到的聊天账本。不含聊天正文。包里可能有 API Key，不要发给别人。</p>
+                                                <div class="sp-mem-actions">
+                                                    <button id="sp-backup-export" class="sp-save-btn" type="button"><i class="fa-solid fa-file-export"></i> 导出迁移包</button>
+                                                    <button id="sp-backup-import" class="sp-mem-btn" type="button"><i class="fa-solid fa-file-import"></i> 导入迁移包</button>
+                                                    <input id="sp-backup-import-file" type="file" accept="application/json,.json" hidden>
+                                                </div>
+                                            </div>
                                             <div id="sp-storage-body"><div class="sp-cfg-hint">（打开设置时自动统计…）</div></div>
                                             <div class="sp-mem-actions"><button id="sp-storage-refresh" class="sp-mem-btn">刷新用量</button></div>
                                         </div>
@@ -6343,6 +6356,96 @@ async function startCurrentChatMigration() {
     }
 }
 
+function createGouhuaBackupController(onProgress) {
+    const coordPorts = createCoordinateHostPorts({ context: () => getContext() });
+    return createBackupController({
+        pluginVersion: '3.6.9.1',
+        getContext,
+        getSettings,
+        saveSettings: () => stSaveSettings(),
+        localStorage: globalThis.localStorage,
+        storageStatus,
+        getChatRoot,
+        persistExternalRoots,
+        fetch: (...args) => globalThis.fetch(...args),
+        headers: () => getContext()?.getRequestHeaders?.() || { 'Content-Type': 'application/json' },
+        readJson: name => readCoordinateJson(coordPorts, name),
+        uploadJson: (name, value) => uploadCoordinateJson(coordPorts, name, value),
+        invalidateCoordinates: () => coordinateRuntime?.repository?.invalidate?.(),
+        loadWorldInfo: name => getContext()?.loadWorldInfo?.(name),
+        saveWorldInfo: (name, data, immediate) => getContext()?.saveWorldInfo?.(name, data, immediate),
+        updateWorldInfoList: () => getContext()?.updateWorldInfoList?.(),
+        onProgress,
+    });
+}
+
+function mountBackupOverlay(title) {
+    document.getElementById('sp-backup-overlay')?.remove();
+    const overlay = document.createElement('div');
+    overlay.id = 'sp-backup-overlay';
+    overlay.innerHTML = `<div role="dialog" aria-modal="true" style="width:min(420px,calc(100vw - 32px));padding:22px;border-radius:16px;background:#17191f;color:#f5f5f7;box-shadow:0 20px 70px #000b;font-family:var(--sp-font-user,system-ui)">
+        <div style="font-size:18px;font-weight:700;margin-bottom:10px">${escapeHtml(title)}</div>
+        <div data-sp-backup-status style="font-size:14px;line-height:1.65;opacity:.86">准备中…</div>
+    </div>`;
+    Object.assign(overlay.style, { position: 'fixed', inset: '0', zIndex: '2147483647', display: 'grid', placeItems: 'center', padding: 'max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left))', background: '#000b', boxSizing: 'border-box', touchAction: 'none' });
+    const block = event => { if (!overlay.contains(event.target)) { event.preventDefault(); event.stopImmediatePropagation(); } };
+    for (const name of ['keydown', 'keyup', 'pointerdown', 'mousedown', 'touchstart', 'click']) document.addEventListener(name, block, true);
+    document.documentElement.appendChild(overlay);
+    return {
+        progress(info = {}) {
+            const status = overlay.querySelector('[data-sp-backup-status]');
+            if (status) status.textContent = info.message || (info.total ? `${info.done || 0} / ${info.total}` : '处理中…');
+        },
+        close() { for (const name of ['keydown', 'keyup', 'pointerdown', 'mousedown', 'touchstart', 'click']) document.removeEventListener(name, block, true); overlay.remove(); },
+    };
+}
+
+async function exportGouhuaBackup() {
+    const confirmed = await customDialog.confirm({
+        title: '导出构画迁移包',
+        body: '会打包设置（可能含 API Key）、能读到的聊天账本、本机草稿、坐标收藏、构画自己的世界书。不含聊天正文、也不含别的插件数据。',
+        note: '卸本体再装自己这份时，把这份 JSON 再导入即可。请自行保管，不要发给别人。',
+        confirmText: '导出', cancelText: '取消',
+    });
+    if (!confirmed) return;
+    const overlay = mountBackupOverlay('正在导出构画迁移包');
+    try {
+        const controller = createGouhuaBackupController(info => overlay.progress(info));
+        const pack = await controller.exportPack();
+        controller.download(pack);
+        overlay.close();
+        showToast('构画迁移包已导出');
+    } catch (error) {
+        overlay.close();
+        showToast(`导出失败：${error?.message || '未知错误'}`, null, true);
+    }
+}
+
+async function importGouhuaBackup(file) {
+    let pack;
+    try { pack = parseBackupText(await file.text()); }
+    catch (error) { showToast(`无法读取迁移包：${error?.message || '未知错误'}`, null, true); return; }
+    const confirmed = await customDialog.confirm({
+        title: '导入构画迁移包',
+        body: summarizeBackup(pack),
+        note: '只会写入构画自己的数据。同名设置、账本、草稿、坐标和构画世界书会被包里的内容覆盖。导入后会刷新页面。',
+        confirmText: '导入并刷新', cancelText: '取消',
+    });
+    if (!confirmed) return;
+    const overlay = mountBackupOverlay('正在导入构画迁移包');
+    try {
+        const controller = createGouhuaBackupController(info => overlay.progress(info));
+        const result = await controller.importPack(pack);
+        overlay.close();
+        const skipped = (result.chatsSkipped || 0) + (result.chatsExternal || 0);
+        showToast(skipped ? `已导入。有 ${skipped} 份聊天未能写入（可能已迁出或聊天不在本机）` : '构画数据已导入，即将刷新');
+        window.location.reload();
+    } catch (error) {
+        overlay.close();
+        showToast(`导入失败：${error?.message || '未知错误'}`, null, true);
+    }
+}
+
 function downloadDiagnosticPackage(data) {
     const text = JSON.stringify(data, null, 2);
     const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
@@ -6546,6 +6649,13 @@ function refreshEditorsFromCurrentStore(kind) {
 // 绑定存储管理面板的清理按钮（委托到 #sp-storage-body，内容动态渲染）+ 刷新。
 function bindStorageHandlers() {
     $in('#sp-storage-refresh').on('click', () => renderStorageUsage());
+    $in('#sp-backup-export').on('click', () => { void exportGouhuaBackup(); });
+    $in('#sp-backup-import').on('click', () => $in('#sp-backup-import-file').trigger('click'));
+    $in('#sp-backup-import-file').on('change', function () {
+        const file = this.files?.[0];
+        this.value = '';
+        if (file) void importGouhuaBackup(file);
+    });
     $in('#sp-storage-migrate').on('click', () => { void startCurrentChatMigration(); });
     $in('#sp-storage-retry').on('click', async () => {
         const before = storageStatus().chatId;
