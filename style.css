@@ -5143,10 +5143,12 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-anchor-btn.sp-anchor-busy  { opacity: 0.35; pointer-events: none; }
 
 /* TauriTavern .mes_buttons { overflow-x:hidden }：必须是 mes_button，插在编辑钮前。
-   不用独立 <button> 尺寸/位移，否则会被裁掉，或落到角色名里看不见。 */
+   图标用坐标轴 SVG，不用 fa-star——原生端常装第三方 star 扩展，再叠一颗五角星会看成两个收藏。 */
 #chat .mes_buttons .sp-anchor-btn,
 #chat .extraMesButtons .sp-anchor-btn {
-    display    : inline-block;
+    display    : inline-flex;
+    align-items: center;
+    justify-content: center;
     width      : auto;
     height     : auto;
     margin     : 0;
@@ -5155,6 +5157,12 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     font-size  : inherit;
     color      : inherit;
     transform  : none;
+}
+#chat .mes_buttons .sp-anchor-btn .sp-anchor-btn-svg,
+#chat .extraMesButtons .sp-anchor-btn .sp-anchor-btn-svg {
+    width  : 15px;
+    height : 15px;
+    display: block;
 }
 #chat .mes_buttons .sp-anchor-btn:hover,
 #chat .mes_buttons .sp-anchor-btn:active,

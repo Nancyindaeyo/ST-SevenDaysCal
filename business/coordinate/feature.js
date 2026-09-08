@@ -34,7 +34,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     const sourceFor = (ctx, mes) => { const mid = mes?.getAttribute?.('mesid'); const message = messageAt(ctx, mid); const version = replyVersion(message); return message && version ? { chatId: ctx?.chatId ?? null, mid: String(mid), message, version } : null; };
     const sameSource = (left, right) => !!left && !!right && normalizeId(left.chatId) === normalizeId(right.chatId) && left.mid === right.mid && left.message === right.message && left.version === right.version;
     const savedItemFor = (message, chatId) => { const marker = readReplyMarker(message); if (!marker) return null; const item = savedItems.get(marker.itemId); return item && normalizeId(item.chatId) === normalizeId(chatId) ? item : null; };
-    const setButtonState = (button, saved) => { if (!button) return; button.classList.toggle('sp-anchor-saved', Boolean(saved)); button.title = saved ? '已收藏 · 点击取消' : '收藏此楼'; };
+        const setButtonState = (button, saved) => { if (!button) return; button.classList.toggle('sp-anchor-saved', Boolean(saved)); button.title = saved ? '已收藏到坐标 · 点击取消' : '收藏到坐标'; };
     const bindButton = (button, source) => { if (button && source) buttonSources.set(button, source); };
     const refreshButton = (mes, button, { trusted = false } = {}) => {
         const ctx = host.context?.() || {}; const source = sourceFor(ctx, mes); const bound = buttonSources.get(button);
@@ -70,10 +70,11 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     };
     const createFloorButton = (doc, mes) => {
         const button = doc.createElement('div');
-        button.className = 'mes_button sp-anchor-btn fa-solid fa-star';
-        button.title = '收藏此楼';
+        button.className = 'mes_button sp-anchor-btn';
+        button.title = '收藏到坐标';
         button.setAttribute('role', 'button');
         button.tabIndex = 0;
+        button.innerHTML = host.svg?.('sp-anchor-btn-svg') || '⌖';
         const activate = event => { event.preventDefault(); event.stopPropagation(); api.onFloorButton(mes); };
         button.addEventListener('click', activate);
         button.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') activate(event); });
@@ -86,12 +87,12 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         if (mes.getAttribute?.('is_user') === 'true') { unmountMessageButton(mes); return null; }
         if (!host.enabled?.() || host.settings?.()?.anchorInlineBtn === false) { unmountMessageButton(mes); return null; }
         let button = mes.querySelector('.sp-anchor-btn');
-        if (button && (button.tagName === 'BUTTON' || button.querySelector('svg'))) {
+        if (button && (button.tagName === 'BUTTON' || button.classList.contains('fa-star') || !button.querySelector('svg'))) {
             button.remove();
             button = null;
         }
         if (!button) button = createFloorButton(doc, mes);
-        else button.classList.add('mes_button', 'fa-solid', 'fa-star');
+        else button.classList.add('mes_button');
         placeFloorButton(mes, button);
         const trusted = rebindMessageId != null && Number.isInteger(Number(rebindMessageId)) && Number(mes.getAttribute('mesid')) === Number(rebindMessageId);
         refreshButton(mes, button, { trusted });
