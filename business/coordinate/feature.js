@@ -163,9 +163,10 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     };
     const bindExcerpts = target => {
         const clickOff = ui.bind(target, 'click', async event => {
-            const el = event.target?.closest?.('[data-shelf], .sp-anchor-clip, .sp-excerpt-save, .sp-excerpt-cancel, .sp-excerpt-send-space, .sp-excerpt-locate, .sp-excerpt-edit, .sp-excerpt-edit-save, .sp-excerpt-edit-cancel, .sp-excerpt-del');
+            if (event.target?.closest?.('input, textarea, .sp-excerpt-search-wrap')) return;
+            const el = event.target?.closest?.('.sp-anchor-shelf-tab, .sp-anchor-clip, .sp-excerpt-save, .sp-excerpt-cancel, .sp-excerpt-send-space, .sp-excerpt-locate, .sp-excerpt-edit, .sp-excerpt-edit-save, .sp-excerpt-edit-cancel, .sp-excerpt-del');
             if (!el) return;
-            if (el.matches('[data-shelf]')) {
+            if (el.matches('.sp-anchor-shelf-tab')) {
                 ui.setShelf(el.dataset.shelf);
                 controller.beginView(ui.route());
                 return renderer.render();
@@ -249,7 +250,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
             const search = event.target?.closest?.('.sp-anchor-search');
             if (search) {
                 event.stopPropagation();
-                ui.setSearch(search.value, search.dataset.shelf === 'clips' ? 'clips' : 'snaps');
+                ui.setSearch(search.value, search.dataset.searchShelf === 'clips' ? 'clips' : 'snaps');
                 filterSearchList(target, search.value);
                 return;
             }
@@ -262,7 +263,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
             const el = event.target?.closest?.('.sp-anchor-search');
             if (!el) return;
             event.stopPropagation();
-            ui.setSearch(el.value, el.dataset.shelf === 'clips' ? 'clips' : 'snaps');
+            ui.setSearch(el.value, el.dataset.searchShelf === 'clips' ? 'clips' : 'snaps');
             filterSearchList(target, el.value);
         });
         const saveNote = async event => {
@@ -345,7 +346,9 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         renderer,
         onChatChanged(meta = {}) { fullscreen.clear(); controller.beginChat(meta); const revision = controller.snapshotRevision(); if (meta.enabled === false || host.enabled?.() === false) { this.close(); return Promise.resolve(0); } const ctx = host.context?.() || {}; const currentId = meta.chatId ?? ctx.chatId; const hash = meta.chatIdHash ?? ctx.chatMetadata?.chat_id_hash; const name = meta.chatName || host.chatName?.() || currentId; const charName = meta.charName || ctx.name2 || ctx.character || ''; return (async () => { if (currentId == null) return 0; await repository.healChatByHash?.(currentId, name, hash); if (!controller.isCurrent(revision)) return 0; const existing = await ports?.listCharacterChatIds?.(); if (!controller.isCurrent(revision) || (host.context?.()?.chatId ?? currentId) !== currentId || !existing) return 0; return repository.adoptOrphans?.(charName, existing, currentId, name, hash) || 0; })().catch(error => { host.warn?.('[SP anchor] 切 chat 自愈失败', error); return 0; }); },
         onChatRenamed(meta) { controller.beginChat(meta); },
-        onCharacterRendered(meta = {}) { scanButtons({ rebindMessageId: meta.messageId }); }, onChatDomChanged() { scanButtons(); }, onThemeChanged(theme) { currentTheme = theme || currentTheme; scanButtons(); if (root?.isConnected) return renderer.render(); },
+        onCharacterRendered(meta = {}) { scanButtons({ rebindMessageId: meta.messageId }); },
+        onChatDomChanged() { scanButtons(); },
+        onThemeChanged(theme) { const next = theme || currentTheme; const same = next === currentTheme; currentTheme = next; scanButtons(); if (!root?.isConnected) return; if (root.querySelector?.('.sp-anchor-search:focus, .sp-anchor-item-note-input:focus, .sp-anchor-full-note-input:focus')) return applySearchFilter(); if (same) return; return renderer.render(); },
         storageUsage: async () => {
             const usage = await repository.checkSize();
             const clipCount = await excerpts?.count?.() || 0;

@@ -76,6 +76,21 @@ test('filterSearchList hides unmatched cards without rebuilding', () => {
     assert.equal(cards[1].hidden, false);
 });
 
+test('search box is not a shelf tab', async () => {
+    const { createCoordinateRenderer } = await import('./render.js');
+    let html = '';
+    const renderer = createCoordinateRenderer({
+        repository: { listByChat: async () => [], getTags: async () => [], countItems: async () => 0 },
+        excerptRepo: { count: async () => 0 },
+        setBody: next => { html = next; },
+        getState: () => ({ level: 'chars', shelf: 'snaps', browse: 'char', snapSearch: '', filter: null }),
+    });
+    await renderer.chars();
+    assert.match(html, /class="sp-anchor-search[^"]*"[^>]*data-search-shelf="snaps"/);
+    assert.equal(/<input[^>]*\sdata-shelf=/.test(html), false);
+    assert.match(html, /class="sp-anchor-shelf-tab[^"]*"[^>]*data-shelf="snaps"/);
+});
+
 test('snapshot notes stay in the index meta', async () => {
     const { normalizeMeta } = await import('./schema.js');
     const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ' });
