@@ -92,5 +92,5 @@ export function entryTouchesLines(entry) {
     if (!entry || typeof entry !== 'object') return false;
     if (entry.source === 'advance' || entry.source === 'dashed') return true;
     if (entry.snapshot?.lines != null || entry.after?.lines != null) return true;
-    return (Array.isArray(entry.items) ? entry.items : []).some(item => item?.module === 'lines' || item?.module === 'dashed');
+    return (entry.items || []).some(item => item?.module === 'lines' || item?.module === 'dashed');
 }

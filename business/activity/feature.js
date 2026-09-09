@@ -88,20 +88,26 @@ export function createActivityFeature(env = {}) {
         return entry;
     };
 
-    const undo = async id => {
-        const entry = store.list(chatId()).find(item => item.id === String(id));
-        if (!entry || entry.undone) return { status: 'skipped' };
-        if (!entry.snapshot) return { status: 'failed', reason: 'no-snapshot' };
+    const revertIfCurrent = async entry => {
         const current = capture(Object.keys(entry.snapshot));
-        if (entry.after && !sameSnapshot(current, entry.after)) {
-            env.toast?.('之后又改过了，没法原样撤回', true);
-            return { status: 'failed', reason: 'diverged' };
-        }
+        if (entry.after && !sameSnapshot(current, entry.after)) return { status: 'diverged' };
         await restore(entry.snapshot);
         store.update(chatId(), entry.id, { undone: true, stale: false });
         env.onRestored?.(entry);
         paint();
         return { status: 'updated' };
+    };
+
+    const undo = async id => {
+        const entry = store.list(chatId()).find(item => item.id === String(id));
+        if (!entry || entry.undone) return { status: 'skipped' };
+        if (!entry.snapshot) return { status: 'failed', reason: 'no-snapshot' };
+        const result = await revertIfCurrent(entry);
+        if (result.status === 'diverged') {
+            env.toast?.('之后又改过了，没法原样撤回', true);
+            return { status: 'failed', reason: 'diverged' };
+        }
+        return result;
     };
 
     const latestAdvanceForFloor = floorId => store.list(chatId()).find(item => (
@@ -114,15 +120,7 @@ export function createActivityFeature(env = {}) {
     const replayFloorAdvance = async floorId => {
         const entry = latestAdvanceForFloor(floorId);
         if (!entry) return { status: 'empty' };
-        const current = capture(Object.keys(entry.snapshot));
-        if (entry.after && !sameSnapshot(current, entry.after)) {
-            return { status: 'diverged' };
-        }
-        await restore(entry.snapshot);
-        store.update(chatId(), entry.id, { undone: true, stale: false });
-        env.onRestored?.(entry);
-        paint();
-        return { status: 'updated' };
+        return revertIfCurrent(entry);
     };
 
     const markFloorRestyle = ({ floorId, signature } = {}) => {
@@ -172,29 +170,21 @@ export function createActivityFeature(env = {}) {
 
     const bindUi = () => {
         const $root = env.root?.();
-        $root?.on?.('click', '.sp-activity-btn', () => {
+        const click = (sel, fn) => $root?.on?.('click', sel, fn);
+        const clickId = (sel, fn) => click(sel, function () { void fn(env.$(this).attr('data-id')); });
+        click('.sp-activity-btn', () => {
             if (open) setOpen(false);
             else {
                 env.closeSettings?.();
                 setOpen(true);
             }
         });
-        $root?.on?.('click', '.sp-activity-close-btn', () => setOpen(false));
-        $root?.on?.('click', '.sp-activity-undo', function () {
-            void undo(env.$(this).attr('data-id'));
-        });
-        $root?.on?.('click', '.sp-activity-quote', function () {
-            void quoteToSpace(env.$(this).attr('data-id'));
-        });
-        $root?.on?.('click', '.sp-activity-open-lines', function () {
-            void env.openLines?.();
-        });
-        $root?.on?.('click', '.sp-activity-realign', function () {
-            void realign();
-        });
-        $root?.on?.('click', '.sp-activity-stamp-fill', function () {
-            void env.fillLatestStamp?.();
-        });
+        click('.sp-activity-close-btn', () => setOpen(false));
+        clickId('.sp-activity-undo', undo);
+        clickId('.sp-activity-quote', quoteToSpace);
+        click('.sp-activity-open-lines', () => { void env.openLines?.(); });
+        click('.sp-activity-realign', () => { void realign(); });
+        click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });
     };
 
     return {

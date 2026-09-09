@@ -1,5 +1,45 @@
 import { ACTIVITY_CAP, normalizeActivityEntry } from './schema.js';
 
+const LEGACY_ACTIVITY_PREFIX = 'sp-activity:';
+
+export function parseActivityPayload(raw) {
+    if (Array.isArray(raw?.entries)) return raw.entries;
+    if (Array.isArray(raw)) return raw;
+    return null;
+}
+
+export function createActivityChatStorage({ read, write, browserStorage, chatId } = {}) {
+    const forgetLegacy = id => {
+        if (!id) return;
+        try { browserStorage?.removeItem?.(`${LEGACY_ACTIVITY_PREFIX}${id}`); } catch {}
+    };
+    return {
+        getItem() {
+            const fromStore = parseActivityPayload(read?.());
+            if (fromStore) return JSON.stringify(fromStore);
+            const id = chatId?.();
+            if (!id) return '[]';
+            try {
+                const legacy = browserStorage?.getItem?.(`${LEGACY_ACTIVITY_PREFIX}${id}`);
+                if (!legacy) return '[]';
+                const parsed = JSON.parse(legacy);
+                if (!Array.isArray(parsed) || !parsed.length) return '[]';
+                write?.({ entries: parsed, ts: Date.now() });
+                forgetLegacy(id);
+                return JSON.stringify(parsed);
+            } catch {
+                return '[]';
+            }
+        },
+        setItem(_key, value) {
+            let entries = [];
+            try { entries = JSON.parse(value); } catch { entries = []; }
+            write?.({ entries: Array.isArray(entries) ? entries : [], ts: Date.now() });
+            forgetLegacy(chatId?.());
+        },
+    };
+}
+
 export function createActivityStore({ storage, keyForChat, cap = ACTIVITY_CAP } = {}) {
     const memory = new Map();
     const bucket = chatId => String(chatId ?? '');

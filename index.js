@@ -15,6 +15,7 @@ import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { clampPaceToLatest, snapshotPaceState } from './business/refresh/pace-persist.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createActivityFeature } from './business/activity/feature.js';
+import { createActivityChatStorage } from './business/activity/store.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
@@ -1547,33 +1548,12 @@ let linesMode           = false;
 const manualEditing = { point: false, lines: false, outline: false };
 const activityFeature = createActivityFeature({
     chatId: () => getContext().chatId,
-    storage: {
-        getItem() {
-            const saved = readStore(keyDesc('activity', 'user', ''));
-            const fromStore = Array.isArray(saved?.entries) ? saved.entries : (Array.isArray(saved) ? saved : null);
-            if (fromStore) return JSON.stringify(fromStore);
-            const chatId = getContext().chatId;
-            if (!chatId) return '[]';
-            try {
-                const legacy = localStorage.getItem(`sp-activity:${chatId}`);
-                if (!legacy) return '[]';
-                const parsed = JSON.parse(legacy);
-                if (!Array.isArray(parsed) || !parsed.length) return '[]';
-                writeStore(keyDesc('activity', 'user', ''), { entries: parsed, ts: Date.now() });
-                localStorage.removeItem(`sp-activity:${chatId}`);
-                return JSON.stringify(parsed);
-            } catch {
-                return '[]';
-            }
-        },
-        setItem(_key, value) {
-            let entries = [];
-            try { entries = JSON.parse(value); } catch { entries = []; }
-            writeStore(keyDesc('activity', 'user', ''), { entries: Array.isArray(entries) ? entries : [], ts: Date.now() });
-            const chatId = getContext().chatId;
-            if (chatId) try { localStorage.removeItem(`sp-activity:${chatId}`); } catch {}
-        },
-    },
+    storage: createActivityChatStorage({
+        read: () => readStore(keyDesc('activity', 'user', '')),
+        write: value => writeStore(keyDesc('activity', 'user', ''), value),
+        browserStorage: localStorage,
+        chatId: () => getContext().chatId,
+    }),
     keyForChat: () => 'activity-user',
     query: $in,
     $,
@@ -2388,10 +2368,9 @@ jQuery(async () => {
         beatFeature?.onAiFloor?.(mid);
         activityFeature.markFloorRestyle({ floorId: mid, signature: _floorSig(mid) });
         // Master switch: linesEnabled=false disables auto-advance + inline block
-        if (getSettings().linesEnabled === false) { persistPaceNow(); paintPaceSoon(); return; }
+        if (getSettings().linesEnabled === false) { rememberPace(); return; }
         await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
         return;
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
@@ -2469,7 +2448,7 @@ jQuery(async () => {
     // 面·大纲自动注入：独立监听，跟线彻底解耦（绝不复用 _stListeners.char——它 linesEnabled=false
     // 会 early-return，连坐大纲）。每隔 N 楼独立判定一次剧情是否推进到下一节点，推进则游标 +1。
     if (_stListeners.outlineJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
-    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); persistPaceNow(); paintPaceSoon(); };
+    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); rememberPace(); };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
     // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
     // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
@@ -2498,11 +2477,10 @@ jQuery(async () => {
         if (messageId <= almanacLastJudgedMsgId) return;
         almanacLastJudgedMsgId = messageId;
         if (getSettings().almanacAutoDetect === false) return;
-        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) { persistPaceNow(); paintPaceSoon(); return; }
+        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) { rememberPace(); return; }
         almanacJudgeCounter = 0;
         dateCoordinator.runOnce(renderKey, ({ signal }) => runJudgeDateStep({ messageId, signal }));   // fire-and-forget；runOnce 兼并发去重
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
     // 点不单独判定日期；点/线对齐走刷新条或 ledgerReconcileEnabled，不随「今天」后台整表重排。
@@ -2518,11 +2496,10 @@ jQuery(async () => {
         ledgerLastCapturedMsgId = messageId;
         // 时旅首楼：标注由显式步骤接管（LEDGER_CAPTURE step），跳过自动标注，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_CAPTURE)) return;
-        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) { persistPaceNow(); paintPaceSoon(); return; }
+        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) { rememberPace(); return; }
         ledgerCaptureCounter = 0;
         runLedgerCaptureStep();   // fire-and-forget，自带守卫
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
     // 暗历·判定（刷现状）：每 N 楼重算活跃条目「距今多久」、只让 AI 回该变的那几条。与标注共用 ledgerCaptureEnabled
@@ -2538,11 +2515,10 @@ jQuery(async () => {
         ledgerLastJudgedMsgId = messageId;
         // 时旅首楼：判定由显式步骤接管（LEDGER_JUDGE step），跳过自动判定，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_JUDGE)) return;
-        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) { persistPaceNow(); paintPaceSoon(); return; }
+        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) { rememberPace(); return; }
         ledgerJudgeCounter = 0;
         runLedgerJudgeStep();   // fire-and-forget，自带守卫
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
     // 暗历·注入重算（场景感知）：每出一楼就按最新正文重挑注入集——纯 JS 打分、零 API，故不设间隔/单调闸，
@@ -2923,6 +2899,11 @@ function persistPaceNow() {
         pendingDashed: refreshController.stagger?.pendingDashed === true,
         lastReconcileFloor: align.lastReconcileFloor,
     }));
+}
+
+function rememberPace() {
+    persistPaceNow();
+    paintPaceSoon();
 }
 
 hydratePaceFromStore();
@@ -4034,8 +4015,7 @@ function injectModal() {
         .on('change.spLinesMode', 'input[name="sp-lines-mode"]', function () {
             saveLinesMode(this.value);
             linesFeature.resetCounter();
-            persistPaceNow();
-            paintPaceSoon();
+            rememberPace();
         });
     $in('.sp-fab-toggle-btn').on('click', function () {
         const nowEnabled = !fabEnabled();
@@ -4802,8 +4782,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         linesFeature.dashed.resetAuto?.();
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     $in('#sp-dashed-cleanup-enabled').on('change', function () {
         getSettings().dashedCleanupEnabled = this.checked;
@@ -4830,8 +4809,7 @@ function injectModal() {
         getSettings().outlineJudgeEnabled = this.checked;
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     $in('#sp-lines-advance-latest').on('change', function () {
         getSettings().linesAdvanceIncludeLatest = this.checked;
@@ -4844,16 +4822,14 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     // 历·自动确认当前日期 开关：改完重置历计数（避免残留计数刚开就判）
     $in('#sp-almanac-autodetect').on('change', function () {
         getSettings().almanacAutoDetect = this.checked;
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     // 历·确认间隔：改完重新计数
     $in('#sp-almanac-judge-interval').on('change', function () {
@@ -4862,8 +4838,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     // 界面字号缩放：−/＋ 各 ±5%，夹 0.8–1.3、吸附到 0.05 网格；写 --sp-scale（即时生效）+ 存 uiScale + 回填读数。
     function applyUiScale(v) {
@@ -4911,12 +4886,11 @@ function injectModal() {
         getSettings().ledgerReconcileEnabled = this.checked;
         saveSettingsDebounced();
         refreshController.resetCounter();
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     $in('#sp-ledger-reconcile-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 3)));
-        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); persistPaceNow(); paintPaceSoon();
+        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); rememberPace();
     });
     // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
     $in('#sp-ledger-inject').on('change', function () {
@@ -4929,16 +4903,15 @@ function injectModal() {
         getSettings().ledgerCaptureEnabled = this.checked;
         saveSettingsDebounced();
         ledgerCaptureCounter = 0;
-        persistPaceNow();
-        paintPaceSoon();
+        rememberPace();
     });
     $in('#sp-ledger-capture-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 5)));
-        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0; persistPaceNow(); paintPaceSoon();
+        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0; rememberPace();
     });
     $in('#sp-ledger-judge-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 4)));
-        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0; persistPaceNow(); paintPaceSoon();
+        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0; rememberPace();
     });
     // 楼内渲染框·主开关：关 → 整框全清、停观察；开 → 重算窗口挂回。三个子开关只在它开时才起效。
     $in('#sp-inline-render-enabled').on('change', function () {

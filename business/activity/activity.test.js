@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { entryTouchesLines, normalizeActivityEntry, sourceLabel } from './schema.js';
-import { createActivityStore } from './store.js';
+import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
 import { activityOverlayHtml, renderActivityList } from './ui.js';
@@ -194,4 +194,25 @@ test('replayFloorAdvance restores the latest undone advance for a floor', async 
 test('diffSnapshots ignores untouched modules', () => {
     const items = diffSnapshots({ point: 'same', lines: 'old' }, { point: 'same', lines: 'old' });
     assert.equal(items.length, 0);
+});
+
+test('chat storage migrates legacy localStorage once then reads chat entries', () => {
+    const chat = new Map();
+    const browser = new Map();
+    const storage = createActivityChatStorage({
+        read: () => chat.get('saved') || null,
+        write: value => chat.set('saved', value),
+        browserStorage: {
+            getItem: key => browser.get(key) || null,
+            removeItem: key => browser.delete(key),
+        },
+        chatId: () => 'c1',
+    });
+    browser.set('sp-activity:c1', JSON.stringify([{ id: '1', source: 'advance', items: [] }]));
+    const migrated = JSON.parse(storage.getItem());
+    assert.equal(migrated[0].id, '1');
+    assert.deepEqual(chat.get('saved').entries[0].id, '1');
+    assert.equal(browser.has('sp-activity:c1'), false);
+    storage.setItem('k', JSON.stringify([{ id: '2', source: 'align', items: [] }]));
+    assert.equal(JSON.parse(storage.getItem())[0].id, '2');
 });

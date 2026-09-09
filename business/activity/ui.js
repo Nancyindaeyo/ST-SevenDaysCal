@@ -40,11 +40,15 @@ export function activityButtonHtml() {
     </button>`;
 }
 
+function itemWho(item) {
+    return [moduleLabel(item.module), item.title].filter(Boolean).join(' · ');
+}
+
 export function quoteTextForSpace(entry) {
     const lines = [];
     if (entry?.note) lines.push(entry.note);
     for (const item of entry?.items || []) {
-        const who = [moduleLabel(item.module), item.title].filter(Boolean).join(' · ');
+        const who = itemWho(item);
         const act = actionLabel(item.action);
         lines.push(act ? `${who}（${act}）` : who);
     }
@@ -56,21 +60,17 @@ export function renderActivityList(entries = []) {
         return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">自动对齐、线推进、面判定、间引导和手动刷新成功后会记在这里，方便反悔。对齐的理由也写在卡片上，可以拿到间里聊。</p></div>`;
     }
     return `<ol class="sp-activity-list">${entries.map(entry => {
-        const items = (entry.items || []).map(item => {
-            const who = [moduleLabel(item.module), item.title].filter(Boolean).join(' · ');
-            return `<li><span>${escape(who)}</span><em>${escape(actionLabel(item.action))}</em></li>`;
-        }).join('');
+        const items = (entry.items || []).map(item => (
+            `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em></li>`
+        )).join('');
+        const button = (cls, label) => `<button type="button" class="sp-btn ${cls}" data-id="${escape(entry.id)}">${label}</button>`;
         const undo = entry.undone
             ? '<span class="sp-activity-undone">已撤回</span>'
             : entry.snapshot
-                ? `<button type="button" class="sp-btn sp-activity-undo" data-id="${escape(entry.id)}">撤回</button>`
+                ? button('sp-activity-undo', '撤回')
                 : '';
-        const quote = (entry.note || (entry.items || []).length)
-            ? `<button type="button" class="sp-btn sp-activity-quote" data-id="${escape(entry.id)}">拿到间里聊</button>`
-            : '';
-        const jump = entryTouchesLines(entry)
-            ? `<button type="button" class="sp-btn sp-activity-open-lines" data-id="${escape(entry.id)}">去线里看</button>`
-            : '';
+        const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
+        const jump = entryTouchesLines(entry) ? button('sp-activity-open-lines', '去线里看') : '';
         const stale = entry.stale && !entry.undone
             ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';

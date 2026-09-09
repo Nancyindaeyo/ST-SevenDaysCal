@@ -8,23 +8,23 @@ function asCount(value) {
     return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function gate(raw = {}, fallbackFloor = -1) {
+function gate(raw = {}) {
     return {
-        lastFloor: asInt(raw?.lastFloor, fallbackFloor),
+        lastFloor: asInt(raw?.lastFloor, -1),
         counter: asCount(raw?.counter),
     };
+}
+
+export const PACE_GATES = Object.freeze(['align', 'advance', 'outline', 'dashed', 'date', 'ledgerCapture', 'ledgerJudge']);
+
+function mapGates(src, map) {
+    return Object.fromEntries(PACE_GATES.map(name => [name, map(src[name] || {})]));
 }
 
 export function normalizePaceState(raw = {}) {
     const src = raw && typeof raw === 'object' ? raw : {};
     return {
-        align: gate(src.align),
-        advance: gate(src.advance),
-        outline: gate(src.outline),
-        dashed: gate(src.dashed),
-        date: gate(src.date),
-        ledgerCapture: gate(src.ledgerCapture),
-        ledgerJudge: gate(src.ledgerJudge),
+        ...mapGates(src, gate),
         pendingAdvance: src.pendingAdvance === true,
         pendingDashed: src.pendingDashed === true,
         lastReconcileFloor: asInt(src.lastReconcileFloor, -1),
@@ -33,39 +33,14 @@ export function normalizePaceState(raw = {}) {
 
 export function clampPaceToLatest(raw = {}, latestFloor = -1) {
     const latest = asInt(latestFloor, -1);
-    const clamp = item => ({ ...item, lastFloor: Math.max(item.lastFloor, latest) });
     const saved = normalizePaceState(raw);
     return {
         ...saved,
-        align: clamp(saved.align),
-        advance: clamp(saved.advance),
-        outline: clamp(saved.outline),
-        dashed: clamp(saved.dashed),
-        date: clamp(saved.date),
-        ledgerCapture: clamp(saved.ledgerCapture),
-        ledgerJudge: clamp(saved.ledgerJudge),
+        ...mapGates(saved, item => ({ ...item, lastFloor: Math.max(item.lastFloor, latest) })),
         lastReconcileFloor: saved.lastReconcileFloor === latest ? latest : -1,
     };
 }
 
-export function snapshotPaceState({
-    align = {},
-    advance = {},
-    outline = {},
-    dashed = {},
-    date = {},
-    ledgerCapture = {},
-    ledgerJudge = {},
-    pendingAdvance = false,
-    pendingDashed = false,
-    lastReconcileFloor = -1,
-    ts = Date.now(),
-} = {}) {
-    return {
-        ...normalizePaceState({
-            align, advance, outline, dashed, date, ledgerCapture, ledgerJudge,
-            pendingAdvance, pendingDashed, lastReconcileFloor,
-        }),
-        ts: Number(ts) || Date.now(),
-    };
+export function snapshotPaceState(raw = {}) {
+    return { ...normalizePaceState(raw), ts: Number(raw.ts) || Date.now() };
 }
