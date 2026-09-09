@@ -10,7 +10,7 @@ import {
 import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
-import { readRefreshBar, refreshFoldHtml } from './business/refresh/bar.js';
+import { refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
@@ -30,6 +30,9 @@ import { detectSTTheme, getEffectiveTheme as resolveTheme, nextThemeMode, paintT
 import { handlePanelViewClick } from './business/shell/view-switch.js';
 import { createPanelWindow, runOpenSchedule } from './business/shell/window.js';
 import { createTaDrawer, guessCharName } from './business/shell/ta-drawer.js';
+import { bindModuleIntro, bindPanelChrome } from './business/shell/chrome.js';
+import { bindRefreshBar } from './business/refresh/bind.js';
+import { bindAlmanacPanel } from './business/axis/bind.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
@@ -2007,6 +2010,8 @@ const taDrawer = createTaDrawer({
     pins: () => store.readPinnedChars(),
     activate: name => activateCharView(name),
     openPicker: () => switchToCharView(),
+    removePin: name => store.removePinnedChar(name),
+    refreshPinIcon: () => refreshCharPinIcon(),
 });
 function updateTaTriggerLabel() { taDrawer.updateLabel(); }
 function openTaDrawer() { taDrawer.show(); }
@@ -2944,36 +2949,21 @@ function injectModal() {
 
     if (cfg.key) $in('#sp-cfg-key').val(maskKey(cfg.key)).data('real', cfg.key);
 
-    $in('.sp-close-btn').on('click',    closePanel);
-    $in('.sp-settings-btn').on('click', () => { activityFeature.close(); toggleSettings(); });
-    $in('.sp-settings-close-btn').on('click', toggleSettings);
+    bindPanelChrome({
+        $in, $,
+        close: closePanel,
+        activity: activityFeature,
+        toggleSettings,
+        fabEnabled,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        fabId: FAB_ID,
+        cycleTheme: cycleThemeMode,
+    });
     activityFeature.bindUi();
-    $in('.sp-fab-toggle-btn').on('click', function () {
-        const nowEnabled = !fabEnabled();
-        getSettings().fabShow = nowEnabled;
-        saveSettingsDebounced();
-        $(`#${FAB_ID}`).toggle(nowEnabled);
-        $(this).toggleClass('sp-btn-active', nowEnabled);
-    });
-    $in('.sp-theme-toggle-btn').on('click', cycleThemeMode);
-    $in('.sp-backdrop').on('click',     closePanel);
-
-    // 模块介绍气泡：点标题旁的 ? 弹出当前模块简介，点外部/切模块即关
-    $in('.sp-module-intro-btn').on('click', function (e) {
-        e.stopPropagation();
-        const $pop = $in('#sp-module-intro-pop');
-        if ($pop.is(':visible')) { $pop.hide(); return; }
-        const view = $in('.sp-side-tab.sp-view-active').data('view') || 'schedule';
-        $pop.html(MODULE_INTROS[view] || MODULE_INTROS.schedule).show();   // 内容全为作者手写 HTML（图标图例），无用户输入 → .html() 安全
-    });
-    // 批次3：shadow 内点击的 e.target 被重定向为 host，closest() 判断失效（点 pop 内部也触发关闭）
-    // → 改走 composedPath()（含 shadow 内节点）判断点击是否落在 pop/btn 内。
-    $(document).off('click.spIntro').on('click.spIntro', function (e) {
-        // hotfix3：合成事件（如 fastChat/mobileKeyboard 的 jQuery .trigger()）无 originalEvent → ?. 防御，path 为空走关闭分支
-        const path = e.originalEvent?.composedPath?.() || [];
-        if (path.some(el => el instanceof Element && el.matches('#sp-module-intro-pop, .sp-module-intro-btn'))) return;
-        $in('#sp-module-intro-pop').hide();
-    });
+    // 模块介绍气泡：点标题旁的 ? 弹出当前模块简介，点外部/切模块即关。
+    // shadow 内点击的 e.target 被重定向为 host，改走 composedPath 判断是否落在 pop/btn 内。
+    bindModuleIntro({ $in, $, intros: MODULE_INTROS });
     for (const id of ['#sp-diagnostics-section', '#sp-diagnostics-ai-input-preview']) {
         inEl(id)?.addEventListener('toggle', function () {
             if (this.open) refreshLastDebugPayloadPreview();
@@ -2999,50 +2989,20 @@ function injectModal() {
     $linesWrap.on('click', '.sp-lines-dashed-lock', function () { linesFeature.dashed.toggle($(this).attr('data-id')); });
     $linesWrap.on('click', '.sp-lines-dashed-delete', function () { linesFeature.dashed.remove($(this).attr('data-id')); });
     $in('#sp-body').on('click', '#sp-gen-schedule-now, .sp-refresh-schedule', onRegenClick);
-    $in('#sp-refresh-bar').on('click', '.sp-refresh-all', function () {
-        $in('#sp-refresh-bar .sp-refresh-mod').prop('checked', true);
-    });
-    $in('#sp-refresh-bar').on('change', 'input[name="sp-refresh-outline-mode"]', function () {
-        getSettings().outlineRegenMode = this.value === 'all' || this.value === 'continue' ? this.value : 'current';
-        saveSettingsDebounced();
-    });
-    $in('#sp-refresh-align').on('click', async function () {
-        const form = readRefreshBar($in('#sp-refresh-bar'));
-        const selected = form.selected.filter(name => name === 'point' || name === 'lines');
-        if (!selected.length) { showToast('对齐只会动点和线，请至少勾选其中一项', null, true); return; }
-        const result = await refreshController.align({ ...form, selected });
-        if (result?.status === 'invalid') showToast('请先勾选要动的模块', null, true);
-        else if (result?.status === 'skipped' && result.reason === 'empty') showToast('还没有点或线可以对齐', null, true);
-        else if (result?.status === 'failed') showToast(`对齐失败：${diagnosticMessage(result.error)}`, null, true);
-    });
-    $in('#sp-refresh-regen').on('click', async function () {
-        const form = readRefreshBar($in('#sp-refresh-bar'));
-        if (!form.selected.length) { showToast('请先勾选要重新生成的模块', null, true); return; }
-        if (!form.reason) { showToast('重新生成请先写「为什么刷新」', null, true); $in('#sp-refresh-reason').trigger('focus'); return; }
-        const result = await refreshController.regenerate(form);
-        if (result?.status === 'invalid') showToast('重新生成请先写「为什么刷新」', null, true);
-        else if (result?.status === 'skipped') showToast('请先勾选要重新生成的模块', null, true);
+    bindRefreshBar({
+        $in,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        align: form => refreshController.align(form),
+        regenerate: form => refreshController.regenerate(form),
+        diagnosticMessage,
+        toast: showToast,
     });
     // 点视图头部 📌：固定/取消固定当前 char（只在 char 视角出现）。名字取按钮 data-name，兜底 charViewName。
     $in('#sp-body').on('click', '.sp-point-pin-char', function () {
         onCharPinToggle($(this).attr('data-name'));
     });
-    // TA▾ 抽屉委托：点固定槽切人 / ✕ 移除槽 / 「添加·查看角色」开填写框。
-    $in('#sp-ta-drawer').on('click', '.sp-ta-slot-del', function (e) {
-        e.stopPropagation();   // 别冒泡到槽本身的「切人」
-        const name = $(this).attr('data-name');
-        store.removePinnedChar(name);
-        if (store.readPinnedChars().length) openTaDrawer();   // 还有槽 → 重渲；空了 → 收起
-        else closeTaDrawer();
-        refreshCharPinIcon();   // 若删的正是当前 char，头部 📌 同步回未固定态
-    });
-    $in('#sp-ta-drawer').on('click', '.sp-ta-slot', function () {
-        activateCharView($(this).attr('data-name'));
-    });
-    $in('#sp-ta-drawer').on('click', '.sp-ta-add', function () {
-        closeTaDrawer();
-        switchToCharView();
-    });
+    taDrawer.bindUi();
     // Refresh lines — button appears in both panel toolbar and inline block
     // 双绑拆分：面板行在 shadow 内走 $in；楼内行在 light DOM #chat 保持原查询。
     $linesWrap.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', function (e) {
@@ -3178,207 +3138,42 @@ function injectModal() {
         batch: { scopes: BATCH_SCOPES, scope: getBatchScope, setScope: setBatchScope, selected: getBatchSelected, reset: batchReset, ids: batchScopeIds, exec: execBatch },
         toast: showToast, resetCapture: () => { paceBook.ledgerCapture.resetCounter(); },
     });
-    // 轴面板「今天」栏：±1天 / 改（内联月日） / 自动（清锚）等操作经 runAnchorAftermath 共享善后。
-    $almanac.on('click', '.sp-alm-today-prev', function () { almNudgeToday(-1); });
-    $almanac.on('click', '.sp-alm-today-next', function () { almNudgeToday(1); });
-    $almanac.on('click', '.sp-alm-today-edit', function () {
-        axisState._almTodayEditing = true;
-        renderAlmanacPanel();
-        setTimeout(() => $in('#sp-alm-today-month').trigger('focus'), 30);
-    });
-    $almanac.on('click', '.sp-alm-today-cancel', function () { axisState._almTodayEditing = false; renderAlmanacPanel(); });
-    $almanac.on('click', '.sp-alm-today-save', async function () {
-        const mo = parseInt($in('#sp-alm-today-month').val(), 10);
-        const da = parseInt($in('#sp-alm-today-day').val(), 10);
-        const weekday = parseInt($in('#sp-alm-today-weekday').val(), 10);
-        const result = await axisDateActions.saveManual(mo, da, { storyClock: true, weekday });
-        if (!result.ok) return;
-        axisState._almTodayEditing = false;
-    });
-    $almanac.on('click', '.sp-alm-today-clear', function () {
-        const key = charStableKey(getContext());
-        if (!key) return;
-        const cleared = axisDateActions.clearAnchor(key);   // 清锚 → 恢复自动确认
-        if (!cleared.ok) { showToast('日期清除失败，请重试', null, true); return; }
-        runAnchorAftermath();
-        relandStoryClockAnchor();
-        showToast('已清除手动日期，恢复自动确认');
-    });
-    // 月历：翻月 / 选日（再点已选=取消回全月）/ 看全月 / 加到某天
-    $almanac.on('click', '.sp-alm-cal-prev', function () { almNavMonth(-1); });
-    $almanac.on('click', '.sp-alm-cal-next', function () { almNavMonth(1); });
-    $almanac.on('click', '.sp-alm-time-travel', function () {
-        const day = Number($(this).attr('data-day'));
-        if (Number.isInteger(day)) void startTimeTravel({ month: almCalMonth() + 1, day });
-    });
-    $almanac.on('click', '.sp-alm-time-travel-stop', function () { void cancelTimeTravel(); });
-    $almanac.on('click', '.sp-alm-cell[data-day]', function () { axisCalendarActions.selectDay(parseInt($(this).attr('data-day'), 10)); });
-    $almanac.on('click', '.sp-alm-cal-clearsel', function () { axisCalendarActions.selectDay(null); });
-    $almanac.on('click', '.sp-alm-add-day', function () {
-        openAlmanacEditor(null, { month: almCalMonth() + 1, day: parseInt($(this).attr('data-day'), 10) || 1 });
-    });
-    // 轴工具栏：宽版按钮与窄版抽屉共享同一动作分发，避免重构后只剩静态按钮。
-    const dispatchAlmanacAction = action => {
-        if (action === 'add-almanac') return openAlmanacEditor();
-        if (action === 'generate-almanac') return triggerGenerateAlmanac();
-        if (action === 'supplement-anniversary') return triggerSupplementAnniversary();
-        if (action === 'manage-calendar') return openCalendarManager();
-        return undefined;
-    };
-    const toggleAlmanacActionMenu = element => {
-        const menu = $(element).closest('.sp-action-menu').get(0);
-        if (!menu) return;
-        const open = !$(menu).hasClass('sp-action-menu-open');
-        closeActionMenus(open ? menu : null);
-        $(menu).toggleClass('sp-action-menu-open', open)
-            .find('.sp-action-menu-list').attr('hidden', !open)
-            .end().find('.sp-action-menu-toggle').attr('aria-expanded', String(open));
-    };
-    $almanac.off('click.spAxisToolbar', '.sp-alm-add, .sp-alm-gen, .sp-alm-supplement, .sp-alm-manage, .sp-action-menu-toggle, .sp-action-menu-item')
-        .on('click.spAxisToolbar', '.sp-alm-add, .sp-alm-gen, .sp-alm-supplement, .sp-alm-manage, .sp-action-menu-toggle, .sp-action-menu-item', function (event) {
-            event.preventDefault();
-            const $button = $(this);
-            if ($button.hasClass('sp-action-menu-toggle')) return toggleAlmanacActionMenu(this);
-            const action = $button.attr('data-action') || ($button.hasClass('sp-alm-add') ? 'add-almanac' : $button.hasClass('sp-alm-gen') ? 'generate-almanac' : $button.hasClass('sp-alm-supplement') ? 'supplement-anniversary' : 'manage-calendar');
-            const result = dispatchAlmanacAction(action);
-            if (result?.then) result.finally(() => closeActionMenus());
-            else closeActionMenus();
-        });
-    // 上下联动：点日历详情里某条 → 高亮它在网格覆盖的那天/那几天，再点一下取消（就地改 class，不重渲）
-    $almanac.on('click', '.sp-alm-cal-detail .sp-alm-item', function (e) {
-        if ($(e.target).closest('button').length) return;   // 不劫持锁/编辑/删除按钮
-        axisCalendarActions.toggleItem($(this).attr('data-id'), { targetIsButton: false });
-    });
-    $almanac.on('click.spAxisItems', '.sp-alm-pin, .sp-alm-edit, .sp-alm-del', function (e) {
-        e.preventDefault(); e.stopPropagation(); const id = $(this).attr('data-id');
-        if ($(this).hasClass('sp-alm-pin')) toggleAlmanacPin(id);
-        else if ($(this).hasClass('sp-alm-edit')) openAlmanacEditor(id);
-        else deleteAlmanacItem(id);
-    });
-    $almanac.on('click', '#sp-abort-almanac', abortAlmanacGen);
-    // F4：日历里点空白处（非日格/条目/控件）→ 清掉当前瞬时态。既回退「选中某天」，也清「上下联动高亮」，两者任一存在都响应，做到点空白必回干净全月。
-    $almanac.on('click', function (e) {
-        if (!axisState.almanacMode || axisState._almanacEditor || axisState._almanacSheet !== 'calendar') return;
-        if ($(e.target).closest('.sp-alm-cell,.sp-alm-item,button,input,select,textarea,.sp-alm-cal-detail-head').length) return;
-        axisCalendarActions.blankClick();
-    });
-    // 内联编辑器：保存 / 取消 / 返回
-    $almanac.on('click', '.sp-alm-editor-save', saveAlmanacEditor);
-    $almanac.on('click', '.sp-alm-editor-cancel, .sp-alm-editor-back', closeAlmanacEditor);
-    $almanac.on('input', '#sp-alm-f-month, #sp-alm-f-day, #sp-alm-f-days', almRenderWdHint);
-    // 历法管理使用同一内联容器；所有正式写入只从 commitCalendarDesc 汇流。
-    $almanac.on('click', '.sp-alm-manager-back', closeCalendarManager);
-    $almanac.on('click', '.sp-alm-manager-chat-link', async function () {
-        const filled = await openPluginViewWithPrefill('space', '#sp-space-input', '我想为当前世界设计一套自定义历法。请结合世界观和我讨论纪年名、月份数量、每个月的名称与天数，并在确认后给出完整历法。');
-        if (!filled) showToast('已经打开间，但没有找到输入框，请手动填写历法需求', null, true);
-        else if (getSettings().notifyMode !== 'off') showToast('已把历法需求预填到间');
-    });
-    $almanac.on('click', '.sp-alm-manager-edit-start', function () {
-        axisCalendarManager.startEditing();
-    });
-    $almanac.on('click', '.sp-alm-manager-edit-cancel', function () {
-        axisCalendarManager.cancelEditing();
-    });
-    $almanac.on('click', '.sp-alm-manager-add-month', function () {
-        axisCalendarManager.addMonth();
-    });
-    $almanac.on('click', '.sp-alm-manager-month-delete', async function () {
-        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
-        await axisCalendarManager.deleteMonth(index);
-    });
-    $almanac.on('click', '.sp-alm-manager-month-copy', function () {
-        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
-        axisCalendarManager.copyMonth(index);
-    });
-    $almanac.on('click', '.sp-alm-manager-month-up, .sp-alm-manager-month-down', function () {
-        const index = Number($(this).closest('.sp-alm-manager-month-row').attr('data-index'));
-        const movingUp = $(this).hasClass('sp-alm-manager-month-up');
-        axisCalendarManager.moveMonth(index, movingUp ? -1 : 1);
-    });
-    $almanac.on('input', '.sp-alm-manager-edit-fields input', function () {
-        if (!axisCalendarManager.hasError()) return;
-        axisCalendarManager.clearError();
-        $inAll('#sp-almanac-wrap .sp-alm-manager-error').remove();
-    });
-    $almanac.on('click', '.sp-alm-manager-edit-save', async function () {
-        const result = await axisCalendarManager.saveDraft();
-        if (!result.ok) {
-            if (result.cancelled) return;
-            const message = result.error || '历法保存失败';
-            showToast(message, null, true);
-            return;
-        }
-        if (getSettings().notifyMode !== 'off') showToast(`历法已更新：${calendarSummary(result.cal)}`);
-    });
-    $almanac.on('click', '.sp-alm-manager-template-head', function () {
-        axisCalendarManager.toggleTemplates();
-    });
-    $almanac.on('click', '.sp-alm-manager-template-save-current', async function () {
-        const list = loadCalendarTemplates();
-        const name = await customDialog.prompt({
-            title: '保存当前历法为模板',
-            body: '为当前历法填写一个便于识别的模板名称。',
-            initialValue: loadCalDesc().era || '',
-            placeholder: '模板名称',
-            maxLength: CALENDAR_TEMPLATE_NAME_LENGTH,
-            validate: value => !value ? '请填写模板名称' : (list.some(template => template.name === value) ? '模板名称已存在，请换一个名称' : ''),
-        });
-        if (name == null || !axisCalendarManager.isOpen()) return;
-        const result = await axisCalendarManager.create({ name, calendar: loadCalDesc() });
-        if (!result.ok) showToast(result.error || '模板保存失败', null, true);
-    });
-    $almanac.on('click', '.sp-alm-manager-template-rename', async function () {
-        const id = $(this).attr('data-id');
-        const list = loadCalendarTemplates();
-        const template = axisCalendarManager.template(id);
-        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
-        const name = await customDialog.prompt({
-            title: '重命名历法模板',
-            body: '填写一个便于识别的新名称。',
-            initialValue: template.name,
-            placeholder: '模板名称',
-            maxLength: CALENDAR_TEMPLATE_NAME_LENGTH,
-            validate: value => !value ? '请填写模板名称' : (list.some(item => item.id !== id && item.name === value) ? '模板名称已存在，请换一个名称' : ''),
-        });
-        if (name == null || !axisCalendarManager.isOpen() || name === template.name) return;
-        const result = await axisCalendarManager.rename(id, name);
-        if (!result.ok) showToast(result.error || '模板重命名失败', null, true);
-    });
-    $almanac.on('click', '.sp-alm-manager-template-apply', async function () {
-        const id = $(this).attr('data-id');
-        const template = axisCalendarManager.template(id);
-        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
-        const ok = await customDialog.confirm({ title: '应用历法模板', body: `确定用「${template.name}」覆盖当前历法吗？`, confirmText: '应用', cancelText: '取消' });
-        if (!ok || !axisCalendarManager.isOpen()) return;
-        const result = await axisCalendarManager.apply(id);
-        if (!result.ok) { if (!result.cancelled) showToast(result.error || '模板应用失败', null, true); return; }
-        axisCalendarManager.cancelEditing();
-        renderAlmanacPanel({ reveal: { kind: 'template', id: template.id }, focus: { kind: 'template', id: template.id, selector: '.sp-alm-manager-template-apply' } });
-        if (getSettings().notifyMode !== 'off') showToast(`已应用历法模板：${template.name}`);
-    });
-    $almanac.on('click', '.sp-alm-manager-template-delete', async function () {
-        const id = $(this).attr('data-id');
-        const template = axisCalendarManager.template(id);
-        if (!template) { showToast('模板已不存在', null, true); renderAlmanacPanel(); return; }
-        const result = await axisCalendarManager.delete(id, { confirm: () => customDialog.confirm({ title: '删除历法模板', body: `确定删除「${template.name}」吗？角色卡绑定也会一并解除。`, confirmText: '删除', cancelText: '取消' }) });
-        if (!result.ok && result.reason !== 'cancelled') showToast(result.error || '模板删除失败', null, true);
-    });
-    $almanac.on('click', '.sp-alm-manager-template-bind', function () {
-        const id = $(this).attr('data-id');
-        const opening = axisCalendarManager.bindingId() !== id;
-        axisCalendarManager.setBindingView(id, opening);
-    });
-    $almanac.on('input', '.sp-alm-manager-bind-search', function () {
-        if (!axisCalendarManager.isOpen()) return;
-        axisCalendarManager.setBindingQuery($(this).val());
-        const id = $(this).attr('data-template-id');
-        $(this).closest('.sp-alm-manager-bind-panel').find('.sp-alm-manager-bind-results').html(axisCalendarManager.renderBindingOptions(id));
-    });
-    $almanac.on('click', '.sp-alm-manager-bind-option', async function () {
-        await axisCalendarManager.updateBinding($(this).attr('data-avatar'), $(this).attr('data-template-id'));
-    });
-    $almanac.on('click', '.sp-alm-manager-bind-chip-remove', async function () {
-        await axisCalendarManager.updateBinding($(this).attr('data-avatar'), null, $(this).attr('data-template-id'));
+    bindAlmanacPanel($almanac, {
+        $, $in, $inAll,
+        state: axisState,
+        settings: getSettings,
+        toast: showToast,
+        render: renderAlmanacPanel,
+        nudgeToday: almNudgeToday,
+        dateActions: axisDateActions,
+        charKey: () => charStableKey(getContext()),
+        aftermath: runAnchorAftermath,
+        relandClock: relandStoryClockAnchor,
+        navMonth: almNavMonth,
+        calMonth: almCalMonth,
+        startTravel: startTimeTravel,
+        cancelTravel: cancelTimeTravel,
+        calendarActions: axisCalendarActions,
+        openEditor: openAlmanacEditor,
+        generate: triggerGenerateAlmanac,
+        supplement: triggerSupplementAnniversary,
+        openManager: openCalendarManager,
+        closeActionMenus,
+        togglePin: toggleAlmanacPin,
+        deleteItem: deleteAlmanacItem,
+        abortGen: abortAlmanacGen,
+        saveEditor: saveAlmanacEditor,
+        closeEditor: closeAlmanacEditor,
+        renderWdHint: almRenderWdHint,
+        closeManager: closeCalendarManager,
+        openSpacePrefill: openPluginViewWithPrefill,
+        manager: axisCalendarManager,
+        prompt: options => customDialog.prompt(options),
+        confirm: options => customDialog.confirm(options),
+        loadTemplates: loadCalendarTemplates,
+        loadCal: loadCalDesc,
+        templateNameLength: CALENDAR_TEMPLATE_NAME_LENGTH,
+        calendarSummary,
     });
 
     // 批次3：同 spIntro——action 菜单在 shadow 内，target 重定向失效，改 composedPath 判断。

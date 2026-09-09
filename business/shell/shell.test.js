@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { clampFabBox, parseStoredPos } from './fab.js';
 import { nextThemeMode, themeToggleIcon, themeToggleTitle, getEffectiveTheme, paintThemeClasses } from './theme.js';
 import { handlePanelViewClick, openSideView } from './view-switch.js';
+import { clickInsideModuleIntro } from './chrome.js';
 import { FAB_ID, MODAL_ID, PEN_ICON_SVG } from './ids.js';
 
 test('fab position clamps inside the viewport', () => {
@@ -154,4 +155,14 @@ test('shell ids stay the host contract ST already uses', () => {
     assert.equal(MODAL_ID, 'sp-modal-root');
     assert.equal(FAB_ID, 'sp-fab');
     assert.match(PEN_ICON_SVG, /sp-pen-icon/);
+});
+
+test('module intro stays open when the click is inside the pop or button', () => {
+    const pop = { matches: sel => sel.includes('#sp-module-intro-pop') };
+    const btn = { matches: sel => sel.includes('.sp-module-intro-btn') };
+    const outside = { matches: () => false };
+    assert.equal(clickInsideModuleIntro([outside, pop]), true);
+    assert.equal(clickInsideModuleIntro([btn]), true);
+    assert.equal(clickInsideModuleIntro([outside]), false);
+    assert.equal(clickInsideModuleIntro([null, {}]), false);
 });

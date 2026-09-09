@@ -86,5 +86,22 @@ export function createTaDrawer(env = {}) {
         return next;
     }
 
-    return { show, close, toggle, updateLabel, isOpen: () => open };
+    function bindUi() {
+        $in('#sp-ta-drawer').on('click', '.sp-ta-slot-del', function (e) {
+            e.stopPropagation();
+            env.removePin?.($(this).attr('data-name'));
+            if ((env.pins?.() || []).length) show();
+            else close();
+            env.refreshPinIcon?.();
+        });
+        $in('#sp-ta-drawer').on('click', '.sp-ta-slot', function () {
+            env.activate?.($(this).attr('data-name'));
+        });
+        $in('#sp-ta-drawer').on('click', '.sp-ta-add', function () {
+            close();
+            env.openPicker?.();
+        });
+    }
+
+    return { show, close, toggle, updateLabel, bindUi, isOpen: () => open };
 }

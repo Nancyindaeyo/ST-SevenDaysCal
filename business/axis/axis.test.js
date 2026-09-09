@@ -6,15 +6,17 @@ import { formatAlmanacDateParts, formatAlmanacWhenLabel, formatCalendarDate } fr
 
 const root = new URL('../../', import.meta.url);
 const index = fs.readFileSync(new URL('index.js', root), 'utf8');
+const bind = fs.readFileSync(new URL('./bind.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('style.css', root), 'utf8');
 const itemUi = fs.readFileSync(new URL('./item-ui.js', import.meta.url), 'utf8');
 
 test('axis toolbar production contract has shared wide/narrow action dispatcher', () => {
-    for (const selector of ['.sp-alm-add', '.sp-alm-gen', '.sp-alm-supplement', '.sp-alm-manage', '.sp-action-menu-toggle', '.sp-action-menu-item']) assert.match(index, new RegExp(selector.replaceAll('.', '\\.'), 'g'));
-    for (const action of ['openAlmanacEditor', 'triggerGenerateAlmanac', 'triggerSupplementAnniversary', 'openCalendarManager']) assert.match(index, new RegExp(`dispatchAlmanacAction[\\s\\S]{0,1200}${action}`));
-    assert.match(index, /\.sp-action-menu-list.*\.attr\('hidden', !open\)/);
-    assert.match(index, /\.toggleClass\('sp-action-menu-open', open\)/);
-    assert.match(index, /aria-expanded.*String\(open\)/);
+    assert.match(index, /bindAlmanacPanel/);
+    for (const selector of ['.sp-alm-add', '.sp-alm-gen', '.sp-alm-supplement', '.sp-alm-manage', '.sp-action-menu-toggle', '.sp-action-menu-item']) assert.match(bind, new RegExp(selector.replaceAll('.', '\\.'), 'g'));
+    for (const action of ['add-almanac', 'generate-almanac', 'supplement-anniversary', 'manage-calendar']) assert.match(bind, new RegExp(`action === '${action}'`));
+    assert.match(bind, /\.sp-action-menu-list.*\.attr\('hidden', !open\)/);
+    assert.match(bind, /\.toggleClass\('sp-action-menu-open', open\)/);
+    assert.match(bind, /aria-expanded.*String\(open\)/);
 });
 
 test('upcoming weekday label includes calendar date and optional year', () => {
