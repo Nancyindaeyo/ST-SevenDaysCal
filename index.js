@@ -33,6 +33,10 @@ import { createTaDrawer, guessCharName } from './business/shell/ta-drawer.js';
 import { bindModuleIntro, bindPanelChrome } from './business/shell/chrome.js';
 import { bindRefreshBar } from './business/refresh/bind.js';
 import { bindAlmanacPanel } from './business/axis/bind.js';
+import { bindLinesPanel } from './business/lines/bind.js';
+import { bindInjectAndJump, bindPointPanel } from './business/point/bind.js';
+import { bindAdultReveal } from './business/utils/adult-reveal.js';
+import { bindActionMenuDismiss, bindManualActionMenus, closeOpenActionMenus } from './business/utils/action-menu.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
@@ -2977,18 +2981,12 @@ function injectModal() {
 
     spaceFeature.bindUi();
     beatFeature.bindUi();
-    const $linesWrap = $in('#sp-lines-wrap');
-    $linesWrap.on('click', '#sp-gen-lines-now', triggerGenerateLines);
-    $linesWrap.on('click', '.sp-lines-sheet-btn', function () {
-        const sheet = $(this).attr('data-sheet');
-        if (sheet !== 'events' && sheet !== 'dashed') return;
-        linesFeature.setSheet(sheet);
-        linesFeature.refreshPanel();
+    bindLinesPanel({
+        $, $in, $chat: $('#chat'),
+        lines: linesFeature,
+        generate: triggerGenerateLines,
+        abort: abortLinesGen,
     });
-    $linesWrap.on('click', '.sp-lines-dashed-add', () => linesFeature.dashed.openDialog());
-    $linesWrap.on('click', '.sp-lines-dashed-lock', function () { linesFeature.dashed.toggle($(this).attr('data-id')); });
-    $linesWrap.on('click', '.sp-lines-dashed-delete', function () { linesFeature.dashed.remove($(this).attr('data-id')); });
-    $in('#sp-body').on('click', '#sp-gen-schedule-now, .sp-refresh-schedule', onRegenClick);
     bindRefreshBar({
         $in,
         settings: getSettings,
@@ -2998,125 +2996,42 @@ function injectModal() {
         diagnosticMessage,
         toast: showToast,
     });
-    // 点视图头部 📌：固定/取消固定当前 char（只在 char 视角出现）。名字取按钮 data-name，兜底 charViewName。
-    $in('#sp-body').on('click', '.sp-point-pin-char', function () {
-        onCharPinToggle($(this).attr('data-name'));
+    bindPointPanel({
+        $, $in, $inAll, $chat: $('#chat'),
+        regen: onRegenClick,
+        pinChar: onCharPinToggle,
+        currentView: () => currentView,
+        charViewName: () => charViewName,
+        deleteEvent: triggerDeletePointEvent,
+        abort: abortScheduleGen,
     });
     taDrawer.bindUi();
-    // Refresh lines — button appears in both panel toolbar and inline block
-    // 双绑拆分：面板行在 shadow 内走 $in；楼内行在 light DOM #chat 保持原查询。
-    $linesWrap.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', function (e) {
-        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
-        linesFeature.actions.reroll();
-    });
-    $('#chat').on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', function (e) {
-        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
-        linesFeature.actions.reroll();
-    });
-    // Advance lines — button appears in both panel toolbar and inline block
-    $linesWrap.on('click', '.sp-advance-lines, .sp-inline-advance-lines', function (e) {
-        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
-        linesFeature.actions.advance();
-    });
-    $('#chat').on('click', '.sp-advance-lines, .sp-inline-advance-lines', function (e) {
-        e.stopPropagation();   // inline button lives in <summary>, don't toggle details
-        linesFeature.actions.advance();
-    });
-    // 楼层刷新仍直接广泛取材两条，不打开面板的主题选择弹窗。
-    $('#chat').on('click', '.sp-inline-refresh-dashed', function (e) {
-        e.stopPropagation();
-        linesFeature.dashed.run({ reroll: true });
-    });
-    // Per-line delete (× on each line card, panel + inline). No full-clear button anymore.
-    $linesWrap.on('click', '.sp-line-del-one', function (e) {
-        e.stopPropagation();
-        const idx = Number($(this).attr('data-line-idx'));
-        if (Number.isInteger(idx)) linesFeature.actions.delete(idx);
-    });
-    $('#chat').on('click', '.sp-line-del-one', function (e) {
-        e.stopPropagation();
-        const idx = Number($(this).attr('data-line-idx'));
-        if (Number.isInteger(idx)) linesFeature.actions.delete(idx);
-    });
-    // Per-line lock/unlock toggle (panel only — inline block shows a read-only marker).
-    $linesWrap.on('click', '.sp-line-pin-toggle', function (e) {
-        e.stopPropagation();
-        const idx = Number($(this).attr('data-line-idx'));
-        if (Number.isInteger(idx)) linesFeature.actions.pin(idx);
-    });
-    $('#chat').on('click', '.sp-line-pin-toggle', function (e) {
-        e.stopPropagation();
-        const idx = Number($(this).attr('data-line-idx'));
-        if (Number.isInteger(idx)) linesFeature.actions.pin(idx);
-    });
-    const revealAdult = function (e) {
-        const node = $(this); const root = node.closest('.sp-line-card, .sp-inline-line, .sp-event, .sp-sch-drawer-item');
-        if (root.hasClass('sp-adult-revealed')) return;
-        e.preventDefault(); e.stopPropagation(); root.addClass('sp-adult-revealed');
-        root.find('.sp-adult-sensitive').removeAttr('role tabindex aria-label title').find('[aria-hidden="true"]').removeAttr('aria-hidden');
-    };
-    const revealAdultKey = function (e) { if (e.key !== 'Enter' && e.key !== ' ') return; revealAdult.call(this, e); };
-    $in('#sp-lines-wrap').off('click.spAdultReveal keydown.spAdultReveal', '.sp-adult-sensitive').on('click.spAdultReveal', '.sp-adult-sensitive', revealAdult).on('keydown.spAdultReveal', '.sp-adult-sensitive', revealAdultKey);
-    $in('#sp-body').off('click.spAdultReveal keydown.spAdultReveal', '.sp-adult-sensitive').on('click.spAdultReveal', '.sp-adult-sensitive', revealAdult).on('keydown.spAdultReveal', '.sp-adult-sensitive', revealAdultKey);
-    $('#chat').off('click.spAdultReveal keydown.spAdultReveal', '.sp-adult-sensitive').on('click.spAdultReveal', '.sp-adult-sensitive', revealAdult).on('keydown.spAdultReveal', '.sp-adult-sensitive', revealAdultKey);
-    $inAll('#sp-body, #sp-lines-wrap, #sp-outline-wrap').on('click.spManualActionMenu', '.sp-action-menu-toggle', function (e) {
-        e.stopPropagation(); const menu = $(this).closest('.sp-action-menu').get(0); const open = !$(menu).hasClass('sp-action-menu-open'); closeActionMenus(menu); $(menu).toggleClass('sp-action-menu-open', open).find('.sp-action-menu-list').attr('hidden', !open).end().find('.sp-action-menu-toggle').attr('aria-expanded', String(open));
-    }).on('click.spManualActionMenu', '.sp-action-menu-item', function (e) {
-        e.stopPropagation(); const item = $(this); const menu = item.closest('.sp-action-menu'); const action = item.attr('data-action'); const idx = Number(menu.attr('data-line-idx') ?? menu.attr('data-idx')); const day = menu.attr('data-day');
-        closeActionMenus();
-        if (action === 'point-edit') return pointActions.editDescription(day === 'future' ? 'future' : Number(day), Number(menu.attr('data-ev')), { view: currentView, charName: charViewName });
-        if (action === 'point-pin') return triggerTogglePointPin(day === 'future' ? 'future' : Number(day), Number(menu.attr('data-ev')));
-        if (action === 'point-delete') return triggerDeletePointEvent(day === 'future' ? 'future' : Number(day), Number(menu.attr('data-ev')), { view: currentView, charName: charViewName });
-        if (action === 'point-inject') return injectToST(_injectTexts[menu.attr('data-iid')]);
-        if (action === 'line-edit') return linesFeature.actions.edit(idx);
-        if (action === 'line-pin') return linesFeature.actions.pin(idx);
-        if (action === 'line-delete') return linesFeature.actions.delete(idx);
-        if (action === 'line-inject') return injectToST(_injectTexts[menu.attr('data-iid')]);
-        if (action === 'outline-edit') return outlineFeature.actions.editScene(idx - 1);
-        if (action === 'outline-current') return outlineFeature.actions.toggleCursor(idx);
-        if (action === 'outline-inject') return injectToST(outlineFeature.ui.getInjectText(menu.attr('data-iid')));
-        if (action === 'outline-copy') {
-            const text = outlineFeature.ui.getCopyText(menu.attr('data-cid'));
+    bindAdultReveal({ $, $in, $chat: $('#chat') });
+    bindManualActionMenus({
+        $, $inAll,
+        close: closeActionMenus,
+        pointView: () => ({ view: currentView, charName: charViewName }),
+        pointEdit: (day, ev, view) => pointActions.editDescription(day, ev, view),
+        pointPin: (day, ev) => triggerTogglePointPin(day, ev),
+        pointDelete: (day, ev, view) => triggerDeletePointEvent(day, ev, view),
+        inject: iid => injectToST(_injectTexts[iid]),
+        lineEdit: idx => linesFeature.actions.edit(idx),
+        linePin: idx => linesFeature.actions.pin(idx),
+        lineDelete: idx => linesFeature.actions.delete(idx),
+        outlineEdit: idx => outlineFeature.actions.editScene(idx),
+        outlineCurrent: idx => outlineFeature.actions.toggleCursor(idx),
+        outlineInject: iid => injectToST(outlineFeature.ui.getInjectText(iid)),
+        outlineCopy: cid => {
+            const text = outlineFeature.ui.getCopyText(cid);
             void copyPlainText(text).then(ok => showToast(ok ? '已复制' : '复制失败', null, !ok));
-            return;
-        }
-        if (action === 'outline-delete') return outlineFeature.actions.deleteBeat(idx - 1);
+        },
+        outlineDelete: idx => outlineFeature.actions.deleteBeat(idx),
     });
-    // Per-point delete (× on each event, 点面板 + 楼内块抽屉；对齐线的 .sp-line-del-one 双绑 #sp-lines-list/#chat)。
-    $in('#sp-body').on('click', '.sp-sch-del-one', function (e) {
-        e.stopPropagation();
-        const day = $(this).attr('data-day');
-        const idx = Number($(this).attr('data-ev'));
-        if (!Number.isInteger(idx)) return;
-        const view = currentView;
-        const charName = view === 'char' ? charViewName : '';
-        triggerDeletePointEvent(day === 'future' ? 'future' : Number(day), idx, { view, charName });
+    bindInjectAndJump({
+        $, $in, $inAll, $chat: $('#chat'),
+        injectText: iid => _injectTexts[iid],
+        inject: injectToST,
     });
-    $('#chat').on('click', '.sp-sch-del-one', function (e) {
-        e.stopPropagation();
-        const day = $(this).attr('data-day');
-        const idx = Number($(this).attr('data-ev'));
-        if (!Number.isInteger(idx)) return;
-        triggerDeletePointEvent(day === 'future' ? 'future' : Number(day), idx, { view: 'user', charName: '' });
-    });
-
-    // Inject buttons (event delegation)——点/线宿主桥保留；面由 outline feature 的唯一 UI 入口负责。
-    $inAll('#sp-body, #sp-lines-wrap').on('click', '.sp-inject-btn', function () {
-        const text = _injectTexts[$(this).data('iid')];
-        if (text) injectToST(text);
-    });
-    $('#chat').on('click', '.sp-inject-btn', function () {
-        const text = _injectTexts[$(this).data('iid')];
-        if (text) injectToST(text);
-    });
-
-    // 点/线面板底部「和间聊聊」引导 → 一键切到间（间能把讨论落地成点/线）
-    // 同上：逗号选择器用 $inAll，否则只有 #sp-body 那区能点、#sp-lines-list 区的「和间聊聊」静默失效。
-    $inAll('#sp-body, #sp-lines-wrap').on('click', '.sp-jump-link', () => $in('.sp-view-btn[data-view="space"]').trigger('click'));
-
-    // Abort buttons (event delegation) — 即时撤下 UI，见 abort*Gen
-    $in('#sp-body').on('click', '#sp-abort-generate', abortScheduleGen);
-    $linesWrap.on('click', '#sp-abort-lines', abortLinesGen);
 
     // ── 棱（小剧场）事件（全部委托到注入式 ui；旧委托仅作为无 UI 兼容路径）──
     const $theater = $in('#sp-theater-wrap');
@@ -3178,13 +3093,7 @@ function injectModal() {
 
     // 批次3：同 spIntro——action 菜单在 shadow 内，target 重定向失效，改 composedPath 判断。
     // hotfix3：合成事件无 originalEvent → ?. 防御，path 为空 → some()=false → 走关闭分支（安全默认）
-    $(document).off('click.spActionMenu').on('click.spActionMenu', function (event) {
-        if (!(event.originalEvent?.composedPath?.() || []).some(el => el instanceof Element && el.matches('.sp-action-menu'))) closeActionMenus();
-    });
-    // 批次3：keydown 是 composed 事件，从 shadow 冒泡到 document 照常触发、无 target 判断 → 无需改。
-    $(document).off('keydown.spActionMenu').on('keydown.spActionMenu', function (event) {
-        if (event.key === 'Escape') closeActionMenus();
-    });
+    bindActionMenuDismiss({ $, close: closeActionMenus });
 
     $in('.sp-root').on('click', '.sp-view-btn', function () {
         handlePanelViewClick({
@@ -3341,18 +3250,6 @@ function injectModal() {
     $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); apiPresetUi.syncState(); });
     $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); apiPresetUi.syncState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
     $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); apiPresetUi.syncState(); });
-
-    $in('#sp-body').on('click', '.sp-tab', function () {
-        const rawDay = String($(this).attr('data-day') || '').trim().toLowerCase();
-        const $track = $(this).closest('#sp-body').find('.sp-days-track').first();
-        const total = Number($track.attr('data-total'));
-        if (!Number.isInteger(total) || total < 1) return;
-        const idx = rawDay === 'future' ? total - 1 : Number(rawDay);
-        if (!Number.isInteger(idx) || idx < 0 || idx >= total) return;
-        $inAll('.sp-tab').removeClass('sp-tab-active');
-        $(this).addClass('sp-tab-active');
-        $track.css('transform', `translateX(-${idx * 100 / total}%)`);
-    });
 
     panelWindow.bindDrag(inEl('.sp-content-head'));
     panelWindow.bindResize($in('#sp-resize-handle'), inEl('#sp-resize-handle'));
@@ -5585,11 +5482,7 @@ const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">想调整这些线？<butt
 
 // ── 渲染 ──
 function closeActionMenus(except = null) {
-    $inAll('.sp-action-menu-open').each(function () {
-        if (except && this === except) return;
-        $(this).removeClass('sp-action-menu-open').find('.sp-action-menu-list').attr('hidden', true);
-        $(this).find('.sp-action-menu-toggle').attr('aria-expanded', 'false');
-    });
+    closeOpenActionMenus($inAll, $, except);
 }
 
 const axisUi = createAxisUi({
