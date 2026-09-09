@@ -66,6 +66,10 @@ export function createRefreshController(env = {}) {
                     items,
                     snapshot: before,
                     after,
+                    note: parsed.note,
+                    floorId: latest?.index,
+                    swipeId: ctx.chat?.[latest?.index]?.swipe_id,
+                    signature: env.floorSignature?.(latest?.index),
                 });
             }
             return { status: 'updated', summary, items, unchanged: parsed.unchanged && !point.changed && !lines.changed, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };

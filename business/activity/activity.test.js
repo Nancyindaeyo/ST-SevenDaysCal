@@ -91,6 +91,46 @@ test('same snapshot helper and list html include undo', () => {
     assert.match(html, /体检/);
 });
 
+test('activity cards keep align notes and mark a restyled floor', () => {
+    const html = renderActivityList([{
+        id: '1', ts: Date.now(), source: 'align-auto', undone: false, stale: true,
+        note: '体检已发生，从今天拿掉',
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+        snapshot: { point: 'x' },
+    }]);
+    assert.match(html, /体检已发生/);
+    assert.match(html, /这楼换过正文/);
+    assert.match(html, /拿到间里聊/);
+});
+
+test('restyle of the same floor flags that floor\'s align card', () => {
+    const memory = new Map();
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: {
+            getItem: key => memory.get(key) || '[]',
+            setItem: (key, value) => memory.set(key, value),
+        },
+        keyForChat: () => 'k',
+        query: () => ({ length: 0 }),
+    });
+    feature.record({
+        source: 'align-auto',
+        floorId: 4,
+        signature: 'old',
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+        note: '体检已发生',
+    });
+    assert.equal(feature.markFloorRestyle({ floorId: 4, signature: 'old' }).status, 'ok');
+    assert.equal(feature.restyled, false);
+    assert.equal(feature.markFloorRestyle({ floorId: 4, signature: 'new' }).status, 'stale');
+    assert.equal(feature.restyled, true);
+    assert.equal(feature.list()[0].stale, true);
+    assert.equal(feature.list()[0].note, '体检已发生');
+});
+
 test('diffSnapshots ignores untouched modules', () => {
     const items = diffSnapshots({ point: 'same', lines: 'old' }, { point: 'same', lines: 'old' });
     assert.equal(items.length, 0);

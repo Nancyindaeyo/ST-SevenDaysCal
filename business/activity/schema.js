@@ -68,6 +68,11 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         snapshot: normalizeActivitySnapshot(source.snapshot),
         after: normalizeActivitySnapshot(source.after),
         undone: source.undone === true,
+        stale: source.stale === true,
+        note: String(source.note || '').trim().slice(0, 280),
+        floorId: Number.isInteger(Number(source.floorId)) ? Number(source.floorId) : null,
+        swipeId: Number.isInteger(Number(source.swipeId)) ? Number(source.swipeId) : null,
+        signature: String(source.signature || ''),
     };
 }
 

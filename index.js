@@ -11,7 +11,7 @@ import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
 import { readRefreshBar, refreshFoldHtml } from './business/refresh/bar.js';
-import { collectPaceRows, paceFoldHtml, paceStripHtml } from './business/refresh/pace.js';
+import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createActivityFeature } from './business/activity/feature.js';
 import { beatFoldHtml } from './business/beat/ui.js';
@@ -1586,6 +1586,17 @@ const activityFeature = createActivityFeature({
         syncLatestScheduleBlock();
         refreshInlineWindow(true);
     },
+    onPaint: () => paintPaceSoon(),
+    realign: opts => refreshController.align({ auto: false, selected: ['point', 'lines'], reason: String(opts?.reason || '') }),
+    sendToSpace: async item => {
+        if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
+        spaceFeature.guide?.leave?.();
+        spaceFeature.ui?.setQuote?.(item);
+        activityFeature.close();
+        const ok = await openPluginViewWithPrefill('space');
+        spaceFeature.ui?.setQuote?.(item);
+        return { status: ok ? 'quoted' : 'failed' };
+    },
 });
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
 const linesFeature = createLinesFeature({
@@ -1822,6 +1833,7 @@ const refreshController = createRefreshController({
     regenOutline: opts => outlineFeature.generation.trigger(opts),
     snapshotModules: names => activityFeature.capture(names),
     onActivity: entry => activityFeature.record(entry),
+    floorSignature: _floorSig,
     onPatched: () => {
         const saved = readStore(getCacheKey('user', ''));
         if (saved?.raw) {
@@ -2333,6 +2345,7 @@ jQuery(async () => {
         const mid = Number(messageId);
         await refreshController.onAiFloor(mid);
         beatFeature?.onAiFloor?.(mid);
+        activityFeature.markFloorRestyle({ floorId: mid, signature: _floorSig(mid) });
         // Master switch: linesEnabled=false disables auto-advance + inline block
         if (getSettings().linesEnabled === false) { paintPaceSoon(); return; }
         await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
@@ -2818,6 +2831,8 @@ function paintPace() {
     const empty = pluginEnabled() ? '后台节奏都关着' : '插件关着';
     const $fold = $in('#sp-pace-fold');
     if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
+    const $activityPace = $in('#sp-activity-pace');
+    if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip' }));
     const $settings = $in('#sp-pace-settings');
     if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
     for (const row of rows) {
@@ -3193,7 +3208,6 @@ function injectModal() {
                     </header>
 
                     <div class="sp-panel-tools" id="sp-panel-tools">
-                    ${paceFoldHtml(collectPaceRows(readPaceSnapshot()))}
                     ${refreshFoldHtml({ selected: ['point', 'lines'], outlineMode: getSettings().outlineRegenMode || 'current' })}
                     ${beatFoldHtml()}
                     </div>
@@ -3676,7 +3690,7 @@ function injectModal() {
                             <details class="sp-settings-layer" id="sp-settings-manual">
                                 <summary class="sp-settings-layer-title">我自己点</summary>
                                 <div class="sp-settings-layer-body">
-                                    <p class="sp-cfg-hint">刷新账本、本轮拍、间引导都在面板里，不用再开总开关。后台改账成功记在侧栏「改」，失败才弹窗。点/线/面页顶上那条节奏，会告诉你离自动对齐、推进还差几楼。</p>
+                                    <p class="sp-cfg-hint">刷新账本、本轮拍、间引导都在面板里，不用再开总开关。后台改账成功记在侧栏「改」，失败才弹窗。离自动对齐、推进还差几楼，写在「改」页顶上。</p>
                                 </div>
                             </details>
 

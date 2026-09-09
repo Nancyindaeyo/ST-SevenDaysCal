@@ -296,6 +296,10 @@ export function createLinesFeature(env = {}) {
             lifecycle.consumePendingReroll();
             lifecycle.consumePendingSwipe(mid);
             lifecycle.consumeFloor(mid, env.chatId?.());
+            // 同楼重 roll / 新 swipe 不当新楼清终态，但日期制仍要认换日：先占住本楼，等戳落地再推进。
+            if (!autoSuppressed && env.getMode?.() === 'days') {
+                lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
+            }
             await appendInlineBlock(mid, false);
             return;
         }
@@ -317,7 +321,7 @@ export function createLinesFeature(env = {}) {
         const before = advance ? env.readRaw?.() || '' : '';
         const result = await appendInlineBlock(mid, advance);
         if (advance && result?.status === 'updated') {
-            env.onActivity?.({ source: 'advance', snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
+            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
         }
         if (!autoSuppressed && mode !== 'days') await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
     };
@@ -341,7 +345,7 @@ export function createLinesFeature(env = {}) {
         const before = env.readRaw?.() || '';
         const result = await appendInlineBlock(mid, true);
         if (result?.status === 'updated') {
-            env.onActivity?.({ source: 'advance', snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
+            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
         }
         await env.tryDashed?.(mid, { blocked: true });
         return true;

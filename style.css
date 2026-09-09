@@ -362,6 +362,34 @@ q::after {
 .sp-activity-items em { color: var(--sp-subtle); font-style: normal; }
 .sp-activity-undone { font-size: var(--sp-fs-62); color: var(--sp-subtle); }
 .sp-activity-empty { padding: 24px 16px; }
+.sp-activity-pace {
+    padding: 8px 12px 0;
+}
+.sp-activity-pace .sp-pace-strip { margin: 0; }
+.sp-activity-restyle {
+    margin: 8px 12px 0;
+    padding: 10px 12px;
+    border: 1px solid color-mix(in oklab, var(--sp-primary) 35%, var(--sp-divider));
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.sp-activity-restyle[hidden] { display: none; }
+.sp-activity-restyle p { margin: 0; font-size: var(--sp-fs-80); }
+.sp-activity-card.is-stale { border-color: color-mix(in oklab, var(--sp-primary) 40%, var(--sp-divider)); }
+.sp-activity-stale {
+    margin: 0 0 6px;
+    font-size: var(--sp-fs-75);
+    color: var(--sp-primary);
+}
+.sp-activity-note {
+    margin: 0 0 8px;
+    font-size: var(--sp-fs-80);
+    line-height: 1.45;
+    color: var(--sp-on-surface);
+}
+.sp-activity-quote { flex: 0 0 auto; }
 
 .sp-side-tab {
     position: relative;

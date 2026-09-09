@@ -1052,3 +1052,29 @@ test('same-floor reconcile defers line advance instead of running it', async () 
     assert.equal(harness.deferred(), true);
     assert.equal(harness.activities.length, 0);
 });
+
+test('regenerate still advances lines when the story date moves forward', async () => {
+    const harness = automaticLinesFeature('updated', { mode: 'days' });
+    harness.feature.lifecycle.lastDay = '1-1';
+    assert.equal(harness.feature.onMessageReceived({ messageId: 0, type: 'normal' }), true);
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0, day: '1-1' });
+    assert.equal(harness.calls(), 0, '同一天不推进');
+    harness.feature.onGenerationStarted({ genType: 'regenerate' });
+    assert.equal(harness.feature.onMessageReceived({ messageId: 0, type: 'normal' }), false);
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0, day: '1-2' });
+    assert.equal(harness.calls(), 1, '重 roll 成第二天仍要推进');
+});
+
+test('same-day regenerate does not advance lines again', async () => {
+    const harness = automaticLinesFeature('updated', { mode: 'days' });
+    harness.feature.lifecycle.lastDay = '1-1';
+    harness.feature.onMessageReceived({ messageId: 0, type: 'normal' });
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0, day: '1-1' });
+    harness.feature.onGenerationStarted({ genType: 'regenerate' });
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0, day: '1-1' });
+    assert.equal(harness.calls(), 0);
+});
