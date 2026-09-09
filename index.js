@@ -41,6 +41,7 @@ import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { bindApiFields, bindDiagnostics, filterModelList } from './runtime/api-fields-bind.js';
 import { bindMemorySettings } from './business/memory/settings-bind.js';
 import { bindTheaterSettings } from './business/theater/settings-bind.js';
+import { bindStoragePanel, readStorageChatIdentity, STORAGE_CLEAR_TARGETS, STORAGE_KIND_LABELS, STORAGE_OWNKEY_LABELS, storageRow } from './runtime/storage-panel.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
@@ -3257,7 +3258,32 @@ function injectModal() {
         save: saveSettingsDebounced,
         theater: theaterFeature,
     });
-    bindStorageHandlers();
+    bindStoragePanel({
+        $, $in, store,
+        identity: () => readStorageChatIdentity(getContext()),
+        toast: showToast,
+        confirm: options => spConfirm(options),
+        renderUsage: renderStorageUsage,
+        renderMode: renderCurrentChatStorageMode,
+        exportBackup: exportGouhuaBackup,
+        importBackup: importGouhuaBackup,
+        migrate: startCurrentChatMigration,
+        storageStatus,
+        reloadExternal: loadExternalChat,
+        invalidateAlmanac: invalidateAlmanacTasksForStoreClear,
+        refreshAlmanac: refreshAlmanacAfterStoreClear,
+        invalidateKind: invalidateKindTasksForStoreClear,
+        refreshEditors: refreshEditorsAfterStoreClear,
+        refreshEditorsFromStore: refreshEditorsFromCurrentStore,
+        invalidateLedger: invalidateLedgerTasksForStoreClear,
+        refreshLedger: refreshLedgerAfterStoreClear,
+        refreshMemory: refreshMemoryStatus,
+        theater: theaterFeature,
+        theaterOn: () => theaterMode,
+        coordinate: () => coordinateRuntime?.feature,
+        logAnchorError: err => console.error('[SP storage] 清空收藏失败', safeDiagnosticLog('storage', 'save', err)),
+        clearLocalCache: () => theaterDeviceCache.clearPluginCache(),
+    });
 }
 
 // ─── View (我 / TA) ───────────────────────────────────────────────────────────
@@ -4871,44 +4897,7 @@ function loadCachedLinesForCurrentChat(view, charName) {
 // ─── 存储管理面板 ──────────────────────────────────────────────────────────────
 // 三层：①本聊天 chat_metadata（点线面间讨论 + 记忆 + 棱永久）②收藏（坐标·服务器）
 //       ③本机缓存（localStorage：棱草稿 + UI 位置）。构画只统计/清理自己的数据。
-
-const STORAGE_KIND_LABELS = {
-    'schedule'     : '点（待办）',
-    'outline'      : '面（大纲）',
-    'lines'        : '线（伏笔）',
-    'creative-chat': '面讨论',
-    'space-chat'   : '间（局外）',
-    'dashed'       : '虚线·冷知识',
-    'almanac'      : '轴·日历条目（节日/生日/纪念日）',
-};
-const STORAGE_OWNKEY_LABELS = {
-    'sp-memory' : '记忆',
-    'sp-theater': '棱永久层',
-    'sp-ledger' : '轴·刻度（状态/约定/周期）',
-};
-const STORAGE_CLEAR_TARGETS = Object.freeze({
-    almanac: Object.freeze({ scope: 'kind', kind: 'almanac', label: '轴·日历条目（节日/生日/纪念日）' }),
-    ledger: Object.freeze({ scope: 'ownkey', key: 'sp-ledger', label: '轴·刻度（状态/约定/周期）' }),
-});
-
-function storageChatIdentity() {
-    const ctx = getContext();
-    const chatId = String(ctx?.chatId || '');
-    return chatId ? { chatId, metadata: ctx.chatMetadata } : null;
-}
-
-function storageChatStillCurrent(identity) {
-    const now = storageChatIdentity();
-    return !!identity && !!now && identity.chatId === now.chatId && identity.metadata === now.metadata;
-}
-
-function storageRow(label, bytesText, btnHtml = '', extraClass = '') {
-    return `<div class="sp-storage-row ${extraClass}">
-        <span class="sp-storage-row-label">${escapeHtml(label)}</span>
-        <span class="sp-storage-row-bytes">${escapeHtml(bytesText)}</span>
-        <span class="sp-storage-row-act">${btnHtml}</span>
-    </div>`;
-}
+// 清理委托与确认文案在 runtime/storage-panel.js；日历条目必须走精确 dataKey，不能按 kind 前缀清。
 
 async function renderCurrentChatStorageMode() {
     const $status = $in('#sp-storage-mode-status');
@@ -5286,147 +5275,6 @@ function refreshEditorsFromCurrentStore(kind) {
     }
 }
 // ANCHOR_STORAGE_HANDLERS
-
-// 绑定存储管理面板的清理按钮（委托到 #sp-storage-body，内容动态渲染）+ 刷新。
-function bindStorageHandlers() {
-    $in('#sp-storage-refresh').on('click', () => renderStorageUsage());
-    $in('#sp-backup-export').on('click', () => { void exportGouhuaBackup(); });
-    $in('#sp-backup-import').on('click', () => $in('#sp-backup-import-file').trigger('click'));
-    $in('#sp-backup-import-file').on('change', function () {
-        const file = this.files?.[0];
-        this.value = '';
-        if (file) void importGouhuaBackup(file);
-    });
-    $in('#sp-storage-migrate').on('click', () => { void startCurrentChatMigration(); });
-    $in('#sp-storage-retry').on('click', async () => {
-        const before = storageStatus().chatId;
-        await loadExternalChat({ force: true });
-        if (storageStatus().chatId !== before) return;
-        renderCurrentChatStorageMode(); renderStorageUsage();
-        showToast(storageStatus().status === 'ready' ? '外置构画数据已重新加载' : `重试失败：${storageStatus().error || '后端不可用'}`, null, storageStatus().status !== 'ready');
-    });
-
-    const $body = $in('#sp-storage-body');
-
-    // 日历条目必须按精确 dataKey 删除，不能调用按 kind 前缀的清理。
-    $body.on('click', '.sp-storage-del[data-scope="datakey"]', async function () {
-        const dataKey = $(this).attr('data-key');
-        if (!store.isStorageDataKeyClearable(dataKey)) return;
-        const identity = storageChatIdentity();
-        if (!identity) return;
-        if (!await spConfirm({
-            title: `清除${STORAGE_CLEAR_TARGETS.almanac.label}`,
-            body: '仅删除本聊天的节日、生日、纪念日和自定义日期条目；不会删除刻度、自定义历法、剧情今天或模板。\n此操作不可恢复。',
-        })) return;
-        if (!storageChatStillCurrent(identity)) return;
-        invalidateAlmanacTasksForStoreClear();
-        try {
-            const ok = await store.clearDataKeyAsync(dataKey);
-            if (!storageChatStillCurrent(identity)) return;
-            refreshAlmanacAfterStoreClear();
-            renderStorageUsage();
-            showToast(ok ? '已清除轴·日历条目' : '轴·日历条目本就为空');
-        } catch (error) {
-            if (storageChatStillCurrent(identity)) { refreshAlmanacAfterStoreClear(); showToast('清除轴·日历条目失败：' + (error?.message || '保存失败'), null, true); }
-        }
-    });
-
-    // ① 本聊天 chat_metadata —— 按 kind 清（点线面间讨论）
-    $body.on('click', '.sp-storage-del[data-scope="kind"]', async function () {
-        const kind = $(this).attr('data-kind');
-        if (kind === STORAGE_CLEAR_TARGETS.almanac.kind) return;
-        const label = STORAGE_KIND_LABELS[kind] || kind;
-        if (!store.USER_CLEAR_KINDS.includes(kind)) return;
-        const identity = storageChatIdentity();
-        if (!identity) return;
-        const detail = kind === STORAGE_CLEAR_TARGETS.almanac.kind
-            ? '仅删除本聊天的节日、生日、纪念日和自定义日期条目；不会删除刻度、自定义历法、剧情今天或模板。'
-            : `确定清除本聊天的「${label}」数据吗？我方 / TA 方视角都会一并清掉。`;
-        if (!await spConfirm({ title: `清除${label}`, body: `${detail}\n此操作不可恢复。` })) return;
-        if (!storageChatStillCurrent(identity)) return;
-        invalidateKindTasksForStoreClear(kind);
-        try {
-            const n = await store.clearKindAsync(kind);
-            if (!storageChatStillCurrent(identity)) return;
-            refreshEditorsAfterStoreClear(kind);
-            renderStorageUsage();
-            showToast(n ? `已清除${label}` : `${label}本就为空`);
-        } catch (error) {
-            if (storageChatStillCurrent(identity)) {
-                refreshEditorsFromCurrentStore(kind);
-                showToast(`清除${label}失败：` + (error?.message || '保存失败'), null, true);
-            }
-        }
-    });
-
-    // ① 本聊天 —— 清整个 own key（记忆 / 棱永久）
-    $body.on('click', '.sp-storage-del[data-scope="ownkey"]', async function () {
-        const key = $(this).attr('data-key');
-        const label = STORAGE_OWNKEY_LABELS[key] || key;
-        if (!store.OWN_KEYS.includes(key)) return;
-        const identity = storageChatIdentity();
-        if (!identity) return;
-        const detail = key === STORAGE_CLEAR_TARGETS.ledger.key
-            ? '仅删除本聊天活跃/已了结刻度（状态、约定、周期）；不会删除日历条目、自定义历法、剧情今天或模板。'
-            : `确定清空本聊天的「${label}」全部数据吗？`;
-        if (!await spConfirm({ title: `清空${label}`, body: `${detail}\n此操作不可恢复。` })) return;
-        if (!storageChatStillCurrent(identity)) return;
-        if (key === STORAGE_CLEAR_TARGETS.ledger.key) {
-            invalidateLedgerTasksForStoreClear();
-            try {
-                const ok = await store.clearOwnKeyAsync(key);
-                if (!storageChatStillCurrent(identity)) return;
-                refreshLedgerAfterStoreClear();
-                renderStorageUsage();
-                showToast(ok ? `已清空${label}` : `${label}本就为空`);
-            } catch (error) {
-                if (storageChatStillCurrent(identity)) { refreshLedgerAfterStoreClear(); showToast(`清空${label}失败：` + (error?.message || '保存失败'), null, true); }
-            }
-            return;
-        }
-        if (key === 'sp-theater') {
-            const target = theaterFeature.captureTarget(identity.chatId);
-            const result = await theaterFeature.clearSaved(target);
-            if (!storageChatStillCurrent(identity)) return;
-            if (theaterMode) theaterFeature.resetAfterStorageClear();
-            renderStorageUsage();
-            showToast(result?.ok ? `已清空${label}` : `清空${label}失败`, null, !result?.ok);
-            return;
-        }
-        const ok = store.clearOwnKey(key);
-        if (!storageChatStillCurrent(identity)) return;
-        if (key === 'sp-memory') { refreshMemoryStatus?.(); }
-        if (key === 'sp-theater' && theaterMode) theaterFeature.resetAfterStorageClear();
-        renderStorageUsage();
-        showToast(ok ? `已清空${label}` : `${label}本就为空`);
-    });
-
-    // ② 收藏（坐标·服务器）—— 清空全部
-    $body.on('click', '.sp-storage-del[data-scope="anchor"]', async function () {
-        const cnt = await coordinateRuntime?.feature?.storageUsage?.().then(info => info.count).catch(() => 0);
-        if (!cnt) { showToast('还没有任何收藏'); return; }
-        if (!await spConfirm({ title: '清空全部收藏', body: `确定删除全部 ${cnt} 条收藏吗？此操作不可恢复（原楼层不受影响）。` })) return;
-        try {
-            await coordinateRuntime?.feature?.clearAll?.();
-            renderStorageUsage();
-            showToast('已清空全部收藏');
-        } catch (err) {
-            console.error('[SP storage] 清空收藏失败', safeDiagnosticLog('storage', 'save', err));
-            showToast('清空失败：' + (err?.message || '未知错误'), null, true);
-        }
-    });
-
-    // ③ 本机缓存（localStorage：棱草稿 + UI 位置）
-    $body.on('click', '.sp-storage-del[data-scope="local"]', async function () {
-        if (!await spConfirm({ title: '清理本机缓存', body: '清理本浏览器的棱草稿与界面位置（面板位置/大小）。不影响已存服务端的点线面间和收藏。确定？' })) return;
-        const n = theaterDeviceCache.clearPluginCache();
-        if (theaterMode) theaterFeature.resetAfterStorageClear();
-        renderStorageUsage();
-        showToast(`已清理 ${n} 项本机缓存`);
-    });
-}
-
-
 
 function renderEmptyLinesState() {
     return `<div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>还没有追踪的线，可以生成一版</p><button class="sp-gen-btn" id="sp-gen-lines-now">生成线</button></div>`;
