@@ -1,19 +1,25 @@
 export const GUIDE_QUESTIONS = Object.freeze([
     Object.freeze({
-        id: 'who',
-        prompt: '这轮更想把镜头放在哪？',
-        options: Object.freeze(['主角日常', '两人关系', '配角或外部势力', '先把今天的点演完']),
+        id: 'stuck',
+        prompt: '现在最卡住的是？',
+        options: Object.freeze(['下一楼不知道写什么', '关系想升温或降温', '有条线不知道该不该露', '今天的点跟正文对不上']),
     }),
     Object.freeze({
-        id: 'pace',
-        prompt: '节奏想怎样？',
-        options: Object.freeze(['慢热纯日常', '推进一件具体事', '侧面埋一条线', '给面的当前节点铺路']),
+        id: 'feel',
+        prompt: '这轮想要什么感觉？',
+        options: Object.freeze(['把刚才那拍收干净', '推进一件具体事', '先喘口气、铺日常', '把大纲当前节点往前带一点']),
     }),
     Object.freeze({
-        id: 'land',
-        prompt: '这一拍想落到什么结果？',
-        options: Object.freeze(['今天的点收口', '让一条线露头', '换条路径、留下面节点', '先喘口气']),
+        id: 'help',
+        prompt: '间这轮主要帮你动哪本账？',
+        options: Object.freeze(['先想下一楼发生什么', '改近几天日程', '改平行事件', '改长线大纲']),
     }),
+]);
+
+export const SPACE_CHAT_STARTERS = Object.freeze([
+    Object.freeze({ id: 'next', label: '下一楼怎么写', text: '刚这楼之后，下一楼比较顺的走向是什么？别代写正文，说事件和落到什么结果。' }),
+    Object.freeze({ id: 'line', label: '线该不该露头', text: '有哪条线现在适合露一点头，哪条该再压着？说理由，不要改账本。' }),
+    Object.freeze({ id: 'point', label: '今天的点还合适吗', text: '今天的点还贴正文吗？有没有该收口或该改时间的，先聊清楚。' }),
 ]);
 
 export const GUIDE_MODULES = Object.freeze(['point', 'lines', 'outline']);

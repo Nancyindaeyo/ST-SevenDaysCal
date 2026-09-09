@@ -377,6 +377,7 @@ q::after {
 }
 .sp-activity-restyle[hidden] { display: none; }
 .sp-activity-restyle p { margin: 0; font-size: var(--sp-fs-80); }
+.sp-guide-empty .sp-guide-actions { justify-content: center; }
 .sp-activity-card.is-stale { border-color: color-mix(in oklab, var(--sp-primary) 40%, var(--sp-divider)); }
 .sp-activity-stale {
     margin: 0 0 6px;

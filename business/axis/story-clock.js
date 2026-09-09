@@ -165,6 +165,37 @@ export function storyClockNarrativeBody(message) {
         ? text.slice(start.index + start[0].length, end.index)
         : text;
 }
+
+export function buildStoryClockMarkup({ date, weekday, startTime, endTime } = {}) {
+    const d = String(date || '').trim();
+    const w = String(weekday || '').trim();
+    const start = String(startTime || '').trim();
+    const end = String(endTime || start).trim();
+    return {
+        start: `<!-- SDC-start | date=${d} | weekday=${w} | time=${start} -->`,
+        end: `<!-- SDC-end | date=${d} | weekday=${w} | time=${end} -->`,
+    };
+}
+
+export function applyStoryClockToMessage(message, fields = {}) {
+    const markup = buildStoryClockMarkup(fields);
+    const body = storyClockNarrativeBody(message);
+    const text = `${markup.start}${body}${markup.end}`;
+    const clock = parseStoryClock(text);
+    return { ok: completeStoryClock(clock), text, clock };
+}
+
+export function previousCompleteStoryClock(chat, latestIndex) {
+    const mid = Number(latestIndex);
+    if (!Array.isArray(chat) || !Number.isInteger(mid)) return null;
+    for (let i = mid - 1; i >= 0; i--) {
+        const message = chat[i];
+        if (!message || message.is_user || message.is_system) continue;
+        const clock = parseStoryClock(message.mes || '');
+        if (completeStoryClock(clock)) return clock;
+    }
+    return null;
+}
 export const STORY_CLOCK_KEY = 'sdc_story_clock';
 export const STORY_CLOCK_DEPTH = 0;
 export const DEFAULT_STORY_CLOCK_PROMPT = [

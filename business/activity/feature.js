@@ -1,5 +1,5 @@
 import { diffSnapshots, sameSnapshot } from './diff.js';
-import { normalizeActivityEntry, sourceLabel } from './schema.js';
+import { diaryNote, normalizeActivityEntry, sourceLabel } from './schema.js';
 import { createActivityStore } from './store.js';
 import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList } from './ui.js';
 
@@ -40,6 +40,7 @@ export function createActivityFeature(env = {}) {
             $badge.text(unread > 9 ? '9+' : String(unread)).prop('hidden', unread <= 0);
         }
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
+        $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
         env.onPaint?.();
     };
@@ -73,11 +74,13 @@ export function createActivityFeature(env = {}) {
             ? input.items
             : diffSnapshots(snapshot || {}, after || {});
         if (!items.length && !snapshot) return null;
+        const note = String(input.note || '').trim() || (input.source === 'advance' ? diaryNote(items) : '');
         const entry = store.prepend(chatId(), normalizeActivityEntry({
             ...input,
             items,
             snapshot,
             after,
+            note,
             undone: false,
             stale: false,
         }));
@@ -186,6 +189,9 @@ export function createActivityFeature(env = {}) {
         });
         $root?.on?.('click', '.sp-activity-realign', function () {
             void realign();
+        });
+        $root?.on?.('click', '.sp-activity-stamp-fill', function () {
+            void env.fillLatestStamp?.();
         });
     };
 

@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeActivityEntry, sourceLabel } from './schema.js';
+import { diaryNote, normalizeActivityEntry, sourceLabel } from './schema.js';
 import { createActivityStore } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { renderActivityList } from './ui.js';
+import { activityOverlayHtml, renderActivityList } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -17,6 +17,7 @@ test('normalize activity entry keeps undo snapshot', () => {
     assert.equal(entry.items[0].title, '体检');
     assert.equal(entry.snapshot.point, 'before');
     assert.equal(sourceLabel('align-auto'), '自动对齐');
+    assert.match(diaryNote([{ module: 'lines', title: '体检', action: 'complete' }, { module: 'lines', title: '调查', action: 'advance' }]), /体检.*收束.*调查.*往前走/);
 });
 
 test('store prepends per chat and caps', () => {
@@ -100,6 +101,7 @@ test('activity cards keep align notes and mark a restyled floor', () => {
     }]);
     assert.match(html, /体检已发生/);
     assert.match(html, /这楼重 roll 了/);
+    assert.match(activityOverlayHtml(), /手动补时间戳/);
     assert.match(html, /拿到间里聊/);
 });
 
@@ -141,13 +143,14 @@ test('replayFloorAdvance restores the latest undone advance for a floor', async 
         writeLines: async raw => { lines = raw; },
         query: () => ({ length: 0 }),
     });
-    feature.record({
+    const first = feature.record({
         source: 'advance',
         floorId: 3,
         snapshot: { lines: 'before' },
         after: { lines: 'after-1' },
         items: [{ module: 'lines', title: '线', action: 'advance' }],
     });
+    assert.match(first.note, /往前走/);
     assert.equal((await feature.replayFloorAdvance(3)).status, 'updated');
     assert.equal(lines, 'before');
     assert.equal(feature.list()[0].undone, true);

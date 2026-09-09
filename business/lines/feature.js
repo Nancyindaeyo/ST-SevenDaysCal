@@ -333,6 +333,12 @@ export function createLinesFeature(env = {}) {
         // 只认「这楼刚落地/重 roll」的凭证；轴面板 ±1 天没有凭证，不能推进。
         if (!credential) return false;
         const latestDay = latestStampDay(chat, mid, env.parseClock);
+        if (!latestDay) {
+            env.toast?.('这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。');
+            await appendInlineBlock(mid, false);
+            await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
+            return false;
+        }
         const crossed = dayCrossedSincePreviousFloor({ chat, latestIndex: mid, latestDay, parseClock: env.parseClock });
         const existingAdvance = env.latestFloorAdvance?.(mid);
         if (!crossed) {

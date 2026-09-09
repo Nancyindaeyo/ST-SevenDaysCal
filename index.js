@@ -150,7 +150,7 @@ import { createAxisTransactionController } from './business/axis/transaction.js'
 import { createAxisPromptBuilder } from './business/axis/prompts.js';
 import { createAxisDateContext } from './business/axis/date-context.js';
 import { resolveAlmanacContextText, sanitizeGenerationContextText } from './runtime/generation-context.js';
-import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
+import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, applyStoryClockToMessage, previousCompleteStoryClock, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
 import { createWeekdayConsumerContext } from './business/axis/weekday-coordinator.js';
 import { buildDateJudgePrompt as buildDateJudgePromptPure } from './business/axis/date-detection.js';
 import { createDateDetectionController } from './business/axis/date-detection.js';
@@ -203,7 +203,7 @@ import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
 import { parseLines as parseCanonicalLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
 import { buildLinesPrompt as buildCanonicalLinesPrompt } from './business/lines/prompt.js';
-import { createAdvanceStrategy } from './business/lines/strategy.js';
+import { createAdvanceStrategy, latestStampDay } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
 import { syncVectorGlyphTheme } from './business/lines/vectors/glyph.js';
 import { createOutlineFeature } from './business/outline/feature.js';
@@ -1587,6 +1587,8 @@ const activityFeature = createActivityFeature({
         refreshInlineWindow(true);
     },
     onPaint: () => paintPaceSoon(),
+    missingLatestStamp,
+    fillLatestStamp: () => fillLatestStoryClock(),
     realign: opts => refreshController.align({ auto: false, selected: ['point', 'lines'], reason: String(opts?.reason || '') }),
     sendToSpace: async item => {
         if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
@@ -1874,6 +1876,7 @@ function collectBeatLedgerContext() {
         outlineRaw: outlineFeature.readRaw?.() || '',
         outlineNode,
         spaceRecent,
+        latestStory: cleanText(latestAiFloor(getContext().chat)?.text || '').slice(0, 1600),
     };
 }
 async function applyGuideDraft(name, draft) {
@@ -2810,6 +2813,7 @@ function readPaceSnapshot() {
         linesOn: settings.linesEnabled !== false,
         linesMode: getLinesMode(),
         pendingAdvance: refreshController.stagger?.hasPendingAdvance?.() === true,
+        missingStamp: missingLatestStamp(),
         advanceUsed: linesFeature.lifecycle?.counter || 0,
         advanceInterval: getLinesInterval(),
         outlineOn: settings.outlineJudgeEnabled === true,
@@ -2905,6 +2909,64 @@ function paintPaceSoon() {
 // 天然排除。留 RAG 口子：scoreLedgerEntry 整个可换（将来接 arg 检索只改这一处打分器）。
 
 // 最近 N 楼 AI 正文拼成一段（去标记）。供场景加权命中判断；只读、无副作用。
+function missingLatestStamp() {
+    if (!pluginEnabled() || getSettings().linesEnabled === false || getLinesMode() !== 'days') return false;
+    const chat = getContext()?.chat || [];
+    const latest = latestAiFloor(chat);
+    if (!latest) return false;
+    return !latestStampDay(chat, latest.index, parseStoryClockPure);
+}
+
+async function fillLatestStoryClock() {
+    const chat = getContext()?.chat || [];
+    const latest = latestAiFloor(chat);
+    if (!latest) {
+        showToast('没有可补的 AI 楼', null, true);
+        return { status: 'failed' };
+    }
+    const current = parseStoryClockPure(latest.text);
+    const previous = previousCompleteStoryClock(chat, latest.index);
+    const meta = current.endMeta?.valid ? current.endMeta : (current.startMeta?.valid ? current.startMeta : (previous?.endMeta || previous?.startMeta || {}));
+    let today = null;
+    try { today = almTodayAnchor(); } catch { today = null; }
+    const date = (meta.date ? formatCalendarDate(meta.date, loadCalDesc(), calMonthName) : '')
+        || (today ? formatCalendarDate(today, loadCalDesc(), calMonthName) : '');
+    const weekday = String(meta.weekdayText || (today ? almWeekdayFor(today.month, today.day, almWeekdayRef()) : '') || '周一');
+    const startTime = String(current.startMeta?.time || previous?.endMeta?.time || '12:00');
+    const endTime = String(current.endMeta?.time || startTime);
+    const fields = await customDialog.promptFields({
+        title: '补这楼时间戳',
+        body: '只写进本楼隐藏注释，不改正文。日期写法跟故事里一致即可。',
+        confirmText: '写入',
+        fields: [
+            { name: 'date', label: '日期', type: 'input', value: date, placeholder: '如 10月4日', maxLength: 40 },
+            { name: 'weekday', label: '星期', type: 'input', value: weekday, placeholder: '周一至周日', maxLength: 8 },
+            { name: 'startTime', label: '开始时刻', type: 'input', value: startTime, placeholder: '15:30', maxLength: 12 },
+            { name: 'endTime', label: '结束时刻', type: 'input', value: endTime, placeholder: '16:00', maxLength: 12 },
+        ],
+        validate: result => applyStoryClockToMessage('正文', result).ok ? '' : '日期、星期（周一至周日）和时刻都要能解析',
+    });
+    if (!fields) return { status: 'cancelled' };
+    const applied = applyStoryClockToMessage(chat[latest.index].mes || '', {
+        date: fields.date,
+        weekday: fields.weekday,
+        startTime: fields.startTime,
+        endTime: fields.endTime,
+    });
+    if (!applied.ok) {
+        showToast('时间戳写不进去，请检查日期和时刻', null, true);
+        return { status: 'failed' };
+    }
+    chat[latest.index].mes = applied.text;
+    scriptCore.saveChatDebounced?.();
+    eventSource.emit(event_types.MESSAGE_EDITED, latest.index);
+    linesFeature.lifecycle.holdConfirmedFloor({ chatId: getContext().chatId, messageId: latest.index });
+    runAnchorAftermath();
+    showToast('已补上这楼时间戳');
+    activityFeature.paint();
+    return { status: 'updated' };
+}
+
 // ─── 共享锚点善后 ───────────────────────────────────────────────────────────
 // 任何一处改「今天」锚点（自动判定 applyDetectedDate / 历面板 ±1天·改·恢复自动）后都走这里，统一善后：
 //   1) 刷当前渲染窗口与轴面板；2) 日期制线推进在这里检测换日。

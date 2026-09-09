@@ -1,4 +1,4 @@
-import { GUIDE_MODULES } from './guide-schema.js';
+import { GUIDE_MODULES, SPACE_CHAT_STARTERS } from './guide-schema.js';
 
 const MODULE_LABEL = { point: '点（日程）', lines: '线（平行事件）', outline: '面（长线大纲）' };
 
@@ -18,7 +18,7 @@ export function renderSpaceGuide(state = {}, escape = value => String(value ?? '
 
     if (state.phase === 'entry') {
         return `<div class="sp-guide">
-            <p class="sp-intro-lede">先收束点 / 线 / 面。不问番外，不填棱。确认前不会改正式账本。</p>
+            <p class="sp-intro-lede">先收束点 / 线 / 面。卡住下一楼时，更常先用下面几句开聊。</p>
             <div class="sp-guide-actions">
                 <button type="button" class="sp-btn sp-btn-primary" data-guide="inspire">给我灵感</button>
                 <button type="button" class="sp-btn" data-guide="describe">我来描述</button>
@@ -92,10 +92,13 @@ export function renderSpaceGuide(state = {}, escape = value => String(value ?? '
 }
 
 export function spaceGuideEmptyHtml() {
+    const attr = value => String(value ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const starters = SPACE_CHAT_STARTERS.map(item => `<button type="button" class="sp-btn sp-space-starter" data-starter="${attr(item.id)}" data-text="${attr(item.text)}">${item.label}</button>`).join('');
     return `<div class="sp-guide-empty">
         <i class="fa-solid fa-comments"></i>
-        <p>间是局外顾问。可以直接聊天，或让它带你收束点 / 线 / 面。</p>
-        <button type="button" class="sp-btn sp-btn-primary" id="sp-space-guide-start">引导设计</button>
-        <p class="sp-cfg-hint">不问番外，不填棱。确认前不会改账本。</p>
+        <p>间是局外顾问。下一楼怎么写、线该不该露头、点还合不合适，都可以先问。</p>
+        <div class="sp-guide-actions">${starters}</div>
+        <button type="button" class="sp-btn sp-btn-primary" id="sp-space-guide-start">引导设计点线面</button>
+        <p class="sp-cfg-hint">引导会改账本草案，确认前不会写入。不问番外，不填棱。</p>
     </div>`;
 }

@@ -25,6 +25,10 @@ export function activityOverlayHtml() {
             <p>这楼重 roll 了。推进只看前一楼和这楼的时间戳是不是同一天；重 roll 后会按新正文重放这楼的推进。点/线要对齐到新正文，点下面这颗。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-realign">按新正文再对齐一次</button>
         </div>
+        <div id="sp-activity-stamp" class="sp-activity-restyle" hidden>
+            <p>这楼没打上时间戳，日期制推进先停着。补上起止时间后会按新戳再判断要不要推进。</p>
+            <button type="button" class="sp-btn sp-btn-primary sp-activity-stamp-fill">手动补时间戳</button>
+        </div>
         <div class="sp-settings-body" id="sp-activity-body"></div>
     </div>`;
 }

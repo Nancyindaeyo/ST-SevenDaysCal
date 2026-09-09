@@ -232,6 +232,15 @@ export function createSpaceUi(host = {}) {
             if (controllers.chat.busy || guide?.busy) return;
             guide?.start?.();
         });
+        $root.on('click.spSpaceFeature', '.sp-space-starter', function () {
+            if (controllers.chat.busy || guide?.isActive?.()) return;
+            const text = String(this.getAttribute('data-text') || '').trim();
+            if (!text) return;
+            const $input = query('#sp-space-input');
+            $input?.val?.(text);
+            host.autoGrow?.($input?.[0]);
+            $input?.trigger?.('focus');
+        });
         $root.on('click.spSpaceFeature', '[data-guide]', function (event) {
             event.preventDefault();
             if (!guide || guide.busy) return;

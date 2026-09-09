@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { formatGuideAnswers, parseGuideDrafts, parseGuideInspirations } from './guide-schema.js';
+import { formatGuideAnswers, parseGuideDrafts, parseGuideInspirations, SPACE_CHAT_STARTERS } from './guide-schema.js';
 import { buildGuideDraftPrompt, buildGuideInspirePrompt } from './guide-prompt.js';
 
 test('parse inspirations and drafts', () => {
@@ -33,9 +33,13 @@ Think: 下一拍请假
 });
 
 test('guide prompts never ask for theater', () => {
-    const inspire = buildGuideInspirePrompt({ pointRaw: '点' });
+    const inspire = buildGuideInspirePrompt({ pointRaw: '点', latestStory: '晚饭后闲聊' });
     const draft = buildGuideDraftPrompt({ answers: [{ prompt: '节奏', value: '日常' }] });
     assert.match(inspire, /不填棱/);
+    assert.match(inspire, /刚落地的正文/);
+    assert.match(inspire, /晚饭后闲聊/);
     assert.match(draft, /不问番外/);
-    assert.equal(formatGuideAnswers([{ prompt: '节奏', value: '日常' }]).includes('日常'), true);
+    assert.match(draft, /没要求动的模块/);
+    assert.equal(formatGuideAnswers([{ prompt: '现在最卡住的是？', value: '下一楼不知道写什么' }]).includes('下一楼'), true);
+    assert.equal(SPACE_CHAT_STARTERS.some(item => item.label === '下一楼怎么写'), true);
 });
