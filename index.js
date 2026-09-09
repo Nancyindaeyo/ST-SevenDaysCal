@@ -241,6 +241,31 @@ import {
     normalizeWorldInfoSelectionBucket,
     worldInfoSelectionAllows,
 } from './runtime/world-info-selection.js';
+import {
+    appendWorldInfoBook,
+    collectChatWorldNames,
+    collectGlobalWorldNames,
+    collectLinkedWorldNames,
+    countWorldInfoTokens as countWorldInfoTokenValue,
+    filterActivatedWorldInfo,
+    packWorldInfoContents,
+    resolveWorldInfoActivation,
+    WORLD_INFO_TOKEN_BUDGET,
+    worldInfoFailureNoticeKey,
+} from './runtime/world-info-context.js';
+import {
+    capMemTextAsync,
+    clampAnimaRecallCount,
+    collectAnimaSlices,
+    selectAnimaSlices,
+} from './business/memory/recall.js';
+import {
+    dispatchStoreClearInvalidate,
+    dispatchStoreClearRefreshAfter,
+    dispatchStoreClearRefreshFromStore,
+    STORE_CLEAR_EMPTY_LINES_HTML,
+    STORE_CLEAR_EMPTY_SCHEDULE_HTML,
+} from './runtime/storage-clear.js';
 
 // 坐标与楼内框各自持有唯一 runtime 句柄。
 let coordinateRuntime = null;
@@ -3898,32 +3923,16 @@ function setAdultMode(charKey, value) {
 // Prefers TavernHelper's getCharLorebooks (works uniformly across vanilla ST
 // and Luker), falls back to reading character.data directly.
 function getLinkedWorldNames(ctx) {
-    const names = new Set();
-    // 1. TavernHelper — most reliable across ST forks
-    try {
-        const th = globalThis?.TavernHelper;
-        if (th && typeof th.getCharLorebooks === 'function') {
-            const books = th.getCharLorebooks();   // { primary, additional }
-            if (books?.primary) names.add(String(books.primary).trim());
-            if (Array.isArray(books?.additional)) {
-                for (const n of books.additional) if (n) names.add(String(n).trim());
-            }
-            if (names.size) return [...names].filter(Boolean);
-        }
-    } catch {}
-    // 2. Vanilla/Luker fallback — read character.data directly
-    const char = ctx.characters?.[ctx.characterId] ?? {};
-    const primary = String(char.data?.extensions?.world || '').trim();
-    if (primary) names.add(primary);
+    let extraBooks;
     try {
         const fileName = getCharaFilename(ctx.characterId);
-        const extra = worldInfoCore.world_info?.charLore?.find(item => item?.name === fileName)?.extraBooks;
-        if (Array.isArray(extra)) for (const name of extra) if (name) names.add(String(name).trim());
-    } catch {}
-    // Some cards only have the embedded name without linking
-    const embeddedName = String(char.data?.character_book?.name || '').trim();
-    if (embeddedName && !primary) names.add(embeddedName);
-    return [...names].filter(Boolean);
+        extraBooks = worldInfoCore.world_info?.charLore?.find(item => item?.name === fileName)?.extraBooks;
+    } catch { /* 没有文件名时退回卡数据 */ }
+    return collectLinkedWorldNames({
+        tavernHelper: globalThis?.TavernHelper,
+        character: ctx.characters?.[ctx.characterId] ?? {},
+        extraBooks,
+    });
 }
 
 // Global world-info names enabled in ST's right-panel WI selector.
@@ -3933,34 +3942,16 @@ function getLinkedWorldNames(ctx) {
 //   3. Vanilla ST: globalThis.world_info.globalSelect
 // Empty on any failure — plugin still works with just character books.
 function getGlobalWorldNames(ctx) {
-    // 1. TavernHelper
-    try {
-        const th = globalThis?.TavernHelper;
-        if (th && typeof th.getLorebookSettings === 'function') {
-            const s = th.getLorebookSettings();
-            if (Array.isArray(s?.selected_global_lorebooks)) {
-                return s.selected_global_lorebooks.filter(Boolean);
-            }
-        }
-    } catch {}
-    // 2. Luker wrapper on getContext
-    try {
-        const luker = ctx?.chatWorldInfo?.globalSelection;
-        if (Array.isArray(luker)) return luker.filter(Boolean);
-    } catch {}
-    // 3. Vanilla ST official live export, with legacy global fallback
-    try {
-        if (Array.isArray(worldInfoCore.selected_world_info)) return worldInfoCore.selected_world_info.filter(Boolean);
-        const vanilla = globalThis?.world_info?.globalSelect;
-        if (Array.isArray(vanilla)) return vanilla.filter(Boolean);
-    } catch {}
-    return [];
+    return collectGlobalWorldNames({
+        tavernHelper: globalThis?.TavernHelper,
+        lukerSelection: ctx?.chatWorldInfo?.globalSelection,
+        selectedWorldInfo: worldInfoCore.selected_world_info,
+        vanillaGlobalSelect: globalThis?.world_info?.globalSelect,
+    });
 }
 
 function getChatWorldNames(ctx) {
-    const raw = ctx?.chatMetadata?.world_info;
-    const list = Array.isArray(raw) ? raw : [raw];
-    return [...new Set(list.map(name => String(name || '').trim()).filter(Boolean))];
+    return collectChatWorldNames(ctx?.chatMetadata?.world_info);
 }
 
 // Returns live world-info entries for the current character. Uses ctx.loadWorldInfo
@@ -3972,145 +3963,46 @@ async function getCharBookEntries(ctx) {
     const items = [];
     const seen = new Set();
 
-    // 1. Primary linked world book(s) via loadWorldInfo — live state
     const worldNames = getLinkedWorldNames(ctx);
     for (const name of worldNames) {
         try {
             const data = await ctx.loadWorldInfo(name);
-            if (!data?.entries) continue;
-            for (const [uid, entry] of Object.entries(data.entries)) {
-                const label = entry.comment
-                    || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
-                    || `条目 ${uid}`;
-                const preview = String(entry.content || '')
-                    .replace(/\s+/g, ' ')
-                    .slice(0, 120);
-                const key = `${name}::${uid}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                items.push({
-                    key, uid,
-                    label,
-                    preview,
-                    content: entry.content || '',
-                    source : name,
-                    embedded: false,
-                    scope  : 'char',
-                    hostEnabled: entry?.disable !== true,
-                });
-            }
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'char' });
         } catch { /* ignore individual load failure */ }
     }
 
-    // 2. Fallback: character_book embedded in the card (only if no external world worked)
     if (items.length === 0) {
         const char = ctx.characters?.[ctx.characterId] ?? {};
         const charBook = char.data?.character_book;
         if (charBook?.entries?.length) {
-            const bookName = charBook.name || '角色内置世界书';
-            for (const e of charBook.entries) {
-                const uid = String(e.uid ?? e.id ?? '');
-                const label = e.comment
-                    || (Array.isArray(e.key) ? e.key.join(', ') : e.key)
-                    || `条目 ${uid}`;
-                const preview = String(e.content || '')
-                    .replace(/\s+/g, ' ')
-                    .slice(0, 120);
-                const key = `${bookName}::${uid}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                items.push({
-                    key, uid,
-                    label,
-                    preview,
-                    content: e.content || '',
-                    source : bookName,
-                    embedded: true,
-                    scope  : 'char',
-                    // V2 card spec uses enabled; tolerate historical disabled-shaped cards too.
-                    hostEnabled: typeof e.enabled === 'boolean' ? e.enabled : e.disabled !== true,
-                });
-            }
+            appendWorldInfoBook(items, seen, charBook.entries, charBook.name || '角色内置世界书', { scope: 'char', embedded: true });
         }
     }
 
-    // 3. Chat Lore：只绑定当前聊天的书，换聊天不跟随。
     for (const name of getChatWorldNames(ctx)) {
         try {
             const data = await ctx.loadWorldInfo(name);
-            if (!data?.entries) continue;
-            for (const [uid, entry] of Object.entries(data.entries)) {
-                const label = entry.comment || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key) || `条目 ${uid}`;
-                const key = `${name}::${uid}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                items.push({ key, uid, label, preview: String(entry.content || '').replace(/\s+/g, ' ').slice(0, 120), content: entry.content || '', source: name, embedded: false, scope: 'chat', hostEnabled: entry?.disable !== true });
-            }
-        } catch {}
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'chat' });
+        } catch { /* ignore chat lore load failure */ }
     }
 
-    // 4. Global world-info (enabled via ST's WI panel — top-right世界书面板中间"启用"列表)
     const globalNames = getGlobalWorldNames(ctx);
     for (const name of globalNames) {
-        if (worldNames.includes(name)) continue;   // skip if same book is already linked to char
+        if (worldNames.includes(name)) continue;
         try {
             const data = await ctx.loadWorldInfo(name);
-            if (!data?.entries) continue;
-            for (const [uid, entry] of Object.entries(data.entries)) {
-                const label = entry.comment
-                    || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
-                    || `条目 ${uid}`;
-                const preview = String(entry.content || '')
-                    .replace(/\s+/g, ' ')
-                    .slice(0, 120);
-                const key = `${name}::${uid}`;
-                if (seen.has(key)) continue;
-                seen.add(key);
-                items.push({
-                    key, uid,
-                    label,
-                    preview,
-                    content: entry.content || '',
-                    source : name,
-                    embedded: false,
-                    scope  : 'global',
-                    hostEnabled: entry?.disable !== true,
-                });
-            }
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'global' });
         } catch { /* ignore individual load failure */ }
     }
 
-    // 5. 用户/persona 世界书：ST「人物设定」页给当前 persona 链接的世界书（power_user.persona_description_lorebook）。
-    //    与角色卡书同源读法（loadWorldInfo 取活状态），scope='persona' 供设置面板单列一栏、可逐条开关。
-    //    已作为角色卡书 / 全局书收录过的同名书跳过，避免重复。
     const personaBook = String(ctx.powerUserSettings?.persona_description_lorebook || '').trim();
     if (personaBook && !worldNames.includes(personaBook) && !globalNames.includes(personaBook)) {
         try {
             const data = await ctx.loadWorldInfo(personaBook);
-            if (data?.entries) {
-                for (const [uid, entry] of Object.entries(data.entries)) {
-                    const label = entry.comment
-                        || (Array.isArray(entry.key) ? entry.key.join(', ') : entry.key)
-                        || `条目 ${uid}`;
-                    const preview = String(entry.content || '').replace(/\s+/g, ' ').slice(0, 120);
-                    const key = `${personaBook}::${uid}`;
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    items.push({
-                        key, uid, label, preview,
-                        content: entry.content || '',
-                        source : personaBook,
-                        embedded: false,
-                        scope  : 'persona',
-                        hostEnabled: entry?.disable !== true,
-                    });
-                }
-            }
+            appendWorldInfoBook(items, seen, data?.entries, personaBook, { scope: 'persona' });
         } catch { /* ignore persona book load failure */ }
     }
 
-    // 全局排除（B方案）：被拉黑的书名一律剔除——优先级压过上面任何一条收录途径。放在最末统一
-    // 过滤，故设置里「按角色卡挑选」列表也看不到这些书（buildWorldInfoContext 与 renderWiList 共用本函数）。
     const excluded = getWiExcludeSet();
     return excluded.size ? items.filter(e => !hasWiExcluded(e.source, excluded)) : items;
 }
@@ -4145,134 +4037,19 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 250
     return `【最近对话】以下是主聊天中最近几层对话原文，供理解当前剧情走向。\n\n${rows.join('\n\n')}`;
 }
 
-function worldInfoMaxContext(ctx) {
-    try {
-        const value = Number(typeof scriptCore.getMaxPromptTokens === 'function' ? scriptCore.getMaxPromptTokens() : NaN);
-        if (Number.isFinite(value) && value > 0) return value;
-    } catch {}
-    const fallback = Number(ctx?.maxContext);
-    return Number.isFinite(fallback) && fallback > 0 ? fallback : undefined;
-}
-
-function worldInfoGlobalScanData(ctx) {
-    let fields = null;
-    try {
-        if (typeof ctx?.getCharacterCardFields === 'function') fields = ctx.getCharacterCardFields() || null;
-    } catch {}
-    const character = ctx?.characters?.[ctx?.characterId] || {};
-    const data = character?.data || {};
-    const cardValue = (field, ...fallbacks) => {
-        const value = fields?.[field];
-        if (value !== undefined && value !== null) return String(value);
-        for (const fallback of fallbacks) if (typeof fallback === 'string') return fallback;
-        return '';
-    };
-    const persona = ctx?.powerUserSettings?.persona_description;
-    return {
-        personaDescription: cardValue('persona', persona),
-        characterDescription: cardValue('description', character.description, data.description),
-        characterPersonality: cardValue('personality', character.personality, data.personality),
-        characterDepthPrompt: typeof fields?.charDepthPrompt === 'string'
-            ? fields.charDepthPrompt
-            : cardValue('charDepthPrompt', character.extensions?.depth_prompt?.prompt, data.extensions?.depth_prompt?.prompt),
-        scenario: cardValue('scenario', character.scenario, data.scenario),
-        creatorNotes: cardValue('creatorNotes', character.creator_notes, data.creator_notes),
-        trigger: 'quiet',
-    };
-}
-
-function worldInfoCandidateKey(world, uid) {
-    const book = String(world ?? '').trim();
-    const id = String(uid ?? '').trim();
-    return book && id ? `${book}::${id}` : '';
-}
-
-function worldInfoActivationEntries(result, mode) {
-    if (!result || typeof result !== 'object') return null;
-    const entries = mode === 'luker' ? result.activatedEntries : result.allActivatedEntries;
-    if (mode === 'luker') {
-        if (!Array.isArray(entries)) return null;
-        if (entries.some(entry => !entry || typeof entry !== 'object' || !worldInfoCandidateKey(entry.world, entry.uid))) return null;
-        return entries;
-    }
-    if (!(entries instanceof Set)) return null;
-    const values = [...entries];
-    if (values.some(entry => !entry || typeof entry !== 'object' || !worldInfoCandidateKey(entry.world, entry.uid))) return null;
-    return values;
-}
-
-const WORLD_INFO_TOKEN_BUDGET = 60000;
 let lastWorldInfoFailureNoticeKey = '';
 
 async function countWorldInfoTokens(text) {
-    const value = String(text || '');
-    try {
-        const counter = getContext()?.getTokenCountAsync;
-        if (typeof counter === 'function') {
-            const total = Number(await counter.call(getContext(), value));
-            if (Number.isFinite(total) && total >= 0) return { tokens: total, exact: true };
-        }
-    } catch {}
-    let bytes = 0;
-    if (typeof TextEncoder === 'function') bytes = new TextEncoder().encode(value).length;
-    else for (let i = 0; i < value.length; i++) {
-        const code = value.charCodeAt(i);
-        if (code <= 0x7f) bytes++;
-        else if (code <= 0x7ff) bytes += 2;
-        else if (code >= 0xd800 && code <= 0xdbff && i + 1 < value.length && value.charCodeAt(i + 1) >= 0xdc00 && value.charCodeAt(i + 1) <= 0xdfff) { bytes += 4; i++; }
-        else bytes += 3;
-    }
-    return { tokens: bytes, exact: false };
+    return countWorldInfoTokenValue(text, {
+        getTokenCountAsync: value => getContext()?.getTokenCountAsync?.call(getContext(), value),
+    });
 }
 
 function notifyWorldInfoActivationFailure(ctx) {
-    const key = `${String(ctx?.chatId || ctx?.chatMetadata?.chat_id_hash || 'default')}:${Math.floor(Date.now() / 2000)}`;
+    const key = worldInfoFailureNoticeKey(ctx);
     if (lastWorldInfoFailureNoticeKey === key) return;
     lastWorldInfoFailureNoticeKey = key;
-    try { showToast('世界书激活失败，本次未注入世界书', null, true); } catch {}
-}
-
-async function resolveWorldInfoActivation(ctx, coreChat) {
-    const maxContext = worldInfoMaxContext(ctx);
-    const includeNames = worldInfoCore.world_info_include_names !== false;
-    const globalScanData = worldInfoGlobalScanData(ctx);
-    const simulate = ctx?.simulateWorldInfoActivation;
-    let lukerFailed = false;
-    if (typeof simulate === 'function') {
-        try {
-            const result = await simulate.call(ctx, {
-                coreChat,
-                dryRun: true,
-                type: 'quiet',
-                ...(maxContext ? { maxContext } : {}),
-                includeNames,
-                globalScanData,
-            });
-            const entries = worldInfoActivationEntries(result, 'luker');
-            if (!entries) throw new Error('invalid Luker world-info activation result');
-            return { supported: true, keys: new Set(entries.map(entry => worldInfoCandidateKey(entry?.world, entry?.uid)).filter(Boolean)) };
-        } catch (error) {
-            console.warn('[构画] Luker 世界书激活失败，回退兼容模式', safeDiagnosticLog('world-info', 'activation', error));
-            lukerFailed = true;
-        }
-    }
-    const check = worldInfoCore.checkWorldInfo;
-    if (typeof check === 'function') {
-        try {
-            const chatForWI = coreChat.map(message => {
-                const text = String(message.mes ?? message.content ?? '').trim();
-                if (!includeNames) return text;
-                return `${String(message.name || '').trim()}: ${text}`;
-            }).filter(Boolean).reverse();
-            const result = await check(chatForWI, maxContext, true, globalScanData);
-            const entries = worldInfoActivationEntries(result, 'native');
-            if (!entries) throw new Error('invalid native world-info activation result');
-            return { supported: true, keys: new Set(entries.map(entry => worldInfoCandidateKey(entry?.world, entry?.uid)).filter(Boolean)) };
-        } catch (error) {
-            console.warn('[构画] 原生世界书激活失败，回退兼容模式', safeDiagnosticLog('world-info', 'activation', error));
-        }
-    }
-    return { supported: false, failed: true, keys: new Set(), lukerFailed };
+    try { showToast('世界书激活失败，本次未注入世界书', null, true); } catch { /* toast 未就绪时忽略 */ }
 }
 
 async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
@@ -4284,7 +4061,12 @@ async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
         if (!message || message.is_system) return false;
         return String(message.mes ?? message.content ?? '').trim().length > 0;
     }) : [];
-    const activation = await resolveWorldInfoActivation(ctx, coreChat);
+    const activation = await resolveWorldInfoActivation(ctx, coreChat, {
+        getMaxPromptTokens: scriptCore.getMaxPromptTokens,
+        includeNames: worldInfoCore.world_info_include_names !== false,
+        checkWorldInfo: worldInfoCore.checkWorldInfo,
+        logWarn: (message, error) => console.warn(message, safeDiagnosticLog('world-info', 'activation', error)),
+    });
     if (activation.failed) {
         notifyWorldInfoActivationFailure(ctx);
         console.warn('[构画] 世界书激活失败诊断', {
@@ -4295,51 +4077,21 @@ async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
         });
         return '';
     }
-    const candidates = entries
-        .filter(e => worldInfoSelectionAllows(selection, e.key))
-        .filter(e => activation.keys.has(worldInfoCandidateKey(e.source, e.uid)))
-        .map(e => e.content)
-        .filter(Boolean);
+    const candidates = filterActivatedWorldInfo(entries, { selection, keys: activation.keys });
     if (!candidates.length) return '';
-
-    const kept = [];
-    let skipped = 0;
-    const titleCount = await countWorldInfoTokens('【世界书】\n');
-    const separatorCount = await countWorldInfoTokens('\n\n');
-    let estimatedTokens = titleCount.tokens;
-    let exactCount = titleCount.exact && separatorCount.exact;
-    for (const content of candidates) {
-        const counted = await countWorldInfoTokens(content);
-        const nextTokens = estimatedTokens + counted.tokens + (kept.length ? separatorCount.tokens : 0);
-        estimatedTokens = nextTokens;
-        exactCount = exactCount && counted.exact;
-        if (nextTokens > WORLD_INFO_TOKEN_BUDGET) {
-            skipped++;
-            estimatedTokens -= counted.tokens + (kept.length ? separatorCount.tokens : 0);
-            continue;
-        }
-        kept.push(content);
-    }
-    let finalCount = await countWorldInfoTokens(`【世界书】\n${kept.join('\n\n')}`);
-    while (finalCount.tokens > WORLD_INFO_TOKEN_BUDGET && kept.length) {
-        const removed = kept.pop();
-        skipped++;
-        estimatedTokens -= (await countWorldInfoTokens(removed)).tokens + (kept.length ? separatorCount.tokens : 0);
-        finalCount = await countWorldInfoTokens(`【世界书】\n${kept.join('\n\n')}`);
-    }
-    if (skipped) {
+    const packed = await packWorldInfoContents(candidates, { countTokens: countWorldInfoTokens });
+    if (packed.skipped) {
         console.warn('[构画] 世界书预算跳过条目诊断', {
             candidateCount: candidates.length,
             activatedCount: activation.keys.size,
-            finalEntryCount: kept.length,
-            estimatedTokens: finalCount.tokens,
-            exactCount: finalCount.exact && exactCount,
-            skippedCount: skipped,
+            finalEntryCount: packed.kept.length,
+            estimatedTokens: packed.finalCount.tokens,
+            exactCount: packed.exactCount,
+            skippedCount: packed.skipped,
             budget: WORLD_INFO_TOKEN_BUDGET,
         });
     }
-    if (!kept.length) return '';
-    return `【世界书】\n${kept.join('\n\n')}`;
+    return packed.text;
 }
 
 // Read Anima's summary layer from the chat-bound worldbook. Anima persists each
@@ -4355,18 +4107,7 @@ async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
 // the selected window. This keeps relevant older summaries without truncating to
 // merely the last N entries.
 function getAnimaRecallCount() {
-    const n = parseInt(getSettings().animaRecallCount, 10);
-    return Number.isFinite(n) ? Math.max(1, Math.min(50, n)) : 20;
-}
-function animaTextTokens(text) {
-    const source = String(text || '').toLowerCase().replace(/\s+/g, ' ');
-    const tokens = new Set();
-    for (const run of source.match(/[\u3400-\u9fff]{2,}/g) || []) {
-        if (run.length <= 8) tokens.add(run);
-        for (let i = 0; i < run.length - 1; i++) tokens.add(run.slice(i, i + 2));
-    }
-    for (const word of source.match(/[a-z0-9_]{2,}/g) || []) tokens.add(word);
-    return tokens;
+    return clampAnimaRecallCount(getSettings().animaRecallCount);
 }
 function buildAnimaRecallQuery(explicitQuery = '') {
     const ctx = getContext();
@@ -4374,16 +4115,6 @@ function buildAnimaRecallQuery(explicitQuery = '') {
     const s = getSettings();
     const tail = recent.map(m => memory.stripTags(String(m?.mes || ''), { keepTags: s.keepTags, extraTags: s.extraTags }).slice(-700)).join('\n');
     return `${explicitQuery}\n${tail}`.slice(-6000);
-}
-function selectAnimaSlices(slices, query, limit) {
-    const q = animaTextTokens(query);
-    return slices.map(item => {
-        const hay = animaTextTokens(`${item.tags}\n${item.text}`);
-        let score = 0;
-        for (const token of q) if (hay.has(token)) score += token.length >= 4 ? 2 : 1;
-        return { ...item, score, rankTime: Date.parse(item.time) || 0 };
-    }).sort((a, b) => b.score - a.score || b.batch - a.batch || b.slice - a.slice || b.rankTime - a.rankTime)
-        .slice(0, limit).sort((a, b) => a.batch - b.batch || a.slice - b.slice || a.rankTime - b.rankTime);
 }
 
 async function getAnimaMemText(opts = {}) {
@@ -4396,38 +4127,13 @@ async function getAnimaMemText(opts = {}) {
         return '';
     }
     let wbName = null;
-    try { wbName = await th.getChatWorldbookName('current'); } catch {}
+    try { wbName = await th.getChatWorldbookName('current'); } catch { /* 没有绑定世界书 */ }
     if (!wbName) return '';
     let entries = null;
     try { entries = await th.getWorldbook(wbName); } catch { return ''; }
-    if (!Array.isArray(entries)) return '';
-
-    const all = [];
-    for (const entry of entries) {
-        const ex = entry?.extra;
-        if (ex?.createdBy !== 'anima_summary' || !Array.isArray(ex.history)) continue;
-        const content = String(entry.content || '');
-        for (const h of ex.history) {
-            const uid = h.unique_id !== undefined ? h.unique_id : h.index;
-            if (uid === undefined || uid === null) continue;
-            const sliceTag = String(uid).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const sliceMatch = content.match(new RegExp(`<${sliceTag}>([\\s\\S]*?)<\\/${sliceTag}>`));
-            const sliceText = sliceMatch?.[1]?.trim();
-            if (!sliceText) continue;
-            all.push({
-                unique_id     : String(uid),
-                text          : sliceText,
-                tags          : Array.isArray(h.tags) ? h.tags.join(' ') : String(h.tags || ''),
-                batch_id      : Number(h.batch_id !== undefined ? h.batch_id : h.index) || 0,
-                slice_id      : Number(h.slice_id !== undefined ? h.slice_id : 0) || 0,
-                narrative_time: h.narrative_time,
-                parentContent : content,
-            });
-        }
-    }
+    const all = collectAnimaSlices(entries);
     if (!all.length) return '';
-
-    const selected = selectAnimaSlices(all.map(item => ({ ...item, batch: item.batch_id, slice: item.slice_id, time: item.narrative_time })), buildAnimaRecallQuery(opts.query), getAnimaRecallCount());
+    const selected = selectAnimaSlices(all, buildAnimaRecallQuery(opts.query), getAnimaRecallCount());
     return selected.map(item => item.text).join('\n\n');
 }
 
@@ -4535,61 +4241,11 @@ async function _getMemTextRaw(opts = {}) {
 // token 用一次精确总数反推「每字 token 比」再按块长比例分摊，避免逐块调分词器。滚动再压是 v2。
 async function getMemText(opts = {}) {
     const raw = await _getMemTextRaw(opts);
-    try { return await _capMemText(raw, !!opts.full); }
-    catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退原文', safeDiagnosticLog('memory', 'request', err, { background: true })); return raw; }
-}
-const MEMORY_TOKEN_BUDGET = 60000;
-async function _capMemText(text, full) {
-    const t = String(text || '');
-    if (!t.trim()) return t;
-    const budget = MEMORY_TOKEN_BUDGET;
-    let total;
-    try { total = await getContext().getTokenCountAsync(t); }
-    catch { total = Math.ceil(t.length / 2); }             // 分词器够不着 → 粗估 2 字/token
-    if (total <= budget) return t;                         // 没超 → 原样返回
-    // 填充按 95% 预算算，留 5% 余量：按块估 token 会漏掉块间 '\n\n'、省略标记、以及「单块内计数 vs 整体计数」的舍入差，
-    // 不留余量会以约 1% 幅度轻微超顶。固定预算压到 95% 以内更稳。
-    const eff = Math.floor(budget * 0.95);
-    const ratio = total / t.length;                        // token/字，用于按块长估算
-    const blocks = t.split(/\n{2,}/).map(b => b.trim()).filter(Boolean);
-    if (blocks.length <= 1) {
-        // 单块就超预算（少见，多为柏宝书 full 那种整段文本）：按字比截。历取头(保早期起点)、点线面取尾(保近景)。
-        const keepChars = Math.max(1, Math.floor(eff / ratio));
-        return full ? t.slice(0, keepChars) : t.slice(-keepChars);
-    }
-    const tok = b => Math.max(1, Math.round(b.length * ratio));
-    if (full) {
-        // 历·保覆盖：等距抽块塞满预算，含首尾，中段均匀留样本——绝不整段掐掉（那会漏中段纪念日）。
-        const avg = total / blocks.length;
-        const keep = Math.max(1, Math.floor(eff / Math.max(1, avg)));
-        if (keep >= blocks.length) return t;
-        const step = blocks.length / keep;
-        const idxs = [];
-        for (let k = 0; k < keep; k++) {
-            const idx = Math.min(blocks.length - 1, Math.round(k * step));
-            if (idxs[idxs.length - 1] !== idx) idxs.push(idx);
-        }
-        if (idxs[idxs.length - 1] !== blocks.length - 1) idxs.push(blocks.length - 1);
-        return ['（……为控制长度，以下为全程等距节选，非完整时间线……）', ...idxs.map(i => blocks[i])].join('\n\n');
-    }
-    // 点/线/面/间·近景优先：最早留一小段梗概（≤15% 预算）+ 最近塞满剩余，中段省略。
-    const ELIDE = '（……中段记忆已省略以控制长度……）';
-    const headBudget = Math.floor(eff * 0.15);
-    const head = []; let hUsed = 0, hi = 0;
-    while (hi < blocks.length && hUsed + tok(blocks[hi]) <= headBudget) { head.push(blocks[hi]); hUsed += tok(blocks[hi]); hi++; }
-    const tailBudget = eff - hUsed - tok(ELIDE);
-    const tailRev = []; let tUsed = 0, ti = blocks.length - 1;
-    while (ti >= hi && tUsed + tok(blocks[ti]) <= tailBudget) { tailRev.push(blocks[ti]); tUsed += tok(blocks[ti]); ti--; }
-    const tail = tailRev.reverse();
-    if (head.length + tail.length === 0) {                 // 极端：块都比预算大 → 退回按字截最近一段
-        const keepChars = Math.max(1, Math.floor(eff / ratio));
-        return t.slice(-keepChars);
-    }
-    const parts = [];
-    if (head.length) parts.push(...head);
-    if (hi <= ti) parts.push(ELIDE);                       // 中段确有被跳过的块才插省略标记
-    if (tail.length) parts.push(...tail);
-    return parts.join('\n\n');
+    try {
+        return await capMemTextAsync(raw, !!opts.full, {
+            countTokens: async text => getContext().getTokenCountAsync(text),
+        });
+    } catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退原文', safeDiagnosticLog('memory', 'request', err, { background: true })); return raw; }
 }
 
 // user persona 描述 + 当前聊天的作者注释——点/线/面生成与间/面聊天共用同一读取口径。
@@ -5106,78 +4762,81 @@ function refreshAlmanacAfterStoreClear() {
     if (axisState.almanacMode) renderAlmanacPanel();
 }
 
-function invalidateKindTasksForStoreClear(kind) {
+function storeClearTrace(kind) {
     traceDiagnosticEvent('abort-boundary', { module: kind, chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason: 'store-clear', status: 'dispatch' });
-    if (kind === 'schedule') {
-        pointState.scheduleAbortController?.abort('store-clear'); pointState.scheduleAbortController = null;
-        _autoRegenSchedAbort?.abort('store-clear'); _autoRegenSchedAbort = null;
-        pointState.isGenerating = false;
-    } else if (kind === 'outline') {
-        outlineFeature.invalidateStoreKind(kind);
-    } else if (kind === 'lines') {
-        linesFeature.abortGeneration({ reason: 'store-clear' });
-    } else if (kind === 'space-chat') {
-        spaceFeature.invalidateStoreKind(kind);
-    } else if (kind === 'creative-chat') {
-        outlineFeature.invalidateStoreKind(kind);
-    } else if (kind === 'dashed') {
-        linesFeature.dashed.abort('store-clear');
-    }
 }
 
-// 清完某 kind 数据后，若对应视图正开着就重渲染成空态；点视图另清内存缓存。
+function storeClearHost() {
+    return {
+        trace: storeClearTrace,
+        abortSchedule() {
+            pointState.scheduleAbortController?.abort('store-clear'); pointState.scheduleAbortController = null;
+            _autoRegenSchedAbort?.abort('store-clear'); _autoRegenSchedAbort = null;
+            pointState.isGenerating = false;
+        },
+        invalidateOutline: kind => outlineFeature.invalidateStoreKind(kind),
+        abortLines: () => linesFeature.abortGeneration({ reason: 'store-clear' }),
+        invalidateSpace: kind => spaceFeature.invalidateStoreKind(kind),
+        abortDashed: () => linesFeature.dashed.abort('store-clear'),
+        refreshScheduleEmpty() {
+            pointState.cachedSchedule = null;
+            setBody(STORE_CLEAR_EMPTY_SCHEDULE_HTML);
+            syncLatestScheduleBlock();
+        },
+        refreshOutlineEmpty: kind => { outlineFeature.refreshAfterStoreClear(kind); syncLatestInlineBlock(); },
+        refreshLinesEmpty() {
+            linesRuntime.reset();
+            if (linesMode) linesFeature.renderBody(renderEmptyLinesState());
+            refreshLinesInjection();
+            syncLatestInlineBlock();
+        },
+        refreshDashed() {
+            linesFeature.dashed.resetError();
+            if (linesMode) linesFeature.refreshPanel();
+            syncLatestInlineBlock();
+        },
+        refreshCreativeEmpty: kind => outlineFeature.refreshAfterStoreClear(kind),
+        refreshSpaceEmpty: kind => spaceFeature.refreshAfterStoreClear(kind),
+        refreshScheduleFromStore() {
+            const key = getCacheKey(currentView, charViewName);
+            const saved = readStore(key);
+            const subject = currentView === 'char' ? (charViewName || getContext().name2 || '角色') : (getContext().name1 || '用户');
+            pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || subject, currentView, loadCalDesc()) : null;
+            if (!outlineMode && !linesMode && !spaceMode && !theaterMode && $(`#${MODAL_ID}`).is(':visible')) {
+                setBody(pointState.cachedSchedule || STORE_CLEAR_EMPTY_SCHEDULE_HTML);
+            }
+            syncLatestScheduleBlock();
+        },
+        refreshOutlineFromStore: kind => outlineFeature.refreshFromStore(kind),
+        refreshLinesFromStore() {
+            linesRuntime.reset();
+            if (linesMode) linesFeature.refreshPanel();
+            refreshLinesInjection();
+        },
+        refreshCreativeFromStore: kind => outlineFeature.refreshFromStore(kind),
+        refreshSpaceFromStore: kind => spaceFeature.refreshFromStore(kind),
+        refreshDashedFromStore() {
+            linesFeature.dashed.resetError();
+            if (linesMode) linesFeature.refreshPanel();
+            syncLatestInlineBlock();
+        },
+    };
+}
+
+function invalidateKindTasksForStoreClear(kind) {
+    dispatchStoreClearInvalidate(kind, storeClearHost());
+}
+
 function refreshEditorsAfterStoreClear(kind) {
-    if (kind === 'schedule') {
-        pointState.cachedSchedule = null;
-        setBody(`<div class="sp-empty"><i class="fa-regular fa-calendar"></i><p>还没有点</p><button class="sp-gen-btn" id="sp-gen-schedule-now">生成点</button></div>`);
-        syncLatestScheduleBlock();
-    }
-    if (kind === 'outline') { outlineFeature.refreshAfterStoreClear(kind); syncLatestInlineBlock(); }
-    if (kind === 'lines') { linesRuntime.reset(); if (linesMode) linesFeature.renderBody(renderEmptyLinesState()); refreshLinesInjection(); syncLatestInlineBlock(); }
-    if (kind === 'dashed') {
-        linesFeature.dashed.resetError();
-        if (linesMode) linesFeature.refreshPanel();
-        syncLatestInlineBlock();
-    }
-    if (kind === 'creative-chat') {
-        outlineFeature.refreshAfterStoreClear(kind);
-    }
-    if (kind === 'space-chat') {
-        spaceFeature.refreshAfterStoreClear(kind);
-    }
+    dispatchStoreClearRefreshAfter(kind, storeClearHost());
 }
 
-// 保存失败回滚后从当前 store 重新读取真实数据；与成功清理的空态刷新严格分开。
 function refreshEditorsFromCurrentStore(kind) {
-    if (kind === 'schedule') {
-        const key = getCacheKey(currentView, charViewName);
-        const saved = readStore(key);
-        const subject = currentView === 'char' ? (charViewName || getContext().name2 || '角色') : (getContext().name1 || '用户');
-        pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || subject, currentView, loadCalDesc()) : null;
-        if (!outlineMode && !linesMode && !spaceMode && !theaterMode && $(`#${MODAL_ID}`).is(':visible')) {
-            setBody(pointState.cachedSchedule || `<div class="sp-empty"><i class="fa-regular fa-calendar"></i><p>还没有点</p><button class="sp-gen-btn" id="sp-gen-schedule-now">生成点</button></div>`);
-        }
-        syncLatestScheduleBlock();
-    } else if (kind === 'outline') {
-        outlineFeature.refreshFromStore(kind);
-    } else if (kind === 'lines') {
-        linesRuntime.reset();
-        if (linesMode) linesFeature.refreshPanel();
-        refreshLinesInjection();
-    } else if (kind === 'creative-chat') {
-        outlineFeature.refreshFromStore(kind);
-    } else if (kind === 'space-chat') {
-        spaceFeature.refreshFromStore(kind);
-    } else if (kind === 'dashed') {
-        linesFeature.dashed.resetError();
-        if (linesMode) linesFeature.refreshPanel();
-        syncLatestInlineBlock();
-    }
+    dispatchStoreClearRefreshFromStore(kind, storeClearHost());
 }
-// ANCHOR_STORAGE_HANDLERS
 
 function renderEmptyLinesState() {
-    return `<div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>还没有追踪的线，可以生成一版</p><button class="sp-gen-btn" id="sp-gen-lines-now">生成线</button></div>`;
+    return STORE_CLEAR_EMPTY_LINES_HTML;
 }
 
 async function triggerGenerateLines() {
