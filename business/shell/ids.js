@@ -2,6 +2,9 @@ export const MODAL_ID = 'sp-modal-root';
 export const DIALOG_HOST_ID = 'sp-dialog-host';
 export const FAB_ID = 'sp-fab';
 export const FAB_POS_KEY = 'sp-fab-pos';
+export const PANEL_POS_KEY = 'sp-pos';
+export const PANEL_SIZE_KEY = 'sp-size';
+export const OUTLINE_CHAT_H_KEY = 'sp-outline-chat-h';
 
 // 悬浮球图标（Solar「pen-new-round-outline」，MIT 免费素材；源 assets/pen.svg）。
 // 内联而非 <img>：单 path 用 fill=currentColor，直接继承按钮字色——主题日/夜换色、

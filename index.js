@@ -28,6 +28,8 @@ import { DIALOG_HOST_ID, FAB_ID, MODAL_ID } from './business/shell/ids.js';
 import { createFab } from './business/shell/fab.js';
 import { detectSTTheme, getEffectiveTheme as resolveTheme, nextThemeMode, paintThemeClasses, themeToggleIcon as themeIconOf, themeToggleTitle as themeTitleOf } from './business/shell/theme.js';
 import { handlePanelViewClick } from './business/shell/view-switch.js';
+import { createPanelWindow, runOpenSchedule } from './business/shell/window.js';
+import { createTaDrawer, guessCharName } from './business/shell/ta-drawer.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
@@ -753,14 +755,6 @@ bindLedgerRender({
     renderLedgerControls,
 });
 
-const POS_KEY    = 'sp-pos';
-const SIZE_KEY    = 'sp-size';
-
-// ─── Shadow DOM 窗口宿主（2026-08-14 隔离改造批次1）──────────────────────────────
-// 主窗口 #sp-modal-root 迁入 shadow root：ST 全局样式/选择器/事件在边界处切断，
-// 根治样式污染。jQuery 选择器不穿透 shadow——窗口内 id/类查询一律改走 $in()/inEl()。
-// _spShadow 在 injectModal() 里赋值；applyTheme() 同步 shadow 内 wrapper 的主题类。
-// 集合版：querySelector 只取首个，集合操作（removeClass/addClass/toggleClass/show/hide/each/map/length…）必须走它
 const almToolbarHtml = () => renderAxisToolbar(actionMenuHtml);
 const axisItemUi = createAxisItemUi({
     typeMeta: almTypeMeta, weekdays: ALM_WEEKDAYS, weekdayFor: almWeekdayFor,
@@ -1532,9 +1526,6 @@ const apiPresetUi = createApiPresetUi({
 });
 
 let settingsOpen   = false;
-let dragState      = null;
-let resizeState    = null;
-let resizeRAF      = null;
 let currentView        = 'user';  // 'user' | 'char'
 let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
@@ -1967,7 +1958,6 @@ beatFeature = createBeatFeature({
 // （经 getLedgerEditor、归档/批量 actions 与 resetLedgerRenderState 复位）。
 const _injectTexts      = {};
 let   _injectIdSeq      = 0;
-let viewportSyncBound   = false;
 
 const isMobile = () => window.innerWidth <= 640;
 
@@ -1991,6 +1981,37 @@ function setExtBtnState(state) { fabRuntime.setExtBtnState(state); }
 function injectFab() { fabRuntime.inject(); }
 function injectExtButton() { fabRuntime.injectExtButton(); }
 function removeStalePluginHosts() { fabRuntime.removeStaleHosts(); }
+
+const panelWindow = createPanelWindow({
+    $, $in, inEl, document, window, isMobile,
+    settingsOpen: () => settingsOpen,
+    shadow: () => _spShadow,
+});
+function showPanel() { panelWindow.show(); }
+function syncMobileViewport() { panelWindow.syncMobile(); }
+function closePanel() {
+    coordinateRuntime?.feature?.close?.();
+    theaterFeature.onPanelClosed();
+    _activeSpConfirmCancel?.();
+    _activeStoreConflictFinish?.('defer');
+    removeDialogOverlays();
+    customDialog.cancelActive();
+    panelWindow.hide();
+}
+
+const taDrawer = createTaDrawer({
+    $in, $,
+    escapeAttr, escapeHtml,
+    currentView: () => currentView,
+    charViewName: () => charViewName,
+    pins: () => store.readPinnedChars(),
+    activate: name => activateCharView(name),
+    openPicker: () => switchToCharView(),
+});
+function updateTaTriggerLabel() { taDrawer.updateLabel(); }
+function openTaDrawer() { taDrawer.show(); }
+function closeTaDrawer() { taDrawer.close(); }
+function toggleTaDrawer() { taDrawer.toggle(); }
 
 // 通用操作菜单只描述动作；具体页面决定何时显示、如何处理动作。
 const ACTION_MENU_CONFIGS = Object.freeze({
@@ -3538,53 +3559,10 @@ function injectModal() {
         $track.css('transform', `translateX(-${idx * 100 / total}%)`);
     });
 
-    // Desktop drag: content header acts as the handle (like a title bar).
-    // Skipped on mobile — near-fullscreen sheet doesn't move.
-    const dragHandle = inEl('.sp-content-head');
-    if (dragHandle) {
-        dragHandle.addEventListener('mousedown',  onDragStart);
-        dragHandle.addEventListener('touchstart', onDragStart, { passive: false });
-    }
-    $in('#sp-resize-handle').on('mousedown', onResizeStart);
-    inEl('#sp-resize-handle')?.addEventListener('touchstart', onResizeStart, { passive: false });
-
-    // Outline divider drag（面·聊天分隔条；inEl 防 shadow 下 null 崩掉 injectModal 尾部）
-    let divState = null;
-    const divEl  = inEl('#sp-outline-divider');
-    const chatEl = inEl('#sp-outline-chat');
-    function onDivStart(e) {
-        e.preventDefault();
-        const savedH = parseInt(localStorage.getItem('sp-outline-chat-h')) || 210;
-        chatEl.style.height = savedH + 'px';
-        divState = { startY: e.touches ? e.touches[0].clientY : e.clientY, startH: chatEl.offsetHeight };
-        document.addEventListener('mousemove', onDivMove);
-        document.addEventListener('mouseup',   onDivEnd);
-        document.addEventListener('touchmove', onDivMove, { passive: false });
-        document.addEventListener('touchend',  onDivEnd);
-        document.addEventListener('touchcancel', onDivEnd);   // 手机端被系统/滚动打断时派发的是 touchcancel 而非 touchend；漏接它 divState 就卡住 → 黏手
-    }
-    function onDivMove(e) {
-        if (!divState) return;
-        // 自愈：触点/按键已松开却还在收 move（手机 touchcancel 漏接、或 PC 鼠标出窗漏 mouseup）→ 立即收尾，别黏住。
-        if ((e.touches && e.touches.length === 0) || (!e.touches && e.buttons === 0)) { onDivEnd(); return; }
-        e.preventDefault();
-        const cy   = e.touches ? e.touches[0].clientY : e.clientY;
-        const newH = Math.max(80, Math.min(420, divState.startH + divState.startY - cy));
-        chatEl.style.height = newH + 'px';
-    }
-    function onDivEnd() {
-        if (!divState) return;
-        localStorage.setItem('sp-outline-chat-h', chatEl.offsetHeight);
-        divState = null;
-        document.removeEventListener('mousemove', onDivMove);
-        document.removeEventListener('mouseup',   onDivEnd);
-        document.removeEventListener('touchmove', onDivMove);
-        document.removeEventListener('touchend',  onDivEnd);
-        document.removeEventListener('touchcancel', onDivEnd);
-    }
-    divEl.addEventListener('mousedown',  onDivStart);
-    divEl.addEventListener('touchstart', onDivStart, { passive: false });
-    restoreOutlineChatHeight();
+    panelWindow.bindDrag(inEl('.sp-content-head'));
+    panelWindow.bindResize($in('#sp-resize-handle'), inEl('#sp-resize-handle'));
+    panelWindow.bindOutlineDivider();
+    panelWindow.restoreOutlineChatHeight();
     bindMemoryHandlers();
     bindTheaterHandlers();
     bindStorageHandlers();
@@ -3603,26 +3581,6 @@ function onRegenClick() {
     // 「换人」已彻底交给 TA▾ 抽屉，与刷新解耦——故 user / char 两视角在此完全对称，同走 triggerGenerate。
     // （char 视角靠 charViewName 定主体，triggerGenerate→runGenerate 内部按 currentView/charViewName 取 subject。）
     triggerGenerate();
-}
-
-function guessCharName(ctx) {
-    // Priority 1: char card name
-    if (ctx.name2) return ctx.name2;
-    // Priority 2: most frequent "Name:" pattern in recent AI messages
-    const NOISE = new Set(['series','chapter','note','summary','part','vol','act','scene',
-                           'title','author','narrator','system','user','assistant','ai']);
-    const msgs = (ctx.chat || []).filter(m => !m.is_user && !m.is_system).slice(-20);
-    const counts = {};
-    for (const m of msgs) {
-        const matches = [...(m.mes || '').matchAll(/^([^\s：:「」【\[\n*#]{1,12})[：:]/gm)];
-        for (const match of matches) {
-            const name = match[1].trim();
-            if (name && !/[*#<>{}\[\]|\\]/.test(name) && !NOISE.has(name.toLowerCase()))
-                counts[name] = (counts[name] || 0) + 1;
-        }
-    }
-    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]);
-    return sorted[0]?.[0] || '';
 }
 
 function setView(view, charName) {
@@ -3685,58 +3643,6 @@ function confirmCharView() {
     }
 }
 
-// ─── TA▾ 固定槽抽屉（换人入口，已与「刷新」解耦）───────────────────────────────
-// TA▾ 展开固定槽列表：点槽=切到该 char（读缓存、不弹框、不重生成）、✕=移除该槽、
-// 「添加/查看角色」=开填写框查任意角色（含 NPC/反派）。查看不占槽，想固定去点视图头部 📌。
-// 固定槽为空时点 TA▾ 直接开填写框（等于旧行为），钉了第一个才有列表可展开。
-let _taDrawerOpen = false;
-
-// TA▾ 标签：在 char 视角且有名字时显当前 char 名，否则回落「TA」。
-function updateTaTriggerLabel() {
-    const label = (currentView === 'char' && charViewName) ? charViewName : 'TA';
-    $in('#sp-ta-trigger .sp-ta-label').text(label);
-}
-
-function renderTaDrawerHtml() {
-    const pins = store.readPinnedChars();
-    const slots = pins.map(n => `
-        <div class="sp-ta-slot${currentView === 'char' && charViewName === n ? ' sp-ta-slot-active' : ''}" data-name="${escapeAttr(n)}">
-            <span class="sp-ta-slot-name">${escapeHtml(n)}</span>
-            <button type="button" class="sp-ta-slot-del" data-name="${escapeAttr(n)}" title="移除固定"><i class="fa-solid fa-xmark"></i></button>
-        </div>`).join('');
-    return `${slots}<button type="button" class="sp-ta-add"><i class="fa-solid fa-user-plus"></i> 添加 / 查看角色</button>`;
-}
-
-function openTaDrawer() {
-    $in('#sp-ta-drawer').html(renderTaDrawerHtml()).css('display', 'block');
-    _taDrawerOpen = true;
-    $in('#sp-ta-trigger').addClass('sp-ta-open');
-    // 外点即收：点抽屉/触发器以外任意处关闭（触发器自身的 toggle 另管，故排除它避免双触发）。
-    // 批次3：抽屉在 shadow 内，target 重定向失效 → 改 composedPath 判断点击是否落在抽屉/触发器内。
-    // hotfix3：合成事件无 originalEvent → ?. 防御，path 为空 → some()=false → 不 return → 走关闭分支（安全默认）
-    $(document).off('click.tadrawer').on('click.tadrawer', function (e) {
-        if ((e.originalEvent?.composedPath?.() || []).some(el => el instanceof Element && el.matches('#sp-ta-drawer, #sp-ta-trigger'))) return;
-        closeTaDrawer();
-    });
-}
-
-function closeTaDrawer() {
-    $in('#sp-ta-drawer').css('display', 'none').empty();
-    _taDrawerOpen = false;
-    $in('#sp-ta-trigger').removeClass('sp-ta-open');
-    $(document).off('click.tadrawer');
-}
-
-function toggleTaDrawer() {
-    if (_taDrawerOpen) { closeTaDrawer(); return; }
-    if (store.readPinnedChars().length) { openTaDrawer(); return; }
-    // 无固定槽的两条便利路径（都为了单 char 卡：确认过一次后，「我 ↔ TA」来回切永不再弹填写框）：
-    //   · 此刻不在 char 视角、但记得上次看的 char → 直接回到它（读缓存、不弹框），等价于「切回 TA」；
-    //   · 否则（从没看过任何 char，或已在 char 视角想换人）→ 开填写框。
-    if (currentView !== 'char' && charViewName) { activateCharView(charViewName); return; }
-    switchToCharView();
-}
-
 // 切到某固定槽 char：读缓存、不弹框、不重生成（无缓存 → 落「生成点」空态，不自动烧 API）。
 function activateCharView(name) {
     const n = String(name || '').trim();
@@ -3772,7 +3678,7 @@ function onCharPinToggle(name) {
     } else {
         refreshCharPinIcon();   // 无 raw（罕见）→ 至少就地刷图标
     }
-    if (_taDrawerOpen) openTaDrawer();   // 抽屉开着则同步重渲（槽增减/高亮）
+    if (taDrawer.isOpen()) openTaDrawer();   // 抽屉开着则同步重渲（槽增减/高亮）
 }
 
 // 就地刷新 📌 图标态（不重渲整份点正文）。图标恒 solid，只切颜色类 .sp-pinned（见 renderSchedule 注释）。
@@ -3800,28 +3706,27 @@ function resetPanelToScheduleHome() {
     syncRefreshBar('schedule');
 }
 function openSchedule() {
-    showPanel();
-    resetPanelToScheduleHome();   // 先归位到点首页（清所有子视图 mode/wrap），作为恢复的干净基线
-    // 同 chat 内恢复上次打开的模块视图；切 chat 已把 _lastMainView 复位成 schedule → 默认第一页。
-    // 非 schedule：触发该 tab 的 click 让它自渲染（此刻各 mode 均 false，不会被幂等 guard 挡）。
-    if (_lastMainView && _lastMainView !== 'schedule') {
-        const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${_lastMainView}"]`);
-        if ($tab.length) {
+    runOpenSchedule({
+        show: showPanel,
+        resetHome: resetPanelToScheduleHome,
+        lastMainView: () => _lastMainView,
+        restoreLastView() {
+            const $tab = $in('.sp-side-tab.sp-view-btn[data-view="' + _lastMainView + '"]');
+            if (!$tab.length) return false;
             $tab.trigger('click');
-            checkMemoryMigrationNotice();
-            return;
-        }
-    }
-    if (pointState.isGenerating) {
-        setBody(`<div class="sp-loading"><div class="sp-spinner"></div><p class="sp-loading-text">正在规划中…</p><button class="sp-abort-btn" id="sp-abort-generate"><i class="fa-solid fa-circle-stop"></i>中止生成</button></div>`);
-    } else if (pointState.cachedSchedule) {
-        setBody(pointState.cachedSchedule);
-    } else {
-        showEmptyGenerate();
-    }
-    // Surface schema-migration notice for users who upgrade + open the panel
-    // without ever switching chat first (rare but possible after fresh install/update)
-    checkMemoryMigrationNotice();
+            return true;
+        },
+        paintHome() {
+            if (pointState.isGenerating) {
+                setBody('<div class="sp-loading"><div class="sp-spinner"></div><p class="sp-loading-text">正在规划中…</p><button class="sp-abort-btn" id="sp-abort-generate"><i class="fa-solid fa-circle-stop"></i>中止生成</button></div>');
+            } else if (pointState.cachedSchedule) {
+                setBody(pointState.cachedSchedule);
+            } else {
+                showEmptyGenerate();
+            }
+        },
+        afterOpen: checkMemoryMigrationNotice,
+    });
 }
 
 function showEmptyGenerate() {
@@ -3830,34 +3735,6 @@ function showEmptyGenerate() {
         <button class="sp-gen-btn" id="sp-gen-now">生成点</button>
     </div>`);
     $in('#sp-gen-now').on('click', triggerGenerate);
-}
-
-function showPanel() {
-    const $root  = $(`#${MODAL_ID}`);
-    const sheet  = inEl('.sp-sheet');
-    // Clear inline animation so the CSS open-animation replays on every show
-    if (sheet) sheet.style.animation = '';
-    $root.stop(true).css({ display: 'block', opacity: 0 })
-         .animate({ opacity: 1 }, 180);
-    setTimeout(() => {
-        positionPanel();
-        syncMobileViewport();
-    }, 0);
-}
-
-function closePanel() {
-    // 关闭主面板时取消活动确认，但独立弹窗宿主本身不隐藏。
-    // 收全屏残留：全屏中经背景/FAB 关面板时，若不清这些类，body 的滚动锁会滞留（酒馆卡死），
-    // 且 .sp-sheet 的 sp-fs-flat 会带到下次打开（手机右移半屏）。棱、坐标一并清。
-    coordinateRuntime?.feature?.close?.();
-    theaterFeature.onPanelClosed();
-    _activeSpConfirmCancel?.();
-    _activeStoreConflictFinish?.('defer');
-    removeDialogOverlays();
-    customDialog.cancelActive();
-    $(`#${MODAL_ID}`).stop(true).animate({ opacity: 0 }, 150, function () {
-        $(this).css('display', 'none');
-    });
 }
 
 function setBody(html) { $in('#sp-body').html(html); }
@@ -6935,250 +6812,6 @@ function cycleThemeMode() {
     const $btn = $in('.sp-theme-toggle-btn');
     $btn.attr('title', themeToggleTitle());
     $btn.find('i').attr('class', `fa-solid ${themeToggleIcon()}`);
-}
-
-// ─── Drag (desktop only) ──────────────────────────────────────────────────────
-
-function onDragStart(e) {
-    // Skip on mobile — sheet is near-fullscreen and shouldn't move.
-    if (isMobile()) return;
-    // Only respond to left-click for mouse events. Right-click (and middle)
-    // don't emit matching mouseup, which used to leave dragState set forever
-    // and drag the sheet on every subsequent mousemove.
-    if (e.type === 'mousedown' && e.button !== 0) return;
-    // Ignore drags starting on interactive elements inside the header.
-    if ($(e.target).closest('.sp-icon-btn, .sp-sub-btn, button, a, input, textarea').length) return;
-    e.preventDefault();
-    const sheet = inEl('.sp-sheet');
-
-    // Snap from CSS-transform centering to explicit px coords for drag math.
-    // MUST cancel the CSS animation first — animation fill-mode has higher cascade
-    // priority than inline styles, so transform:'none' alone won't override it.
-    if (sheet.style.transform !== 'none') {
-        sheet.style.animation = 'none';
-        const snap = sheet.getBoundingClientRect();
-        sheet.style.transform = 'none';
-        sheet.style.right     = 'auto';
-        sheet.style.left      = snap.left + 'px';
-        sheet.style.top       = snap.top  + 'px';
-    }
-
-    const cx   = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy   = e.touches ? e.touches[0].clientY : e.clientY;
-    const rect = sheet.getBoundingClientRect();
-    dragState  = { startX: cx, startY: cy, origLeft: rect.left, origTop: rect.top };
-
-    $(document).on('mousemove.spdrag', onDragMove).on('mouseup.spdrag', onDragEnd);
-    document.addEventListener('touchmove', onDragMove, { passive: false });
-    document.addEventListener('touchend',  onDragEnd);
-    document.body.style.cursor = 'grabbing';
-}
-
-function onDragMove(e) {
-    if (!dragState) return;
-    // Self-heal: if the mouse left the window (or alt-tabbed away) mid-drag,
-    // the matching mouseup never reaches document and dragState gets stuck
-    // forever — every future mousemove keeps dragging the sheet until reload.
-    // e.buttons===0 means no mouse button is currently held, regardless of
-    // whether we ever received the mouseup event for it.
-    if (e.buttons === 0 && !e.touches) { onDragEnd(); return; }
-    e.preventDefault();
-    const cx = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    const sheet = inEl('.sp-sheet');
-    const left = Math.max(0, Math.min(dragState.origLeft + cx - dragState.startX, window.innerWidth  - sheet.offsetWidth));
-    const top  = Math.max(0, Math.min(dragState.origTop  + cy - dragState.startY, window.innerHeight - 60));
-    sheet.style.left  = left + 'px';
-    sheet.style.top   = top  + 'px';
-    sheet.style.right = 'auto';
-}
-
-function onDragEnd() {
-    if (!dragState) return;
-    const sheet = inEl('.sp-sheet');
-    const rect  = sheet.getBoundingClientRect();
-    if (!isMobile()) {
-        localStorage.setItem(POS_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
-    }
-    dragState = null;
-    $(document).off('mousemove.spdrag mouseup.spdrag');
-    document.removeEventListener('touchmove', onDragMove);
-    document.removeEventListener('touchend',  onDragEnd);
-    document.body.style.cursor = '';
-}
-
-// ─── Resize ───────────────────────────────────────────────────────────────────
-
-function onResizeStart(e) {
-    // Resize is desktop-only. On mobile the sheet is near-fullscreen and the
-    // handle is hidden; any resize event on mobile is stray (e.g. bubbling
-    // from the outline divider) — ignore it so the sheet doesn't shrink.
-    if (isMobile()) return;
-    e.preventDefault();
-    e.stopPropagation();
-    const sheet = inEl('.sp-sheet');
-
-    // Desktop sheet uses `right: 20px` as its horizontal anchor. If we grow
-    // width while `right` is fixed, the LEFT edge moves outward instead of
-    // the right edge. Snap to left-anchored inline coords before resizing.
-    if (!sheet.style.left || sheet.style.right !== 'auto') {
-        const snap = sheet.getBoundingClientRect();
-        sheet.style.left  = snap.left + 'px';
-        sheet.style.top   = snap.top  + 'px';
-        sheet.style.right = 'auto';
-    }
-
-    sheet.style.willChange = 'width, height';
-    document.body.style.userSelect = 'none';
-    const cx = e.touches ? e.touches[0].clientX : e.clientX;
-    const cy = e.touches ? e.touches[0].clientY : e.clientY;
-    resizeState = {
-        startX: cx, startY: cy,
-        origW : sheet.offsetWidth, origH : sheet.offsetHeight,
-    };
-    $(document).on('mousemove.spresize', onResizeMove).on('mouseup.spresize', onResizeEnd);
-    document.addEventListener('touchmove', onResizeMove, { passive: false });
-    document.addEventListener('touchend',  onResizeEnd);
-}
-
-function onResizeMove(e) {
-    if (!resizeState) return;
-    e.preventDefault();
-    const touch = e.touches?.[0] ?? e.changedTouches?.[0];
-    const cx = touch ? touch.clientX : e.clientX;
-    const cy = touch ? touch.clientY : e.clientY;
-    if (resizeRAF) return;
-    resizeRAF = requestAnimationFrame(() => {
-        resizeRAF = null;
-        const sheet = inEl('.sp-sheet');
-        const mobile = isMobile();
-        // On mobile, we ALSO override max-width (CSS media query caps it at 340px);
-        // without this, inline width can't exceed the cap.
-        const maxW = mobile
-            ? Math.min(window.innerWidth - 10, 500)
-            : window.innerWidth - 10;
-        const w = Math.max(280, Math.min(maxW, resizeState.origW + cx - resizeState.startX));
-        const h = Math.max(300, Math.min(window.innerHeight - 10, resizeState.origH + cy - resizeState.startY));
-        sheet.style.width     = w + 'px';
-        sheet.style.height    = h + 'px';
-        sheet.style.maxHeight = h + 'px';
-        if (mobile) {
-            sheet.style.maxWidth = w + 'px';
-            // Recenter after resize: keep translateX(-50%) if still set, else pin left
-            if (!sheet.style.left || sheet.style.left === '50%') {
-                sheet.style.left = '50%';
-            }
-        }
-    });
-}
-
-function onResizeEnd() {
-    if (!resizeState) return;
-    if (resizeRAF) { cancelAnimationFrame(resizeRAF); resizeRAF = null; }
-    const sheet = inEl('.sp-sheet');
-    sheet.style.willChange = '';
-    document.body.style.userSelect = '';
-    localStorage.setItem(SIZE_KEY, JSON.stringify({ width: sheet.offsetWidth, height: sheet.offsetHeight }));
-    resizeState = null;
-    $(document).off('mousemove.spresize mouseup.spresize');
-    document.removeEventListener('touchmove', onResizeMove);
-    document.removeEventListener('touchend',  onResizeEnd);
-}
-
-function restoreOutlineChatHeight() {
-    const h = parseInt(localStorage.getItem('sp-outline-chat-h')) || 210;
-    const el = inEl('#sp-outline-chat');
-    if (el) el.style.height = h + 'px';
-}
-
-function positionPanel() {
-    const sheet = inEl('.sp-sheet');
-    if (!sheet) return;
-    if (isMobile()) {
-        sheet.style.left      = '';
-        sheet.style.top       = '';
-        sheet.style.right     = '';
-        sheet.style.height    = '';
-        sheet.style.transform = '';
-        syncMobileViewport();
-        bindViewportSync();
-        return;
-    }
-    let pos = null;
-    try { pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null'); } catch { /* 位置数据损坏则忽略 */ }
-    if (pos) {
-        sheet.style.left  = Math.min(pos.left, window.innerWidth  - sheet.offsetWidth)  + 'px';
-        sheet.style.top   = Math.min(pos.top,  window.innerHeight - 60) + 'px';
-        sheet.style.right = 'auto';
-    }
-}
-
-function bindViewportSync() {
-    if (viewportSyncBound) return;
-    viewportSyncBound = true;
-    const onViewportChange = () => syncMobileViewport();
-    window.addEventListener('resize', onViewportChange);
-    window.addEventListener('orientationchange', onViewportChange);
-    if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', onViewportChange);
-        window.visualViewport.addEventListener('scroll', onViewportChange);
-    }
-}
-
-function syncMobileViewport() {
-    if (!isMobile()) return;
-    const root  = document.getElementById(MODAL_ID);
-    const sheet = inEl('.sp-sheet');   // .sp-sheet 在 shadow 内：document.querySelector('#sp-modal-root .sp-sheet') 跨不过边界→null→整个移动端视口同步静默失效；用 inEl 查 shadow root
-    if (!root || !sheet || root.style.display === 'none') return;
-
-    // Read safe-area insets from CSS env() via a probe element.
-    // Fallback to 0 when unsupported (older Android browsers).
-    const probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;visibility:hidden;top:env(safe-area-inset-top,0px);bottom:env(safe-area-inset-bottom,0px)';
-    document.body.appendChild(probe);
-    const cs = getComputedStyle(probe);
-    const safeTop = parseFloat(cs.top) || 0;
-    const safeBot = parseFloat(cs.bottom) || 0;
-    document.body.removeChild(probe);
-
-    const vv = window.visualViewport;
-    const vh = Math.max(320, Math.round((vv?.height || window.innerHeight)));
-    // iOS 软键盘不缩小 layout viewport，而是把可视视口整体上移，visualViewport.offsetTop
-    // 变正；安卓则是直接缩小 layout（offsetTop≈0，靠 vh 变小自适应）。sheet 是
-    // position:fixed（相对 layout viewport 定位），若 top 不叠加 offsetTop，键盘一弹
-    // sheet 就停在 layout 顶部、被推到可视区上方看不见——正是 iOS 用户反馈的
-    // "整个界面被挤出页面、找不到输入框"。叠加 offsetTop 让 sheet 跟随可视视口下移到
-    // 键盘上方；安卓 offsetTop≈0 完全不受影响，属 iOS 定向修复。
-    const offsetTop = vv ? Math.max(0, vv.offsetTop) : 0;
-    const marginTop = 20 + safeTop;      // sheet 顶到可视视口顶的留白
-    const bottomGap = 20 + safeBot;
-    const top  = offsetTop + marginTop;  // fixed 绝对值 = 可视视口位移 + 留白
-    const maxH = Math.max(260, vh - marginTop - bottomGap);  // 高度只按可视视口算，不含 offsetTop
-
-    const nextTop = `${top}px`;
-    const nextHeight = `${maxH}px`;
-    if (sheet.style.top === nextTop && sheet.style.height === nextHeight && sheet.style.maxHeight === nextHeight) return;
-
-    const settingsBody = settingsOpen ? inEl('.sp-settings-body') : null;
-    const savedScrollTop = settingsBody?.scrollTop;
-    sheet.style.top = nextTop;
-    sheet.style.height = nextHeight;
-    sheet.style.maxHeight = nextHeight;
-
-    if (!settingsBody) return;
-    if (settingsBody.scrollTop !== savedScrollTop) settingsBody.scrollTop = savedScrollTop;
-
-    const focused = _spShadow?.activeElement;
-    const tagName = focused?.tagName;
-    if (!focused || !settingsBody.contains(focused)
-        || (tagName !== 'INPUT' && tagName !== 'TEXTAREA' && tagName !== 'SELECT' && !focused.isContentEditable)) return;
-    const bodyRect = settingsBody.getBoundingClientRect();
-    const focusRect = focused.getBoundingClientRect();
-    const above = focusRect.top < bodyRect.top;
-    const below = focusRect.bottom > bodyRect.bottom;
-    if (above && below) return;  // 超高输入框已横跨可见区，保持用户当前阅读位置
-    if (below) settingsBody.scrollTop += focusRect.bottom - bodyRect.bottom;
-    else if (above) settingsBody.scrollTop -= bodyRect.top - focusRect.top;
 }
 
 // ─── Toast (top) ──────────────────────────────────────────────────────────────
