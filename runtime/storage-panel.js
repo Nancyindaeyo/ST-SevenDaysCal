@@ -67,6 +67,186 @@ export function storageRetryFeedback(status = {}) {
     return { message: `重试失败：${status.error || '后端不可用'}`, error: true };
 }
 
+export const STORAGE_EMPTY_CHAT_HTML = '<div class="sp-cfg-hint" style="padding:4px 0">当前聊天暂无构画数据</div>';
+export const STORAGE_OWN_KEYS_SHOWN = Object.freeze(['sp-memory', 'sp-theater', 'sp-ledger']);
+export const ALMANAC_CLEAR_DATA_KEY = 'almanac-user';
+export const ANCHOR_STORAGE_PENDING_HTML = '<div class="sp-cfg-hint" style="padding:4px 0">统计中…</div>';
+export const ANCHOR_STORAGE_EMPTY_HTML = '<div class="sp-cfg-hint" style="padding:4px 0">暂无收藏</div>';
+export const ANCHOR_STORAGE_FAILED_HTML = '<div class="sp-cfg-hint" style="padding:4px 0">统计失败（服务器不可达？）</div>';
+
+export function storageModeCopy(state = {}, probe) {
+    if (!state.chatId) {
+        return { text: '当前没有打开聊天。', hideMigrate: true, hideRetry: true };
+    }
+    if (state.mode === 'external') {
+        if (state.status === 'ready') {
+            const extra = state.error ? ` 最近一次外置操作失败：${state.error}` : '';
+            return {
+                text: `当前聊天已使用白鳥数据后端。聊天文件只保留定位标记与楼层快照指针；单独导出聊天不会包含完整构画数据，请同时保留后端数据。${extra}`,
+                hideMigrate: true,
+                hideRetry: true,
+            };
+        }
+        return {
+            text: `当前聊天已迁出，但后端数据不可用：${state.error || '尚未加载'}。构画不会把它当成空数据，也不会自动回退写入聊天文件。`,
+            hideMigrate: true,
+            hideRetry: state.status === 'invalid',
+        };
+    }
+    if (probe === undefined) {
+        return { text: '正在检测白鳥数据后端…', probe: true, hideMigrate: true, hideRetry: true };
+    }
+    if (probe?.ok) {
+        return {
+            text: '当前仍随聊天文件存储。可主动把当前聊天的构画数据迁到白鳥数据后端；迁移前原聊天保持不变。',
+            hideMigrate: false,
+            hideRetry: true,
+        };
+    }
+    return { text: '未检测到兼容的白鳥数据后端；当前聊天继续沿用原存储方式。', hideMigrate: true, hideRetry: true };
+}
+
+export function applyStorageModeView($status, $migrate, $retry, view = {}) {
+    $status?.text?.(view.text || '');
+    $migrate?.prop?.('hidden', view.hideMigrate !== false);
+    $retry?.prop?.('hidden', view.hideRetry !== false);
+}
+
+export async function paintStorageMode(env = {}) {
+    const $status = env.$status;
+    const $migrate = env.$migrate;
+    const $retry = env.$retry;
+    if (!$status?.length) return;
+    $migrate?.prop?.('hidden', true);
+    $retry?.prop?.('hidden', true);
+    const state = env.storageStatus?.() || {};
+    const first = storageModeCopy(state);
+    applyStorageModeView($status, $migrate, $retry, first);
+    if (!first.probe) return;
+    const probe = await env.probe?.();
+    const now = env.storageStatus?.() || {};
+    if (now.chatId !== state.chatId || now.mode !== 'chat') return;
+    applyStorageModeView($status, $migrate, $retry, storageModeCopy(state, probe));
+}
+
+export function hasChatStorageData({ hasStore = false, ownKeyBytes = {} } = {}) {
+    return !!(hasStore || STORAGE_OWN_KEYS_SHOWN.some(key => ownKeyBytes[key]));
+}
+
+export function kindClearButton(kind) {
+    if (kind === STORAGE_CLEAR_TARGETS.almanac.kind) {
+        return `<button class="sp-storage-del sp-mini-btn" data-scope="datakey" data-key="${ALMANAC_CLEAR_DATA_KEY}">清除</button>`;
+    }
+    return `<button class="sp-storage-del sp-mini-btn" data-scope="kind" data-kind="${kind}">清除</button>`;
+}
+
+export function ownKeyClearButton(key) {
+    return `<button class="sp-storage-del sp-mini-btn sp-mini-btn-danger" data-scope="ownkey" data-key="${key}">清空</button>`;
+}
+
+export function localCacheClearButton(bytes) {
+    return bytes ? '<button class="sp-storage-del sp-mini-btn" data-scope="local">清理</button>' : '';
+}
+
+export function chatStorageRows({ usage = {}, ownKeyBytes = {}, formatBytes, userClearKinds = [] } = {}) {
+    const fmt = formatBytes || (b => String(b));
+    const rows = [];
+    for (const kind of userClearKinds) {
+        const b = usage[kind] || 0;
+        if (!b) continue;
+        rows.push(storageRow(STORAGE_KIND_LABELS[kind] || kind, fmt(b), kindClearButton(kind)));
+    }
+    for (const key of STORAGE_OWN_KEYS_SHOWN) {
+        const b = ownKeyBytes[key] || 0;
+        if (!b) continue;
+        rows.push(storageRow(STORAGE_OWNKEY_LABELS[key], fmt(b), ownKeyClearButton(key)));
+    }
+    return rows;
+}
+
+export function chatStorageSection(opts = {}) {
+    if (!hasChatStorageData(opts)) return STORAGE_EMPTY_CHAT_HTML;
+    const rows = chatStorageRows(opts);
+    return rows.length ? rows.join('') : STORAGE_EMPTY_CHAT_HTML;
+}
+
+export function storageUsageLayoutHtml({ chatHtml = '', localRowHtml = '' } = {}) {
+    return `
+        <div class="sp-storage-group">
+            <div class="sp-storage-group-head">本聊天（随聊天文件存服务端）</div>
+            ${chatHtml}
+        </div>
+        <div class="sp-storage-group">
+            <div class="sp-storage-group-head">收藏 · 坐标（全局存服务端）</div>
+            <div id="sp-storage-anchor-rows">${ANCHOR_STORAGE_PENDING_HTML}</div>
+        </div>
+        <div class="sp-storage-group">
+            <div class="sp-storage-group-head">本机缓存（localStorage，仅本浏览器）</div>
+            ${localRowHtml}
+            <div class="sp-cfg-hint" style="padding:2px 0 0">仅清本机的草稿与界面位置，不影响已存服务端的点线面间与收藏。</div>
+        </div>
+    `;
+}
+
+export function anchorStorageHtml({ count = 0, bytes = 0, formatBytes } = {}) {
+    if (!count) return ANCHOR_STORAGE_EMPTY_HTML;
+    const fmt = formatBytes || (b => String(b));
+    return storageRow(
+        `共 ${count} 条收藏`,
+        fmt(bytes),
+        '<button class="sp-storage-del sp-mini-btn sp-mini-btn-danger" data-scope="anchor">清空</button>',
+    );
+}
+
+export async function paintStorageUsage(env = {}) {
+    const $body = env.$body;
+    if (!$body?.length) return;
+    const fmt = env.formatBytes || (b => String(b));
+    void env.renderMode?.();
+    const ownKeyBytes = {};
+    for (const key of STORAGE_OWN_KEYS_SHOWN) ownKeyBytes[key] = env.ownKeyBytes?.(key) || 0;
+    const hasStore = !!env.hasStore?.();
+    const hasData = hasChatStorageData({ hasStore, ownKeyBytes });
+    const chatHtml = chatStorageSection({
+        hasStore,
+        ownKeyBytes,
+        usage: hasData ? (env.usageByKind?.() || {}) : {},
+        formatBytes: fmt,
+        userClearKinds: env.userClearKinds || [],
+    });
+    const localBytes = env.localBytes?.() || 0;
+    $body.html(storageUsageLayoutHtml({
+        chatHtml,
+        localRowHtml: storageRow('棱草稿 + 界面位置', fmt(localBytes), localCacheClearButton(localBytes)),
+    }));
+    const $anchor = env.$in?.('#sp-storage-anchor-rows');
+    try {
+        const usage = await env.anchorUsage?.() || { count: 0, bytes: 0 };
+        $anchor?.html?.(anchorStorageHtml({
+            count: usage.count,
+            bytes: usage.bytes,
+            formatBytes: env.formatAnchorBytes || fmt,
+        }));
+    } catch {
+        $anchor?.html?.(ANCHOR_STORAGE_FAILED_HTML);
+    }
+}
+
+export function migrationProgressCopy(info = {}) {
+    if (info.phase === 'committing') {
+        return {
+            status: '外置副本已校验，正在提交聊天定位标记与快照指针。此阶段不能撤销，请等待确认。',
+            abortLabel: '正在确认最终提交…',
+            abortDisabled: true,
+        };
+    }
+    return {
+        status: `正在复制并校验 ${info.done || 0} / ${info.total || '…'} 项…`,
+        abortLabel: '中断迁移',
+        abortDisabled: false,
+    };
+}
+
 export function bindStoragePanel(env = {}) {
     const $in = env.$in;
     const $ = env.$;

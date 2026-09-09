@@ -24,13 +24,14 @@ import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordi
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { paintScheduleHome, showPanelView } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
-import { DIALOG_HOST_ID, FAB_ID, MODAL_ID } from './business/shell/ids.js';
+import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
 import { createFab } from './business/shell/fab.js';
 import { detectSTTheme, getEffectiveTheme as resolveTheme, nextThemeMode, paintThemeClasses, themeToggleIcon as themeIconOf, themeToggleTitle as themeTitleOf } from './business/shell/theme.js';
 import { handlePanelViewClick } from './business/shell/view-switch.js';
 import { createPanelWindow, runOpenSchedule } from './business/shell/window.js';
 import { createTaDrawer, guessCharName } from './business/shell/ta-drawer.js';
 import { bindModuleIntro, bindPanelChrome } from './business/shell/chrome.js';
+import { mountPluginHosts } from './business/shell/hosts.js';
 import { bindRefreshBar } from './business/refresh/bind.js';
 import { bindAlmanacPanel } from './business/axis/bind.js';
 import { bindLinesPanel } from './business/lines/bind.js';
@@ -41,7 +42,7 @@ import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { bindApiFields, bindDiagnostics, filterModelList } from './runtime/api-fields-bind.js';
 import { bindMemorySettings } from './business/memory/settings-bind.js';
 import { bindTheaterSettings } from './business/theater/settings-bind.js';
-import { bindStoragePanel, readStorageChatIdentity, STORAGE_CLEAR_TARGETS, STORAGE_KIND_LABELS, STORAGE_OWNKEY_LABELS, storageRow } from './runtime/storage-panel.js';
+import { bindStoragePanel, migrationProgressCopy, paintStorageMode, paintStorageUsage, readStorageChatIdentity } from './runtime/storage-panel.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
@@ -2897,20 +2898,10 @@ function initChatObserver() {
 }
 
 function injectModal() {
-    document.querySelectorAll(`#${MODAL_ID}, #${DIALOG_HOST_ID}`).forEach(el => el.remove());
     _spShadow = null;
     _spDialogShadow = null;
     const cfg = loadCfg();
     const hasCustomApi = !!(cfg.url && cfg.key);
-    // 弹窗宿主独立于主面板：主面板关闭时仍保持可见，空宿主不拦截页面点击。
-    const dialogHost = document.createElement('div');
-    dialogHost.id = DIALOG_HOST_ID;
-    dialogHost.style.cssText = 'position:fixed;inset:0;z-index:2000003;pointer-events:none';
-    _spDialogShadow = dialogHost.attachShadow({ mode: 'open' });
-    _spDialogShadow.innerHTML = `
-        <link rel="stylesheet" href="${EXT_BASE}style.css">
-        <link rel="stylesheet" href="${ST_BASE}css/fontawesome.min.css">`;
-    document.documentElement.appendChild(dialogHost);
     const html = panelMarkup({
         themeToggleTitle, themeToggleIcon, fabEnabled,
         refreshFoldHtml, beatFoldHtml, activityFeature,
@@ -2921,36 +2912,18 @@ function injectModal() {
         getAlmanacJudgeInterval, getLedgerReconcileInterval, getLinesMode, getLinesInterval,
         outlineFeature,
     });
-    // Shadow DOM 宿主（2026-08-14 隔离改造批次1）：id/类留在 light DOM 的 host 上——
-    // openSchedule/closePanel 的 show/hide、applyTheme 的类切换、各 is(':visible')
-    // 判断的操作对象不变；窗口内容整体进 shadow root，ST 全局 button/input/滚动条/
-    // 文字阴影等规则在边界处切断。style.css 与 fontawesome 经 <link> 只作用于本 shadow；
-    // :root 的 --sp-* 令牌与 --SmartTheme* 变量穿透 shadow 边界照常继承，主题色板/缩放零改动。
-    const host = document.createElement('div');
-    host.id = MODAL_ID;
-    host.className = `sp-root sp-${currentTheme}`;
-    host.style.cssText = 'display:none;position:fixed;z-index:2000001';
-    markTauriMobileSurface(host, 'fullscreen-window');
-    const root = host.attachShadow({ mode: 'open' });
-    _spShadow = root;
-    // 键盘边界：shadow 内 input 的 keydown 是 composed 事件，冒泡到 document 时 ST 的
-    // isInputElementInFocus() 读 document.activeElement = 宿主 div（非 shadow 内 input）→ 守卫
-    // 失效 → 方向键等触发重roll/swipe。在 shadowRoot（冒泡先经此、后到 document；此处 target 不
-    // retarget、是真实 input）截断输入框内非 Esc 按键。放行 Esc：各全屏/菜单的 document 级退出仍需收到。
-    root.addEventListener('keydown', ev => {
-        if (ev.key === 'Escape') return;
-        const t = ev.composedPath?.()[0] || ev.target;
-        if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) ev.stopPropagation();
+    // id/类留在 light DOM 的 host 上；内容进 shadow。键盘边界：截断输入框内非 Esc 的 composed keydown，
+    // 避免 ST 把宿主 div 当成非输入元素而触发重roll/swipe。见 business/shell/hosts.js。
+    const mounted = mountPluginHosts({
+        document,
+        extBase: EXT_BASE,
+        stBase: ST_BASE,
+        theme: currentTheme,
+        html,
+        markSurface: markTauriMobileSurface,
     });
-    // shadow 内第一层 wrapper 必须带 sp-root + 主题类：style.css 的 `.sp-root ...` 前缀选择器、
-    // .sp-night/.sp-day 色板、.sp-forced-* 强制主题覆盖全靠它匹配
-    // （applyTheme 同步它的主题类）。display:contents 不产生布局盒子，fixed 语义
-    // 仍由 .sp-sheet 承担；host 无 transform/filter，内部 position:fixed 相对视口不变。
-    root.innerHTML = `
-        <link rel="stylesheet" href="${EXT_BASE}style.css">
-        <link rel="stylesheet" href="${ST_BASE}css/fontawesome.min.css">
-        <div class="sp-root sp-${currentTheme}" style="display:contents">${html}</div>`;
-    document.documentElement.appendChild(host);
+    _spShadow = mounted.root;
+    _spDialogShadow = mounted.dialogShadow;
 
     paintPace();
 
@@ -4900,31 +4873,13 @@ function loadCachedLinesForCurrentChat(view, charName) {
 // 清理委托与确认文案在 runtime/storage-panel.js；日历条目必须走精确 dataKey，不能按 kind 前缀清。
 
 async function renderCurrentChatStorageMode() {
-    const $status = $in('#sp-storage-mode-status');
-    const $migrate = $in('#sp-storage-migrate');
-    const $retry = $in('#sp-storage-retry');
-    if (!$status.length) return;
-    $migrate.prop('hidden', true); $retry.prop('hidden', true);
-    const state = storageStatus();
-    if (!state.chatId) { $status.text('当前没有打开聊天。'); return; }
-    if (state.mode === 'external') {
-        if (state.status === 'ready') {
-            $status.text(`当前聊天已使用白鳥数据后端。聊天文件只保留定位标记与楼层快照指针；单独导出聊天不会包含完整构画数据，请同时保留后端数据。${state.error ? ` 最近一次外置操作失败：${state.error}` : ''}`);
-        } else {
-            $status.text(`当前聊天已迁出，但后端数据不可用：${state.error || '尚未加载'}。构画不会把它当成空数据，也不会自动回退写入聊天文件。`);
-            $retry.prop('hidden', state.status === 'invalid');
-        }
-        return;
-    }
-    $status.text('正在检测白鳥数据后端…');
-    const probe = await probeExternalBackend();
-    if (storageStatus().chatId !== state.chatId || storageStatus().mode !== 'chat') return;
-    if (probe.ok) {
-        $status.text('当前仍随聊天文件存储。可主动把当前聊天的构画数据迁到白鳥数据后端；迁移前原聊天保持不变。');
-        $migrate.prop('hidden', false);
-    } else {
-        $status.text('未检测到兼容的白鳥数据后端；当前聊天继续沿用原存储方式。');
-    }
+    return paintStorageMode({
+        $status: $in('#sp-storage-mode-status'),
+        $migrate: $in('#sp-storage-migrate'),
+        $retry: $in('#sp-storage-retry'),
+        storageStatus,
+        probe: probeExternalBackend,
+    });
 }
 
 function mountMigrationOverlay() {
@@ -4943,9 +4898,11 @@ function mountMigrationOverlay() {
     overlay.querySelector('[data-sp-migration-abort]').addEventListener('click', abortMigration);
     return {
         progress(info = {}) {
-            const committing = info.phase === 'committing';
-            overlay.querySelector('[data-sp-migration-status]').textContent = committing ? '外置副本已校验，正在提交聊天定位标记与快照指针。此阶段不能撤销，请等待确认。' : `正在复制并校验 ${info.done || 0} / ${info.total || '…'} 项…`;
-            const button = overlay.querySelector('[data-sp-migration-abort]'); button.disabled = committing; button.textContent = committing ? '正在确认最终提交…' : '中断迁移';
+            const copy = migrationProgressCopy(info);
+            overlay.querySelector('[data-sp-migration-status]').textContent = copy.status;
+            const button = overlay.querySelector('[data-sp-migration-abort]');
+            button.disabled = copy.abortDisabled;
+            button.textContent = copy.abortLabel;
         },
         unknown(message) {
             overlay.querySelector('[data-sp-migration-status]').textContent = message;
@@ -5106,76 +5063,19 @@ async function exportCurrentChatDiagnosticPackage() {
 
 // 渲染三层用量到 #sp-storage-body。异步（坐标要读服务器索引）。
 async function renderStorageUsage() {
-    const $body = $in('#sp-storage-body');
-    if (!$body.length) return;
-    const fmt = store.formatBytes;
-    void renderCurrentChatStorageMode();
-
-    // ① 本聊天 chat_metadata
-    let chatHtml;
-    if (!store.hasStore() && !store.ownKeyBytes('sp-memory') && !store.ownKeyBytes('sp-theater') && !store.ownKeyBytes('sp-ledger')) {
-        chatHtml = `<div class="sp-cfg-hint" style="padding:4px 0">当前聊天暂无构画数据</div>`;
-    } else {
-        const usage = store.usageByKind();
-        const rows = [];
-        for (const kind of store.USER_CLEAR_KINDS) {
-            const b = usage[kind] || 0;
-            if (!b) continue;
-            rows.push(storageRow(
-                STORAGE_KIND_LABELS[kind] || kind,
-                fmt(b),
-                kind === STORAGE_CLEAR_TARGETS.almanac.kind
-                    ? `<button class="sp-storage-del sp-mini-btn" data-scope="datakey" data-key="almanac-user">清除</button>`
-                    : `<button class="sp-storage-del sp-mini-btn" data-scope="kind" data-kind="${kind}">清除</button>`,
-            ));
-        }
-        for (const key of ['sp-memory', 'sp-theater', 'sp-ledger']) {
-            const b = store.ownKeyBytes(key);
-            if (!b) continue;
-            rows.push(storageRow(
-                STORAGE_OWNKEY_LABELS[key],
-                fmt(b),
-                `<button class="sp-storage-del sp-mini-btn sp-mini-btn-danger" data-scope="ownkey" data-key="${key}">清空</button>`,
-            ));
-        }
-        chatHtml = rows.length ? rows.join('') : `<div class="sp-cfg-hint" style="padding:4px 0">当前聊天暂无构画数据</div>`;
-    }
-
-    // ③ 本机缓存（localStorage：棱草稿 + UI 位置），先算好（同步）
-    const localBytes = theaterDeviceCache.pluginCacheBytes();
-
-    // 先渲染同步部分 + 收藏占位（服务器读取慢，先占位再补）
-    $body.html(`
-        <div class="sp-storage-group">
-            <div class="sp-storage-group-head">本聊天（随聊天文件存服务端）</div>
-            ${chatHtml}
-        </div>
-        <div class="sp-storage-group">
-            <div class="sp-storage-group-head">收藏 · 坐标（全局存服务端）</div>
-            <div id="sp-storage-anchor-rows"><div class="sp-cfg-hint" style="padding:4px 0">统计中…</div></div>
-        </div>
-        <div class="sp-storage-group">
-            <div class="sp-storage-group-head">本机缓存（localStorage，仅本浏览器）</div>
-            ${storageRow('棱草稿 + 界面位置', fmt(localBytes),
-                localBytes ? `<button class="sp-storage-del sp-mini-btn" data-scope="local">清理</button>` : '')}
-            <div class="sp-cfg-hint" style="padding:2px 0 0">仅清本机的草稿与界面位置，不影响已存服务端的点线面间与收藏。</div>
-        </div>
-    `);
-
-    // ② 收藏（坐标·服务器）——异步补进占位
-    try {
-        const usage = await coordinateRuntime?.feature?.storageUsage?.() || { count: 0, bytes: 0 };
-        const cnt = usage.count;
-        const bytes = usage.bytes;
-        $in('#sp-storage-anchor-rows').html(
-            cnt
-                ? storageRow(`共 ${cnt} 条收藏`, coordinateRuntime.feature.formatBytes(bytes),
-                    `<button class="sp-storage-del sp-mini-btn sp-mini-btn-danger" data-scope="anchor">清空</button>`)
-                : `<div class="sp-cfg-hint" style="padding:4px 0">暂无收藏</div>`
-        );
-    } catch {
-        $in('#sp-storage-anchor-rows').html(`<div class="sp-cfg-hint" style="padding:4px 0">统计失败（服务器不可达？）</div>`);
-    }
+    return paintStorageUsage({
+        $body: $in('#sp-storage-body'),
+        $in,
+        formatBytes: store.formatBytes,
+        hasStore: () => store.hasStore(),
+        ownKeyBytes: key => store.ownKeyBytes(key),
+        usageByKind: () => store.usageByKind(),
+        userClearKinds: store.USER_CLEAR_KINDS,
+        localBytes: () => theaterDeviceCache.pluginCacheBytes(),
+        renderMode: renderCurrentChatStorageMode,
+        anchorUsage: () => coordinateRuntime?.feature?.storageUsage?.() || { count: 0, bytes: 0 },
+        formatAnchorBytes: bytes => coordinateRuntime.feature.formatBytes(bytes),
+    });
 }
 
 function invalidateLedgerTasksForStoreClear() {

@@ -5,6 +5,7 @@ import { nextThemeMode, themeToggleIcon, themeToggleTitle, getEffectiveTheme, pa
 import { handlePanelViewClick, openSideView } from './view-switch.js';
 import { clickInsideModuleIntro } from './chrome.js';
 import { FAB_ID, MODAL_ID, PEN_ICON_SVG } from './ids.js';
+import { modalHostClass, panelShadowHtml, shouldStopShadowKeydown } from './hosts.js';
 
 test('fab position clamps inside the viewport', () => {
     assert.deepEqual(clampFabBox(-10, -4, { width: 48, height: 48, vw: 200, vh: 100 }), { left: 0, top: 0 });
@@ -165,4 +166,23 @@ test('module intro stays open when the click is inside the pop or button', () =>
     assert.equal(clickInsideModuleIntro([btn]), true);
     assert.equal(clickInsideModuleIntro([outside]), false);
     assert.equal(clickInsideModuleIntro([null, {}]), false);
+});
+
+test('shadow keydown stops composed input keys but lets Escape through', () => {
+    assert.equal(shouldStopShadowKeydown({ key: 'Escape', target: { tagName: 'INPUT' } }), false);
+    assert.equal(shouldStopShadowKeydown({ key: 'ArrowLeft', target: { tagName: 'INPUT' } }), true);
+    assert.equal(shouldStopShadowKeydown({ key: 'a', target: { tagName: 'TEXTAREA' } }), true);
+    assert.equal(shouldStopShadowKeydown({ key: 'a', target: { tagName: 'DIV', isContentEditable: true } }), true);
+    assert.equal(shouldStopShadowKeydown({ key: 'ArrowLeft', target: { tagName: 'BUTTON' } }), false);
+    assert.equal(shouldStopShadowKeydown({
+        key: 'ArrowLeft',
+        target: { tagName: 'DIV' },
+        composedPath: () => [{ tagName: 'INPUT' }],
+    }), true);
+});
+
+test('panel shadow wrapper keeps the theme class ST already paints', () => {
+    assert.equal(modalHostClass('night'), 'sp-root sp-night');
+    assert.match(panelShadowHtml('day', '<main></main>', '/ext/', '/st/'), /sp-root sp-day/);
+    assert.match(panelShadowHtml('day', '<main></main>', '/ext/', '/st/'), /href="\/ext\/style\.css"/);
 });
