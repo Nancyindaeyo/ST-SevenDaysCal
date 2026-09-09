@@ -9,6 +9,11 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+export function normalizeConfirmOptions(options, fallbackBody) {
+    if (typeof options === 'string') return { title: options, body: fallbackBody == null ? '' : String(fallbackBody) };
+    return options && typeof options === 'object' ? options : {};
+}
+
 function normalizeTextareaRows(value) {
     const rows = Math.floor(Number(value));
     return Number.isFinite(rows) ? Math.min(12, Math.max(1, rows)) : 3;
@@ -89,7 +94,8 @@ export function createDialogManager({ $, mount, getRootClass = () => '', subscri
         });
     }
 
-    function confirm({ title, body, note, confirmText = '确定', cancelText = '取消' } = {}) {
+    function confirm(options, fallbackBody) {
+        const { title = '', body = '', note, confirmText = '确定', cancelText = '取消' } = normalizeConfirmOptions(options, fallbackBody);
         return choose({
             title,
             body,

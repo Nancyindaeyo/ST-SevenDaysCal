@@ -55,7 +55,7 @@ import * as theaterDeviceCache from './runtime/theater-device-cache.js';
 import { createTheaterHostPorts } from './runtime/theater-host-ports.js';
 import { selectVisibleChatHistory } from './business/lines/history.js';
 import * as snapshot from './snapshot.js';
-import { createDialogManager } from './modal.js';
+import { createDialogManager, normalizeConfirmOptions } from './modal.js';
 import { createAutomationGate } from './automation-gate.js';
 import { createDateCoordinator } from './date-coordinator.js';
 import {
@@ -1412,7 +1412,7 @@ const MODULE_INTROS = {
         _iSub('［重新生成］再抽一轮。可先改标题再点［收藏］。草稿最多 12 条。'),
     anchor:
         _iLede('「坐标」收藏的是 AI 楼层正文的副本，也可以收下棱里的小剧场。方便以后回看，不是完整样式快照。入口受设置 → 通用设置 → 显示与通知管理里的“收藏此楼入口”控制，只会出现在 AI 楼；收藏后可立即选择标签，再点同一枚按钮会取消收藏。') +
-        _iSub('收藏夹按角色 → 聊天 → 楼层分组，可用标签筛选和管理。删除收藏只删副本，不会删除或改动原楼层。') +
+        _iSub('收藏夹可按角色、标签或棱浏览；棱里每一场小剧场单独成一组。删除收藏只删副本，不会删除或改动原楼层。') +
         _iSvgKey(_coordinateIntroSvg, '坐标形收藏', 'AI 楼上的这枚坐标形按钮：点击收藏，再次点击取消收藏') +
         _iSub('［标签管理］可新建、改名、改色或删除标签，删标签不会删收藏。收藏全文右上角的［⛶］进入全屏，［×］删除这份收藏副本。手机点句子勾选（长按也能勾），电脑拖选，再点「摘抄选中」。'),
 };
@@ -3495,7 +3495,8 @@ async function memoryPreCheckConfirm() {
 // Simple modal confirm — returns Promise<boolean>.
 // Auto-resolves(false) on CHAT_CHANGED or when the panel closes, so callers
 // awaiting the promise won't hang.
-function spConfirm({ title, body, note, confirmText = '确定', cancelText = '取消' }) {
+function spConfirm(options, fallbackBody) {
+    const { title = '', body = '', note, confirmText = '确定', cancelText = '取消' } = normalizeConfirmOptions(options, fallbackBody);
     return new Promise(resolve => {
         _activeSpConfirmCancel?.();
         $dialog('#sp-confirm').remove();

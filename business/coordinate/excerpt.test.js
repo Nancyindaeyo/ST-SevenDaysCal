@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace, QUOTE_MAX } from './excerpt-schema.js';
 import { createExcerptRepository } from './excerpt-repository.js';
-import { groupItemsByTag, matchQuery, hayOf } from './browse.js';
+import { groupItemsByTag, groupItemsByTheater, matchQuery, hayOf, coordinateBrowseMode } from './browse.js';
 import { filterSearchList, joinPickedText, readShadowSelection, splitPickUnits, useTapPick } from './excerpt-ui.js';
 import { snapshotSearchText } from './capture.js';
 
@@ -54,6 +54,25 @@ test('groupItemsByTag splits tagged and untagged', () => {
     assert.equal(untagged.length, 1);
     assert.equal(matchQuery(hayOf(['月光', '春']), '月光'), true);
     assert.equal(matchQuery('月光', '没有'), false);
+});
+
+test('groupItemsByTheater groups one small theater batch together', () => {
+    const items = [
+        { id: 'a', kind: 'theater', batchId: 'b1', formName: '时空错乱', note: '双重重力', ts: 2 },
+        { id: 'b', kind: 'theater', batchId: 'b1', formName: '时空错乱', note: '另一面', ts: 1 },
+        { id: 'c', kind: 'theater', note: '旧收藏', ts: 3 },
+        { id: 'd', kind: '', note: '楼层' },
+    ];
+    const { groups } = groupItemsByTheater(items);
+    assert.equal(groups.length, 2);
+    assert.equal(groups[0].id, 'item:c');
+    assert.equal(groups[0].title, '旧收藏');
+    assert.equal(groups[1].id, 'batch:b1');
+    assert.equal(groups[1].title, '时空错乱');
+    assert.equal(groups[1].items.length, 2);
+    assert.equal(coordinateBrowseMode('theater'), 'theater');
+    assert.equal(coordinateBrowseMode('tag'), 'tag');
+    assert.equal(coordinateBrowseMode('nope'), 'char');
 });
 
 test('filterSearchList hides unmatched cards without rebuilding', () => {
@@ -119,8 +138,51 @@ test('search box is not a shelf tab', async () => {
     });
     await renderer.chars();
     assert.match(html, /class="sp-anchor-search[^"]*"[^>]*data-search-shelf="snaps"/);
+    assert.equal(html.includes('data-browse="theater"'), true);
     assert.equal(/<input[^>]*\sdata-shelf=/.test(html), false);
     assert.match(html, /class="sp-anchor-shelf-tab[^"]*"[^>]*data-shelf="snaps"/);
+});
+
+test('theater browse lists one card per small theater', async () => {
+    const { createCoordinateRenderer } = await import('./render.js');
+    let html = '';
+    const renderer = createCoordinateRenderer({
+        repository: {
+            listByChat: async () => [{
+                charName: '春', chatName: '聊天', chatId: 'c1', latestTs: 2, count: 2,
+                items: [
+                    { id: 'a', kind: 'theater', batchId: 'b1', formName: '时空错乱', note: '双重重力', textPreview: '第一面', ts: 2 },
+                    { id: 'b', kind: 'theater', batchId: 'b1', formName: '时空错乱', note: '另一面', textPreview: '第二面', ts: 1 },
+                    { id: 'c', floorIndex: 3, textPreview: '楼层正文', ts: 3 },
+                ],
+            }],
+            getTags: async () => [],
+            countItems: async () => 3,
+        },
+        excerptRepo: { count: async () => 0 },
+        setBody: next => { html = next; },
+        getState: () => ({ level: 'chars', shelf: 'snaps', browse: 'theater', snapSearch: '', filter: null }),
+    });
+    await renderer.chars();
+    assert.match(html, /class="sp-anchor-browse-tab sp-anchor-browse-on" data-browse="theater"/);
+    assert.match(html, /时空错乱/);
+    assert.match(html, /2 条小剧场/);
+    assert.equal(html.includes('楼层正文'), false);
+});
+
+test('coordinate ui keeps theater browse when opening a group', async () => {
+    const { createCoordinateUI } = await import('./ui.js');
+    const ui = createCoordinateUI();
+    ui.setBrowse('theater');
+    ui.setGroup('batch:b1');
+    assert.equal(ui.state().browse, 'theater');
+    assert.equal(ui.state().level, 'group');
+    ui.captureFrom();
+    ui.setRoute({ level: 'full', itemId: 'a' });
+    ui.backFrom();
+    assert.equal(ui.state().browse, 'theater');
+    assert.equal(ui.state().level, 'group');
+    assert.equal(ui.state().groupId, 'batch:b1');
 });
 
 test('pick units split Chinese sentences and keep punctuation', () => {
@@ -152,8 +214,12 @@ test('snapshot notes and search text stay in the index meta', async () => {
     assert.equal(meta.note, '这是备注');
     assert.equal(meta.searchText, '正文 后面还有月光');
     assert.equal(meta.kind, '');
-    const theater = normalizeMeta({ id: 't', kind: 'theater', note: '番外' });
+    assert.equal(meta.batchId, '');
+    assert.equal(meta.formName, '');
+    const theater = normalizeMeta({ id: 't', kind: 'theater', note: '番外', batchId: 'b1', formName: '问卷' });
     assert.equal(theater.kind, 'theater');
+    assert.equal(theater.batchId, 'b1');
+    assert.equal(theater.formName, '问卷');
 });
 
 test('excerpt repository keeps snapshots untouched in its own file', async () => {

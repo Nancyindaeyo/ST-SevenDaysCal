@@ -1,11 +1,11 @@
 import { isCurrentRevision } from './identity.js';
-import { hayOf, groupItemsByTag } from './browse.js';
+import { hayOf, groupItemsByTag, groupItemsByTheater, coordinateBrowseMode } from './browse.js';
 import { wrapPickableText } from './excerpt-ui.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
 const tagChips = (tags, map) => (Array.isArray(tags) ? tags : []).map(id => map.get(id)).filter(Boolean).map(tag => `<span class="sp-anchor-tagchip" data-color="${esc(tag.color || 'slate')}">${esc(tag.name)}</span>`).join('');
 const tagNamesOf = (tags, map) => (Array.isArray(tags) ? tags : []).map(id => map.get(id)?.name).filter(Boolean);
-const itemHay = (item, map) => hayOf([item.charName, item.chatName, item.textPreview, item.searchText, item.note, item.kind === 'theater' ? '棱 小剧场' : item.floorIndex, ...tagNamesOf(item.tags, map)]);
+const itemHay = (item, map) => hayOf([item.charName, item.chatName, item.textPreview, item.searchText, item.note, item.formName, item.kind === 'theater' ? '棱 小剧场' : item.floorIndex, ...tagNamesOf(item.tags, map)]);
 const SNAP_SEARCH_HINT = '搜正文、备注、角色、分组…';
 
 export function createCoordinateRenderer({ repository, excerptRepo = null, setBody, getState, setState, getTheme = () => 'day', escapeHtml = esc, formatTimestamp = value => new Date(value || 0).toLocaleString(), svg = () => '', documentRef = globalThis.document, queryRoot = null } = {}) {
@@ -13,7 +13,12 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
     const visible = (items, filter) => filter ? items.filter(item => item.tags?.includes(filter)) : items;
     const filterBar = (tags, active) => tags.length ? `<div class="sp-anchor-filterbar"><button type="button" class="sp-anchor-filter-chip${!active ? ' sp-anchor-filter-on' : ''}" data-id="">全部</button>${tags.map(tag => `<button type="button" class="sp-anchor-filter-chip sp-anchor-filter-tag${tag.id === active ? ' sp-anchor-filter-on' : ''}" data-id="${esc(tag.id)}"><span class="sp-anchor-tagchip" data-color="${esc(tag.color || 'slate')}">${esc(tag.name)}</span></button>`).join('')}</div>` : '';
     const searchBox = (shelf, value, placeholder) => `<label class="sp-excerpt-search-wrap"><i class="fa-solid fa-magnifying-glass"></i><input type="text" class="sp-anchor-search sp-input" id="sp-anchor-search-${shelf}" data-search-shelf="${shelf}" placeholder="${esc(placeholder)}" value="${esc(value || '')}" autocomplete="off" spellcheck="false"></label>`;
-    const browseBar = browse => `<div class="sp-anchor-browse" role="tablist"><button type="button" class="sp-anchor-browse-tab${browse !== 'tag' ? ' sp-anchor-browse-on' : ''}" data-browse="char">按角色</button><button type="button" class="sp-anchor-browse-tab${browse === 'tag' ? ' sp-anchor-browse-on' : ''}" data-browse="tag">按分组</button></div>`;
+    const browseBar = browse => {
+        const mode = coordinateBrowseMode(browse);
+        const tab = (id, label) => `<button type="button" class="sp-anchor-browse-tab${mode === id ? ' sp-anchor-browse-on' : ''}" data-browse="${id}">${label}</button>`;
+        return `<div class="sp-anchor-browse" role="tablist">${tab('char', '按角色')}${tab('tag', '按分组')}${tab('theater', '按棱')}</div>`;
+    };
+    const groupCard = (id, title, count, latestTs, hay, { color = '', sub = '条快照' } = {}) => `<button type="button" class="sp-anchor-group-card" data-group="${esc(id)}" data-search="${esc(hay)}"><span class="sp-anchor-chat-main"><span class="sp-anchor-chat-name">${color ? `<span class="sp-anchor-tagchip" data-color="${esc(color)}">${escapeHtml(title)}</span>` : escapeHtml(title)}</span><span class="sp-anchor-chat-sub">${count} ${sub}</span></span><span class="sp-anchor-chat-meta"><span class="sp-anchor-chat-count">${count}</span><span class="sp-anchor-chat-ts">${latestTs ? formatTimestamp(latestTs) : ''}</span></span></button>`;
     const searchEmpty = text => `<div class="sp-search-empty" hidden>${esc(text)}</div>`;
     const itemCard = (item, map, { showChat = false } = {}) => {
         const chat = showChat && item.chatName ? `<span class="sp-anchor-item-chat">${escapeHtml(item.chatName)}</span>` : '';
@@ -57,6 +62,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
     async function chars() {
         const s = current();
         if (s.browse === 'tag') return tagHome();
+        if (s.browse === 'theater') return theaterHome();
         const all = await repository.listByChat?.() || []; const tags = await repository.getTags(); const map = new Map(tags.map(tag => [tag.id, tag])); const groups = new Map();
         for (const bucket of all) { const items = visible(bucket.items || [], s.filter); if (!items.length) continue; const key = bucket.charName || '(未知角色)'; const group = groups.get(key) || { name: key, chatCount: 0, count: 0, latestTs: 0, hay: [] }; group.chatCount++; group.count += items.length; group.latestTs = Math.max(group.latestTs, ...items.map(item => item.ts || 0)); group.hay.push(key, ...items.map(item => itemHay(item, map))); groups.set(key, group); }
         const list = [...groups.values()].sort((a, b) => b.latestTs - a.latestTs);
@@ -69,15 +75,34 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         const map = new Map(tags.map(tag => [tag.id, tag]));
         const items = flattenItems(await repository.listByChat?.() || []);
         const { groups, untagged } = groupItemsByTag(items, tags);
-        const card = (id, title, count, latestTs, hay, color = '') => `<button type="button" class="sp-anchor-group-card" data-group="${esc(id)}" data-search="${esc(hay)}"><span class="sp-anchor-chat-main"><span class="sp-anchor-chat-name">${color ? `<span class="sp-anchor-tagchip" data-color="${esc(color)}">${escapeHtml(title)}</span>` : escapeHtml(title)}</span><span class="sp-anchor-chat-sub">${count} 条快照</span></span><span class="sp-anchor-chat-meta"><span class="sp-anchor-chat-count">${count}</span><span class="sp-anchor-chat-ts">${latestTs ? formatTimestamp(latestTs) : ''}</span></span></button>`;
-        const groupCards = groups.map(group => card(group.tag.id, group.tag.name, group.items.length, Math.max(0, ...group.items.map(item => item.ts || 0)), hayOf([group.tag.name, ...group.items.map(item => itemHay(item, map))]), group.tag.color || 'slate')).join('');
-        const noneCard = untagged.length ? card('__none__', '未分组', untagged.length, Math.max(0, ...untagged.map(item => item.ts || 0)), hayOf(['未分组', ...untagged.map(item => itemHay(item, map))])) : '';
+        const groupCards = groups.map(group => groupCard(group.tag.id, group.tag.name, group.items.length, Math.max(0, ...group.items.map(item => item.ts || 0)), hayOf([group.tag.name, ...group.items.map(item => itemHay(item, map))]), { color: group.tag.color || 'slate' })).join('');
+        const noneCard = untagged.length ? groupCard('__none__', '未分组', untagged.length, Math.max(0, ...untagged.map(item => item.ts || 0)), hayOf(['未分组', ...untagged.map(item => itemHay(item, map))])) : '';
         const cards = groupCards + noneCard;
         setBody(`${await snapHead(s, '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>')}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">还没有分组。收藏时打上标签，或点右上角「分组」新建。</div>'}</div>${searchEmpty('没有匹配的分组')}</div>`);
         return map;
     }
+    async function theaterHome() {
+        const s = current();
+        const tags = await repository.getTags();
+        const map = new Map(tags.map(tag => [tag.id, tag]));
+        const items = flattenItems(await repository.listByChat?.() || []);
+        const { groups } = groupItemsByTheater(items);
+        const cards = groups.map(group => groupCard(group.id, group.title, group.items.length, Math.max(0, ...group.items.map(item => item.ts || 0)), hayOf([group.title, '棱', '小剧场', ...group.items.map(item => itemHay(item, map))]), { sub: '条小剧场' })).join('');
+        setBody(`${await snapHead(s, '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>')}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">还没有收藏过小剧场。在棱里点「收藏」，每一场会单独成一组。</div>'}</div>${searchEmpty('没有匹配的小剧场')}</div>`);
+        return map;
+    }
+    async function theaterGroup() {
+        const s = current();
+        const tags = await repository.getTags();
+        const map = new Map(tags.map(tag => [tag.id, tag]));
+        const items = flattenItems(await repository.listByChat?.() || []);
+        const packed = groupItemsByTheater(items).groups.find(entry => entry.id === s.groupId);
+        const list = (packed?.items || []).slice().sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+        setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-browse="theater">‹</button><span class="sp-anchor-head-title">${escapeHtml(packed?.title || '小剧场')}</span><span class="sp-anchor-head-count">${list.length} 条</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-item-list" data-filter-list>${list.map(item => itemCard(item, map, { showChat: true })).join('') || '<div class="sp-anchor-filter-empty">这一场还是空的</div>'}</div>${searchEmpty('没有匹配的快照')}</div>`);
+    }
     async function group() {
         const s = current();
+        if (s.browse === 'theater') return theaterGroup();
         const tags = await repository.getTags();
         const map = new Map(tags.map(tag => [tag.id, tag]));
         const items = flattenItems(await repository.listByChat?.() || []);

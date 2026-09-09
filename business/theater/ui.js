@@ -220,7 +220,23 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             render();
             host.scrollTop?.();
         });
-        root.on('click.sp-theater-ui', '.sp-theater-del-draft', async function () { const target = host.captureTarget?.(currentChat()); const id = dataOf(this, 'id'); const baseline = repository.draftBaseline?.(target?.chatId, id); if (await host.confirm?.('删除草稿', '确定删除这条小剧场草稿吗？') && isCurrent(target)) { if (String(state.current?.id) === String(id)) { state.current = null; state.solo = false; state.batchId = ''; } const result = repository.deleteDraft(target.chatId, id, baseline); if (result?.ok && isCurrent(target)) render(); else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true); } });
+        root.on('click.sp-theater-ui', '.sp-theater-del-draft', async function () {
+            const target = host.captureTarget?.(currentChat());
+            const id = dataOf(this, 'id');
+            const piece = findPiece(id);
+            const baseline = repository.draftBaseline?.(target?.chatId, id);
+            const ok = await host.confirm?.({
+                title: '删除草稿',
+                body: `确定删除「${piece?.title || piece?.formName || '未命名'}」这条小剧场草稿吗？此操作不可撤销。`,
+                confirmText: '删除',
+                cancelText: '取消',
+            });
+            if (!ok || !isCurrent(target)) return;
+            if (String(state.current?.id) === String(id)) { state.current = null; state.solo = false; state.batchId = ''; }
+            const result = repository.deleteDraft(target.chatId, id, baseline);
+            if (result?.ok && isCurrent(target)) render();
+            else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true);
+        });
         root.on('click.sp-theater-ui', '.sp-theater-collect', async function () { const piece = findPiece(dataOf(this, 'id')); if (piece) await collectPiece(piece); });
         root.on('click.sp-theater-ui', '.sp-theater-save', async function () {
             if (!state.current) return;

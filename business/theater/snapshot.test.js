@@ -5,11 +5,13 @@ import { normalizeMeta } from '../coordinate/schema.js';
 
 test('theater snapshot keeps piece id and marks kind theater', () => {
     const item = buildTheaterSnapshot(
-        { id: 'piece-1', title: '回望', raw: '窗边还有月光', formName: '日记' },
+        { id: 'piece-1', title: '回望', raw: '窗边还有月光', formName: '日记', batchId: 'batch-9' },
         { chatId: 'chat-a', chatName: '今晚', charName: '春', title: '回望' },
     );
     assert.equal(item.id, 'piece-1');
     assert.equal(item.kind, 'theater');
+    assert.equal(item.batchId, 'batch-9');
+    assert.equal(item.formName, '日记');
     assert.equal(item.note, '回望');
     assert.equal(item.floorIndex, null);
     assert.equal(item.messageId, null);

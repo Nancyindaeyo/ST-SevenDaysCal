@@ -16,6 +16,8 @@ export function buildTheaterSnapshot(piece, ctx = {}, options = {}) {
         messageId: null,
         floorIndex: null,
         kind: 'theater',
+        batchId: String(piece?.batchId || ''),
+        formName: String(piece?.formName || piece?.templateSource?.title || ''),
         note: title.slice(0, SNAP_NOTE_MAX),
         html,
         textPreview: preview,

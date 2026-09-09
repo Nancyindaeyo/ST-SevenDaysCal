@@ -5734,8 +5734,9 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     font       : inherit;
     font-size  : var(--sp-fs-68);
     font-weight: 600;
-    padding    : 3px 8px;
+    padding    : 3px 6px;
     border-radius: 999px;
+    white-space: nowrap;
 }
 .sp-anchor-browse-tab.sp-anchor-browse-on {
     background: var(--sp-surface-high);
