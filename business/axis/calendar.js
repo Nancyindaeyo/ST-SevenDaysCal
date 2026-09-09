@@ -3,7 +3,7 @@ import {
     almMonthDayFromDoy, calMonthDays, calMonthName, almItemCoversDoy,
     almTypeMeta, ALM_WEEKDAYS,
 } from './data.js';
-import { almTodayAnchor, almWeekdayRef, almWeekdayFor } from './anchor.js';
+import { almTodayAnchor, almStoryYear, almWeekdayRef, almWeekdayFor } from './anchor.js';
 import { axisState } from './state.js';
 import { escapeHtml } from '../../utils/dom.js';
 
@@ -27,7 +27,7 @@ export function renderAxisCalendar(env) {
     }
     const dim = calMonthDays(cal, month1);
     const anchor = env.today?.() || almTodayAnchor();
-    const ctx = { cal, wkRef, todayDoy: almDayOfYear(anchor.month, anchor.day, cal) };
+    const ctx = { cal, wkRef, todayDoy: almDayOfYear(anchor.month, anchor.day, cal), year: almStoryYear(anchor), eraLabel: anchor.eraLabel, today: anchor };
     const selected = axisState._almanacCalDay;
     const head = wkRef == null ? '' : `<div class="sp-alm-weekhead">${['一', '二', '三', '四', '五', '六', '日'].map(w => `<div class="sp-alm-weekhead-cell">${w}</div>`).join('')}</div>`;
     const weekdayOfFirst = weekdayFor(month1, 1);

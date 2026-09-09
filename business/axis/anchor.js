@@ -88,6 +88,18 @@ function almTodayAnchorEvidence() {
 // ⑥ 全拿不到 → 1 月 1 日（只保留既有 UI/日期消费者的最终默认行为）。
 export function almTodayAnchor() { return almTodayAnchorEvidence() || { month: 1, day: 1 }; }
 
+export function almStoryYear(anchor = almTodayAnchor()) {
+    const y = parseInt(anchor?.year, 10);
+    if (Number.isInteger(y) && y >= 1 && y <= 9999) return y;
+    try {
+        const clock = latestStoryClock(getContext(), 100);
+        const meta = clock?.endMeta || clock?.startMeta;
+        const cy = parseInt(meta?.year ?? meta?.date?.year, 10);
+        if (Number.isInteger(cy) && cy >= 1 && cy <= 9999) return cy;
+    } catch { /* 时钟里也没有年就空着，卡片仍显示月日 */ }
+    return null;
+}
+
 // 从锚点「今天」到下一次 (month, day) 还有几天（按年长环形，不涉年）。
 export function almDaysUntil(month, day, anchor, cal = loadCalDesc()) {
     const total = calYearLen(cal);

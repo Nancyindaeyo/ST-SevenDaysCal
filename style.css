@@ -6222,7 +6222,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-alm-item:hover { background: var(--sp-hover-bg); }
 .sp-alm-pinned     { box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--sp-primary) 30%, transparent); }
-/* 第一行：日期 + 周几 + 持续天数「共N天」 …… 右对齐操作按钮（都是短、定宽内容，按钮不会被挤） */
+/* 第一行：风味日期名靠左省略；右侧钉死年月日 + 周几 + 共N天，再跟操作钮 */
 .sp-alm-top {
     display    : flex;
     align-items: center;
@@ -6230,7 +6230,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     min-width  : 0;
 }
 .sp-alm-date-icon { color: var(--alm-c, var(--sp-primary)); font-size: var(--sp-fs-80); width: 14px; text-align: center; flex-shrink: 0; }
-.sp-alm-date-txt  { font-size: var(--sp-fs-78); color: var(--sp-on-surface); font-weight: 600; white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sp-alm-date-txt  { font-size: var(--sp-fs-78); color: var(--sp-on-surface); font-weight: 600; white-space: nowrap; min-width: 0; flex: 1 1 0; overflow: hidden; text-overflow: ellipsis; }
 /* 第二行：节日名 + 类型/自填/进行中标签（可换行，长名字在此独占、溢出省略号，不再顶按钮） */
 .sp-alm-meta {
     display     : flex;
@@ -6272,8 +6272,23 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     line-height  : 1.5;
     flex-shrink  : 0;
 }
-/* 周几小标（跟在日期后，年-free 推算） */
-.sp-alm-wd { font-size: var(--sp-fs-70); color: var(--sp-subtle); font-weight: 500; flex-shrink: 0; }
+/* 卡片头右侧：年月日单独一格，窄屏只截风味名，不截日期 */
+.sp-alm-when {
+    display    : flex;
+    align-items: center;
+    gap        : 6px;
+    flex       : 0 0 auto;
+    margin-left: auto;
+    min-width  : 0;
+}
+.sp-alm-ymd {
+    font-size  : var(--sp-fs-70);
+    color      : var(--sp-subtle);
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.sp-alm-wd { font-size: var(--sp-fs-70); color: var(--sp-subtle); font-weight: 500; flex: 0 0 auto; white-space: nowrap; }
 /* 多日节假日「共N天」 */
 .sp-alm-span-tag {
     font-size    : var(--sp-fs-63);
@@ -6297,7 +6312,7 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     flex-shrink  : 0;
 }
 /* 操作按钮组：推到第一行末尾右对齐 */
-.sp-alm-acts { display: flex; align-items: center; gap: 0; flex-shrink: 0; margin-left: auto; }
+.sp-alm-acts { display: flex; align-items: center; gap: 0; flex-shrink: 0; }
 .sp-alm-acts .sp-icon-btn {
     width: 23px; height: 23px; font-size: var(--sp-fs-70);
     /* 条目操作钮：对齐点/线/面主面板范式——平时隐藏、hover/点击整行才浮现（不再一直挂着）。 */

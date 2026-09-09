@@ -3472,7 +3472,7 @@ function injectModal() {
                                                 <input type="checkbox" id="sp-inject-enabled" ${getSettings().injectEnabled !== false ? 'checked' : ''}>
                                                 <span>允许把线 / 面 / 刻度悄悄塞给主楼 AI</span>
                                             </label>
-                                            <p class="sp-cfg-hint">这会改模型怎么写下一楼，和面板里自己点的刷新、本轮拍、间引导不是一回事。总闸关着时，下面各模块再开也不生效。</p>
+                                            <p class="sp-cfg-hint">这会改模型怎么写下一楼，和面板里自己点的刷新、本轮拍、间引导不是一回事。总闸是允许注入；线 / 面 / 刻度还要各自勾上，那个模块才会真正塞进去。只开总闸、下面不勾＝什么都不注入。</p>
                                         </div>
                                     </div>
 

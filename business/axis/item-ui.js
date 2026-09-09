@@ -1,8 +1,16 @@
+import { formatAlmanacDateParts } from './date-format.js';
+import { calMonthName } from './data.js';
+
 export function createAxisItemUi(env = {}) {
     const rowHtml = (it, ctx) => {
         const meta = env.typeMeta(it.type);
         const wdIndex = env.weekdayFor(it.month, it.day, ctx?.wkRef, ctx?.cal);
         const wd = wdIndex == null ? '星期未记录' : env.weekdays?.[wdIndex];
+        const parts = formatAlmanacDateParts(it, wd, ctx?.cal, env.monthName || calMonthName, {
+            year: ctx?.year ?? ctx?.today?.year,
+            eraLabel: ctx?.eraLabel ?? ctx?.today?.eraLabel,
+        });
+        const ymdHtml = parts.ymd ? `<span class="sp-alm-ymd">${env.escapeHtml(parts.ymd)}</span>` : '';
         const days = env.clampInt(it.days, 1, env.yearLength(ctx?.cal), 1);
         const spanTag = days > 1 ? `<span class="sp-alm-span-tag">共${days}天</span>` : '';
         const active = days > 1 && ctx?.todayDoy != null && env.itemCoversDoy(it, ctx.todayDoy, ctx?.cal);
@@ -15,7 +23,7 @@ export function createAxisItemUi(env = {}) {
         <div class="sp-alm-top">
             ${checkbox}<i class="fa-solid ${meta.icon} sp-alm-date-icon"></i>
             <span class="sp-alm-date-txt">${env.escapeHtml(env.dateLabel(it, ctx?.cal))}</span>
-            <span class="sp-alm-wd">${wd}</span>${spanTag}
+            <span class="sp-alm-when">${ymdHtml}<span class="sp-alm-wd">${env.escapeHtml(parts.weekday || '星期未记录')}</span>${spanTag}</span>
             ${batchOn ? '' : `<span class="sp-alm-acts">
                 <button class="sp-icon-btn sp-alm-pin" data-id="${it.id}" title="${it.pin ? '已锁定 · 生成时保留（点击解锁）' : '锁定 · 生成时保留'}"><i class="fa-solid ${it.pin ? 'fa-lock' : 'fa-lock-open'}"></i></button>
                 <button class="sp-icon-btn sp-alm-edit" data-id="${it.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>
