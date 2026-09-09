@@ -26,6 +26,8 @@ import { paintScheduleHome, showPanelView } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
+import { createApiPresetUi } from './runtime/api-presets-ui.js';
+import { bindChatFloorListeners } from './runtime/st-listeners.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
 import * as store from './store.js';
 import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfirmed, removeStore } from './store.js';
@@ -1538,6 +1540,23 @@ const customDialog = createDialogManager({
     },
 });
 
+const apiPresetUi = createApiPresetUi({
+    $in,
+    jquery: jQuery,
+    getSettings,
+    loadApiPresets,
+    upsertApiPreset,
+    deleteApiPreset,
+    renameApiPreset,
+    saveCfg,
+    saveSettingsDebounced,
+    parseExcludeParams,
+    maskKey,
+    escapeAttr,
+    escapeHtml,
+    choose: options => customDialog.choose(options),
+});
+
 let settingsOpen   = false;
 let dragState      = null;
 let resizeState    = null;
@@ -2299,12 +2318,6 @@ jQuery(async () => {
         refreshLedgerInjection,
     });
     eventSource.on(event_types.CHAT_CHANGED, _stListeners.chat);
-    if (_stListeners.diagnosticRetention) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.diagnosticRetention);
-    _stListeners.diagnosticRetention = () => refreshDiagnosticRetention(getContext());
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.diagnosticRetention);
-    if (_stListeners.externalSnapshotPrune) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.externalSnapshotPrune);
-    _stListeners.externalSnapshotPrune = () => { if (isExternalMode()) void pruneExternalSnapshots(getContext()?.chat || []); };
-    eventSource.on(event_types.MESSAGE_DELETED, _stListeners.externalSnapshotPrune);
     // 首屏补迁移：扩展初始化时当前 chat 往往已 ready（CHAT_CHANGED 早已错过），
     // 否则老用户要手动切一次 chat 才触发迁移。同步搬数据，冲突延后弹窗。
     try {
@@ -2315,233 +2328,58 @@ jQuery(async () => {
             if (getSettings().notifyMode === 'full') showToast('角色默认历法没有自动应用成功', null, true);
         });
     } catch (err) { console.warn('[SP store] 首屏迁移失败', safeDiagnosticLog('storage', 'save', err)); }
-    // Auto-advance storylines, then append inline block to every AI message.
-    // NOTE: shouldAdvance triggers generation BEFORE appending the current block,
-    // so the current (newest, still-unstable) message is NOT included in the LLM
-    // context. The advance fires when the PREVIOUS message tips the counter over,
-    // and this message just gets the freshly-generated result injected.
-    // 时光旅行·预检占闸：必须先于 char 注册（同一 CMR tick 内按注册序先跑）——时旅首楼定型时，
-    // 先把自动化闸整体占住（isInitialFloor 才占），让同 tick 的线/面/暗账/暗历/点全部 isSuppressed
-    // 短路，避免与显式时旅步骤重复生成/重复记账。token 随 onSequenceEnd（完成/失败/取消）或 cancel 释放。
-    if (_stListeners.timeTravelPreflight) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravelPreflight);
-    _stListeners.timeTravelPreflight = messageId => {
-        if (!pluginEnabled()) return;
-        if (!timeTravel.isInitialFloor(messageId)) return;
-        const session = timeTravel.getState();
-        if (!session?.sessionId) return;
-        const token = automationGate.claim({
-            scopeId: getContext().chatId,
-            messageId: Number(messageId),
-            modules: Object.values(AUTOMATION_MODULES).filter(module => module !== AUTOMATION_MODULES.LINES),
-        });
-        if (token) _timeTravelClaimTokens.set(session.sessionId, token);
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravelPreflight);
-    if (_stListeners.received) eventSource.removeListener?.(event_types.MESSAGE_RECEIVED, _stListeners.received);
-    _stListeners.received = (messageId, type) => {
-        linesFeature.onMessageReceived({ messageId: Number(messageId), type });
-    };
-    eventSource.on(event_types.MESSAGE_RECEIVED, _stListeners.received);
-    if (_stListeners.char) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
-    _stListeners.char = async (messageId, type) => {
-        if (!pluginEnabled()) return;   // 插件总关：不补锚点 / 不挂楼内块 / 不推进 / 不生成
-        coordinateRuntime?.feature?.onCharacterRendered({ messageId: Number(messageId), type });
-        // 锚收藏入口独立于线：不受 linesEnabled 影响，新楼渲染后补按钮
-        scheduleForChatBoundary(() => coordinateRuntime?.feature?.scanButtons(), 150);
-        // 轴日历块：独立于线主开关，刷新当前渲染窗口（最新 AI 楼读活态，历史楼读快照；只读，无生成）
-        syncLatestAlmanacBlock();
-        syncLatestScheduleBlock();   // 点·日程条：同上，随新楼补挂（只读）
-        const mid = Number(messageId);
-        await refreshController.onAiFloor(mid);
-        beatFeature?.onAiFloor?.(mid);
-        activityFeature.markFloorRestyle({ floorId: mid, signature: _floorSig(mid) });
-        // Master switch: linesEnabled=false disables auto-advance + inline block
-        if (getSettings().linesEnabled === false) { rememberPace(); return; }
-        await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
-        rememberPace();
-        return;
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
-    if (_stListeners.timeTravel) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravel);
-    _stListeners.timeTravel = async messageId => {
-        if (!pluginEnabled()) return;
-        // 闸由预检 preflight 抢占（先于 char 注册，同一 tick 生效）；这里只负责执行流程，
-        // 占闸/释放全部走 preflight ↔ onSequenceEnd / cancel，杜绝「闸占在 char 之后」的死区。
-        // 非匹配的最新 AI 楼也必须交给 controller，才能取消仍在 waiting 的旧会话。
-        await timeTravel.handleRendered(messageId);
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.timeTravel);
-    if (_stListeners.timeTravelDeleted) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
-    _stListeners.timeTravelDeleted = createLedgerDeletedHandler({ cancel: cancelTimeTravelForDeletion, reconcile: reconcileLedgerSources, toast: showToast, refreshInject: refreshLedgerInjection, refreshInline: () => refreshInlineWindow(true), refreshPanel: () => { if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel(); } });
-    eventSource.on(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
-    if (_stListeners.beatDeleted) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.beatDeleted);
-    _stListeners.beatDeleted = () => { if (pluginEnabled()) beatFeature?.syncFloor?.(); };
-    eventSource.on(event_types.MESSAGE_DELETED, _stListeners.beatDeleted);
-    // 线·swipe：滑到新 swipe 时线跟着重算（临时存 localStorage，发下条消息即固定）。
-    // pendingGeneration=true → 该 swipe 会触发新生成，此刻新回复还没好，先记标记，等它的
-    // CHARACTER_MESSAGE_RENDERED 再从楼层基线 B0 重算；=false → 滑回已生成的 swipe，直接取临时层已存线，不请求 API。
-    if (_stListeners.swiped) eventSource.removeListener?.(event_types.MESSAGE_SWIPED, _stListeners.swiped);
-    _stListeners.swiped = async (mesId, info) => {
-        if (!pluginEnabled()) return;   // 插件总关
-        // 轴日历块：swipe 可能改动剧情内时间锚点 → 按现锚点刷新当前渲染窗口（只读，无生成）
-        // 戳优先·先落地：滑到的变体戳可能不同（如 920→919），先把锚点追到活戳再重建，否则轴仍读旧锚。
-        // pendingGeneration 的 swipe 此刻新回复还没好、正文无新戳，跳过（等它的 CMR 再落地）。
-        if (!info?.pendingGeneration) relandStoryClockAnchor();
-        syncLatestAlmanacBlock();
-        syncLatestScheduleBlock();   // 点·日程条：swipe 后一并重挂（点本身不随 swipe 变，纯补块）
-        await linesFeature.onSwiped({ mesId, info });
-        return;
-    };
-    eventSource.on(event_types.MESSAGE_SWIPED, _stListeners.swiped);
-    // 线·编辑盖章：用户小铅笔改正文 → 只把该楼签名基线刷成编辑后正文，绝不重算/生成。
-    // 堵的漏洞：编辑只发 MESSAGE_EDITED（线不监听→当场不动，合预期），但旧签名还停在编辑前；
-    // 若这楼随后又触发一次 CMR（紧接着 swipe/🔄，或 MVU 类改写插件重渲染），就会拿「编辑后正文」比
-    // 「编辑前签名」→ 误判 contentChanged=重roll、多算一次线。此处提前把签名对齐到编辑后即根除。
-    // 照 swiped 的盖章同款：编辑要不要更新线交给用户手点刷新键，与「编辑不自动重算」一致。
-    // emit 时机：messageEditDone 先 renderEditedMessage 再 emit，故 chat[mid].mes 已是新正文，_floorSig 拿到的即新签名。
-    if (_stListeners.edited) eventSource.removeListener?.(event_types.MESSAGE_EDITED, _stListeners.edited);
-    _stListeners.edited = (mesId) => {
-        linesFeature.onEdited({ mesId });
-    };
-    eventSource.on(event_types.MESSAGE_EDITED, _stListeners.edited);
-    // 线·固定：用户发出下一条消息 → 上一 AI 楼层定稿，清掉它的 swipe 临时层（store 已是当前 swipe 的线）。
-    if (_stListeners.sent) eventSource.removeListener?.(event_types.MESSAGE_SENT, _stListeners.sent);
-    _stListeners.sent = (insertAt) => {
-        linesFeature.onSent({ insertAt });
-    };
-    eventSource.on(event_types.MESSAGE_SENT, _stListeners.sent);
-    // 生成态闸（防楼内块流式频闪）：ST 流式每 token 重写末楼 .mes_text 会冲掉线块/轴日历块，observer 若在流式间隙补块就「补→被冲→再补」肉眼频闪。
-    // 用「流式活跃截止时间戳」自愈闸而非布尔闸：GENERATION_ENDED 只在停止按钮显示过时才发（script.js hideStopButton），
-    // quiet/后台生成不显示停止按钮却照发 GENERATION_STARTED —— 布尔闸会被这类生成置真后永不清零、observer 从此罢工、楼内块全失。
-    // 时间戳闸靠「最近流式 token 时间」续期、到点自动失效，绝不卡死。
-    if (_stListeners.genStart) eventSource.removeListener?.(event_types.GENERATION_STARTED, _stListeners.genStart);
-    _stListeners.genStart = (genType, _opts, dryRun) => {
-        refreshStoryClockInjection();
-        linesFeature.onGenerationStarted({ genType, dryRun });
-    };
-    eventSource.on(event_types.GENERATION_STARTED, _stListeners.genStart);
-    if (_stListeners.streamTok) eventSource.removeListener?.(event_types.STREAM_TOKEN_RECEIVED, _stListeners.streamTok);
-    _stListeners.streamTok = () => { linesFeature.onToken(); };
-    eventSource.on(event_types.STREAM_TOKEN_RECEIVED, _stListeners.streamTok);
-    if (_stListeners.genEnd) eventSource.removeListener?.(event_types.GENERATION_ENDED, _stListeners.genEnd);
-    if (_stListeners.genStopped) eventSource.removeListener?.(event_types.GENERATION_STOPPED, _stListeners.genStopped);
-    _stListeners.genEnd = () => {
-        linesFeature.onGenerationEnded({ stopped: false });
-    };
-    _stListeners.genStopped = () => {
-        linesFeature.onGenerationEnded({ stopped: true });
-    };
-    eventSource.on(event_types.GENERATION_ENDED, _stListeners.genEnd);
-    eventSource.on(event_types.GENERATION_STOPPED, _stListeners.genStopped);
-    // 面·大纲自动注入：独立监听，跟线彻底解耦（绝不复用 _stListeners.char——它 linesEnabled=false
-    // 会 early-return，连坐大纲）。每隔 N 楼独立判定一次剧情是否推进到下一节点，推进则游标 +1。
-    if (_stListeners.outlineJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
-    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); rememberPace(); };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
-    // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
-    // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
-    if (_stListeners.almanacJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
-    _stListeners.almanacJudge = async (messageId) => {
-        if (!pluginEnabled()) return;   // 插件总关：停后台历日期判定
-        const chat = getContext().chat;
-        if (!Array.isArray(chat)) return;
-        if (messageId !== chat.length - 1) return;
-        // 戳优先：戳开且本楼有戳 → 每次最新楼定型都直读落地（零 API、幂等），**不进单调闸**——
-        // 重roll/swipe 复用同 messageId，若被闸挡掉，戳从 919 翻 920 时显示跟了、锚点没跟（论坛 bug）。
-        // 结果登记进日期协调器：同 renderKey 的并发渲染共享一次解析，杜绝重复 API。
-        const renderKey = buildDateRenderKey(messageId);
-        const bootstrap = consumeDateBootstrap(messageId);
-        const clockResult = relandStoryClockAnchor({ suppressAftermath: bootstrap });
-        if (clockResult.status !== 'no-date') {
-            dateCoordinator.recordResult(renderKey, { ...clockResult, source: 'story-clock' });
-            return;
-        }
-        // 切聊时已存在的精确 greeting/末楼只负责初始化日期显示；首次 CMR 绝不派发任何生成 API。
-        if (bootstrap) {
-            dateCoordinator.recordResult(renderKey, { ...clockResult, source: 'chat-bootstrap' });
-            return;
-        }
-        // 到这＝戳关，或戳开但本楼读不到戳（漏打 / 「谷雨」无月日）→ API judge 兜底才需单调闸防重放/重算。
-        if (!paceBook.consumeFloor('date', messageId, {
-            interval: getAlmanacJudgeInterval(),
-            blocked: getSettings().almanacAutoDetect === false,
-        })) return;
-        dateCoordinator.runOnce(renderKey, ({ signal }) => runJudgeDateStep({ messageId, signal }));   // fire-and-forget；runOnce 兼并发去重
-        rememberPace();
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
-    // 点不单独判定日期；点/线对齐走刷新条或 ledgerReconcileEnabled，不随「今天」后台整表重排。
-    // 暗账·标注：每 N 楼从正文捞新事件写库。独立开关(ledgerCaptureEnabled)/间隔/单调闸；默认关。
-    if (_stListeners.ledgerCapture) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
-    _stListeners.ledgerCapture = async (messageId) => {
-        if (!pluginEnabled()) return;   // 插件总关：停后台标注
-        if (getSettings().ledgerCaptureEnabled !== true) return;
-        const chat = getContext().chat;
-        if (!Array.isArray(chat)) return;
-        if (messageId !== chat.length - 1) return;
-        // 时旅首楼：标注由显式步骤接管（LEDGER_CAPTURE step），跳过自动标注，防重复 API
-        if (!paceBook.consumeFloor('ledgerCapture', messageId, {
-            interval: getLedgerCaptureInterval(),
-            blocked: isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_CAPTURE),
-        })) return;
-        runLedgerCaptureStep();   // fire-and-forget，自带守卫
-        rememberPace();
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
-    // 暗历·判定（刷现状）：每 N 楼重算活跃条目「距今多久」、只让 AI 回该变的那几条。与标注共用 ledgerCaptureEnabled
-    // 总闸，各自独立计数/间隔/单调闸——两车间隔不同、少同楼齐发；无活跃条目时 runLedgerJudgeStep 自己跳过、不空烧。
-    if (_stListeners.ledgerJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
-    _stListeners.ledgerJudge = async (messageId) => {
-        if (!pluginEnabled()) return;   // 插件总关：停后台判定
-        if (getSettings().ledgerCaptureEnabled !== true) return;
-        const chat = getContext().chat;
-        if (!Array.isArray(chat)) return;
-        if (messageId !== chat.length - 1) return;
-        // 时旅首楼：判定由显式步骤接管（LEDGER_JUDGE step），跳过自动判定，防重复 API
-        if (!paceBook.consumeFloor('ledgerJudge', messageId, {
-            interval: getLedgerJudgeInterval(),
-            blocked: isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_JUDGE),
-        })) return;
-        runLedgerJudgeStep();   // fire-and-forget，自带守卫
-        rememberPace();
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
-    // 暗历·注入重算（场景感知）：每出一楼就按最新正文重挑注入集——纯 JS 打分、零 API，故不设间隔/单调闸，
-    // 让选择跟着场景走（正文提到谁/什么标签，那条就浮上来）。仅 ledgerInject 开时干活（refresh 内部再兜一层门控）。
-    if (_stListeners.ledgerInjectRescore) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerInjectRescore);
-    _stListeners.ledgerInjectRescore = async (messageId) => {
-        if (!pluginEnabled()) return;
-        if (getSettings().ledgerInject !== true) return;
-        const chat = getContext().chat;
-        if (!Array.isArray(chat) || messageId !== chat.length - 1) return;   // 只跟最新楼，别为改旧楼空转
-        // 先重挑注入集（更新 ledger injection controller echo），再刷窗——本监听器在 char 之后触发，char 那趟冻的是
-        // 上一楼的旧回显；这里重挑后刷窗，让最新楼的「标注打捞」框读到本楼实际注入的那几条并重冻快照。
-        try { refreshLedgerInjection(); } catch {}
-        try { refreshInlineWindow(true); } catch {}
-    };
-    eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerInjectRescore);
-    // 聊天改名（酒馆改 chat 文件名 = chatId 变）→ 把坐标收藏里旧 chatId 的记录迁到新名，
-    // 否则收藏夹里那个聊天桶名不跟新、且跳转来源失效。newFileName/oldFileName 均不带后缀，
-    // 与 ctx.chatId 同格式。仅坐标受影响（点线面间随 chat_metadata 走，改名由酒馆自己搬）。
-    if (_stListeners.rename) eventSource.removeListener?.(event_types.CHAT_RENAMED, _stListeners.rename);
-    _stListeners.rename = async (data) => {
-        if (!pluginEnabled()) return;   // 插件总关：与"如同未安装"一致，不做锚点改名同步
-        // ST 的 CHAT_RENAMED 事件里 oldFileName/newFileName 带 .jsonl 后缀（script.js 的
-        // original_file/renamed_file），而 ctx.chatId 不带——不剥后缀就永远匹配不上，
-        // 改名同步等于从没生效过（正是"改了所有名字坐标全没跟上"的根因）。
-        const stripExt = v => String(v ?? '').replace(/\.jsonl$/i, '');
-        const oldId = stripExt(data?.oldFileName), newId = stripExt(data?.newFileName);
-        if (!oldId || !newId) return;
-        coordinateRuntime?.feature?.onChatRenamed({ oldId, newId });
-        try {
-            // 改名后重载 chat，chat_id_hash 已随文件搬到新 chat 上；顺手传进去补到收藏上，
-            // 让后续分桶/自愈有稳定键（改名多少次都并一个桶）。
-            const hash = getContext()?.chatMetadata?.chat_id_hash ?? null;
-            const n = await coordinateRuntime?.feature?.renameChatId(oldId, newId, newId, hash);
-            if (n) coordinateRuntime?.feature?.open('chars');
-        } catch (err) { console.warn('[7dayscal] 坐标改名同步失败', safeDiagnosticLog('axis', 'save', err)); }
-    };
-    eventSource.on(event_types.CHAT_RENAMED, _stListeners.rename);
+    bindChatFloorListeners({
+        eventSource,
+        event_types,
+        store: _stListeners,
+        h: {
+            pluginEnabled,
+            getContext,
+            getSettings,
+            automationModules: AUTOMATION_MODULES,
+            automationGate,
+            timeTravelClaimTokens: _timeTravelClaimTokens,
+            timeTravel,
+            lines: linesFeature,
+            get coordinate() { return coordinateRuntime?.feature; },
+            scheduleForChatBoundary,
+            syncLatestAlmanacBlock,
+            syncLatestScheduleBlock,
+            refresh: refreshController,
+            beat: beatFeature,
+            activity: activityFeature,
+            floorSig: _floorSig,
+            rememberPace,
+            isAutomationSuppressed,
+            relandStoryClockAnchor,
+            buildDateRenderKey,
+            consumeDateBootstrap,
+            dateCoordinator,
+            pace: paceBook,
+            getAlmanacJudgeInterval,
+            getLedgerCaptureInterval,
+            getLedgerJudgeInterval,
+            runJudgeDateStep,
+            runLedgerCaptureStep,
+            runLedgerJudgeStep,
+            refreshLedgerInjection,
+            refreshInlineWindow,
+            refreshStoryClockInjection,
+            outline: outlineFeature,
+            timeTravelDeleted: createLedgerDeletedHandler({
+                cancel: cancelTimeTravelForDeletion,
+                reconcile: reconcileLedgerSources,
+                toast: showToast,
+                refreshInject: refreshLedgerInjection,
+                refreshInline: () => refreshInlineWindow(true),
+                refreshPanel: () => { if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel(); },
+            }),
+            refreshDiagnosticRetention,
+            pruneExternalSnapshots,
+            isExternalMode,
+            warnRename: err => console.warn('[7dayscal] 坐标改名同步失败', safeDiagnosticLog('axis', 'save', err)),
+        },
+    });
     // 柏宝书就绪事件：加载顺序不固定，早期同步检测可能扑空而误报"未就绪"。
     // 柏宝书文档推荐监听 st-baibai-book:ready 兜底——就绪后清掉"仅警告一次"的闩，
     // 并在面板开着且选了柏宝书源时立刻把状态刷成"已就绪"。
@@ -3848,9 +3686,9 @@ function injectModal() {
         });
     });
     $in('#sp-current-diagnostic-export').on('click', () => { void exportCurrentChatDiagnosticPackage(); });
-    bindApiPresetEvents();
-    renderApiPresetList();
-    renderUtilityPresetList();
+    apiPresetUi.bind();
+    apiPresetUi.render();
+    apiPresetUi.renderUtility();
     bindSettingsPanel({
         $in,
         settings: getSettings,
@@ -3906,7 +3744,7 @@ function injectModal() {
         const model = $(this).attr('data-model');
         $in('#sp-cfg-model').val(model);
         $in('#sp-cfg-model').trigger('change');
-        syncPresetState();
+        apiPresetUi.syncState();
         $inAll('.sp-model-list-item').removeClass('sp-model-list-item-active');
         $(this).addClass('sp-model-list-item-active');
     });
@@ -3916,13 +3754,13 @@ function injectModal() {
     });
     $in('#sp-cfg-key')
         .on('focus', () => { const r = $in('#sp-cfg-key').data('real'); if (r) $in('#sp-cfg-key').val(r); })
-        .on('input', function () { const value = this.value.trim(); $in('#sp-cfg-key').data('real', value); getSettings().apiKey = value; saveSettingsDebounced(); syncPresetState(); })
-        .on('blur', function () { const r = $in('#sp-cfg-key').val().trim(); $in('#sp-cfg-key').data('real', r).val(r ? maskKey(r) : ''); getSettings().apiKey = r; saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-cfg-url').on('input change', function () { getSettings().apiUrl = this.value.trim().replace(/\/$/, ''); saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-cfg-model').on('input change', function () { getSettings().apiModel = this.value.trim(); saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); syncPresetState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
-    $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); syncPresetState(); });
+        .on('input', function () { const value = this.value.trim(); $in('#sp-cfg-key').data('real', value); getSettings().apiKey = value; saveSettingsDebounced(); apiPresetUi.syncState(); })
+        .on('blur', function () { const r = $in('#sp-cfg-key').val().trim(); $in('#sp-cfg-key').data('real', r).val(r ? maskKey(r) : ''); getSettings().apiKey = r; saveSettingsDebounced(); apiPresetUi.syncState(); });
+    $in('#sp-cfg-url').on('input change', function () { getSettings().apiUrl = this.value.trim().replace(/\/$/, ''); saveSettingsDebounced(); apiPresetUi.syncState(); });
+    $in('#sp-cfg-model').on('input change', function () { getSettings().apiModel = this.value.trim(); saveSettingsDebounced(); apiPresetUi.syncState(); });
+    $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); apiPresetUi.syncState(); });
+    $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); apiPresetUi.syncState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
+    $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); apiPresetUi.syncState(); });
 
     $in('#sp-body').on('click', '.sp-tab', function () {
         const rawDay = String($(this).attr('data-day') || '').trim().toLowerCase();
@@ -7311,292 +7149,6 @@ function toggleKeyVisibility() {
         const r = $el.val(); $el.data('real', r).attr('type', 'password').val(maskKey(r));
         $icon.removeClass('fa-eye-slash').addClass('fa-eye');
     }
-}
-
-// ─── API 存储快切：UI 事件 + 下拉渲染 ────────────────────────────────────────
-// 从当前输入框读出这一套 API 配置（含未点保存的改动、Key 取 data('real') 真值）。
-function readApiInputs() {
-    const $k = $in('#sp-cfg-key');
-    const rawTimeout = String($in('#sp-cfg-timeout').val() ?? '').trim();
-    const timeout = Number(rawTimeout);
-    const timeoutValid = rawTimeout !== '' && Number.isInteger(timeout) && timeout >= 5 && timeout <= 600;
-    return {
-        url          : $in('#sp-cfg-url').val().trim().replace(/\/$/, ''),
-        key          : ($k.data('real') || $k.val() || '').trim(),
-        model        : $in('#sp-cfg-model').val().trim(),
-        excludeParams: parseExcludeParams($in('#sp-cfg-exclude').val()),
-        timeoutSec   : timeoutValid ? timeout : null,
-        timeoutValid,
-        stream       : $in('#sp-cfg-stream').is(':checked'),
-    };
-}
-
-function apiPresetSnapshotKey(cfg) {
-    return JSON.stringify({
-        url: cfg?.url || '', key: cfg?.key || '', model: cfg?.model || '',
-        excludeParams: Array.isArray(cfg?.excludeParams) ? cfg.excludeParams : [],
-        timeoutSec: Number.isInteger(Number(cfg?.timeoutSec)) ? Number(cfg.timeoutSec) : null, stream: cfg?.stream === true,
-    });
-}
-
-function activeApiPreset() {
-    const id = getSettings().apiPresetActiveId || '';
-    return id ? loadApiPresets().find(p => p.id === id) || null : null;
-}
-
-function apiInputsDirty() {
-    const p = activeApiPreset();
-    return !!p && apiPresetSnapshotKey(readApiInputs()) !== apiPresetSnapshotKey(p);
-}
-
-function apiInputsSaveable(cfg) {
-    return cfg?.timeoutValid !== false && Number.isInteger(Number(cfg?.timeoutSec)) && Number(cfg.timeoutSec) >= 5 && Number(cfg.timeoutSec) <= 600;
-}
-
-function saveCurrentAsPreset() {
-    const cur = readApiInputs();
-    if (!apiInputsSaveable(cur)) { showPresetHint('请求超时必须填写 5–600 秒，未保存预设'); return null; }
-    if (!cur.url && !cur.key) { showPresetHint('先填 API 再保存预设'); return null; }
-    const name = autoPresetName(cur.url);
-    upsertApiPreset(name, cur, null);
-    renderApiPresetList();
-    renderUtilityPresetList();
-    showPresetHint(`已存为预设「${name}」`);
-    return name;
-}
-
-// 把一套预设填回输入框。Key 走 maskKey 遮罩 + data('real') 存真值。
-function fillApiInputs(p) {
-    $in('#sp-cfg-url').val(p.url || '');
-    const $k = $in('#sp-cfg-key');
-    if (p.key) $k.data('real', p.key).val(maskKey(p.key)).attr('type', 'password');
-    else       $k.data('real', '').val('');
-    $in('#sp-cfg-model').val(p.model || '');
-    $in('#sp-cfg-exclude').val((Array.isArray(p.excludeParams) ? p.excludeParams : []).join('\n'));
-    $in('#sp-cfg-timeout').val(p.timeoutSec || 180);
-    $in('#sp-cfg-stream').prop('checked', p.stream === true);
-}
-
-// 渲染内联预设列表：在流内展开，非原生 <select> 弹窗——与「模型列表」同一套内联思路，
-// 避开 WebView（微信/QQ 内置浏览器等）里 select 弹层被插件盖住/弹不出的老问题。
-function renderApiPresetList() {
-    const $list = $in('#sp-preset-list');
-    if (!$list.length) return;
-    const list = loadApiPresets();
-    const activeId = getSettings().apiPresetActiveId || '';
-    $list.html(list.length
-        ? list.map(p => `<div class="sp-preset-item-row" data-id="${escapeAttr(p.id)}"><button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button><button type="button" class="sp-preset-rename" data-id="${escapeAttr(p.id)}" title="仅修改这条预设的名称"><i class="fa-solid fa-pen"></i></button></div>`).join('')
-        : `<div class="sp-preset-empty">暂无预设，填好 API 后点右侧＋存一个</div>`);
-    $in('#sp-preset-del').prop('disabled', !activeId);
-    syncPresetLabel();
-    syncPresetState();
-}
-
-// 「假框」显示当前选中预设名（无原生 select，直接按 activeId 回显）
-function syncPresetLabel() {
-    const $lb = $in('#sp-preset-label');
-    if (!$lb.length) return;
-    const p = loadApiPresets().find(x => x.id === (getSettings().apiPresetActiveId || ''));
-    $lb.text(p ? p.name : '选择预设…');
-}
-
-function showPresetHint(msg) {
-    const $h = $in('#sp-preset-hint');
-    if (!$h.length) return;
-    $h.text(msg).show();
-    clearTimeout(showPresetHint._t);
-    showPresetHint._t = setTimeout(() => $h.fadeOut(200), 2600);
-}
-
-function syncPresetState() {
-    const $btn = $in('#sp-preset-update');
-    const $state = $in('#sp-preset-sync-state');
-    if (!$btn.length) return;
-    const p = activeApiPreset();
-    if (p) {
-        const dirty = apiInputsDirty();
-        const valid = apiInputsSaveable(readApiInputs());
-        $btn.text(`更新「${p.name}」`).prop('disabled', !dirty || !valid);
-        $state.text(!valid ? '请求超时需填写 5–600 秒' : dirty ? '尚未更新到预设' : '已与预设同步').toggle(!valid || !!dirty);
-    } else {
-        const valid = apiInputsSaveable(readApiInputs());
-        $btn.text('另存为新预设').prop('disabled', !valid);
-        $state.text(valid ? '' : '请求超时需填写 5–600 秒').toggle(!valid);
-    }
-}
-
-async function confirmPresetSwitch(nextPreset) {
-    const current = activeApiPreset();
-    if (!current || !apiInputsDirty()) return 'switch';
-    const choice = await customDialog.choose({
-        title: '当前预设有未保存改动',
-        body: `要如何切换到「${nextPreset.name}」？`,
-        choices: [
-            { value: 'save', label: '保存并切换', primary: true },
-            { value: 'switch', label: '直接切换' },
-            { value: 'cancel', label: '取消' },
-        ],
-    });
-    if (choice === 'save') {
-        const currentCfg = readApiInputs();
-        if (!apiInputsSaveable(currentCfg)) { showPresetHint('请求超时必须填写 5–600 秒，未保存预设'); return 'cancel'; }
-        upsertApiPreset(current.name, currentCfg, current.id);
-    }
-    return choice || 'cancel';
-}
-
-function bindApiPresetEvents() {
-    // 点假框 → 就地展开/收起内联预设列表（在流内，非原生弹窗）
-    $in('#sp-preset-box').on('click', function (e) {
-        e.preventDefault();
-        $in('#sp-preset-list').slideToggle(120);
-        $(this).toggleClass('sp-preset-box-open');
-    });
-    // 选某预设 → 填入输入框并立即应用，收起列表
-    $in('#sp-preset-list').on('click', '.sp-preset-item', async function () {
-        const id = $(this).attr('data-id');
-        const p = loadApiPresets().find(x => x.id === id);
-        if (!p || p.id === (getSettings().apiPresetActiveId || '')) return;
-        const decision = await confirmPresetSwitch(p);
-        if (decision === 'cancel') return;
-        getSettings().apiPresetActiveId = id;
-        $in('#sp-preset-list').slideUp(120);
-        $in('#sp-preset-box').removeClass('sp-preset-box-open');
-        if (!p) return;
-        fillApiInputs(p);
-        saveCfg(readApiInputs());
-        renderApiPresetList();
-        syncPresetState();
-        showPresetHint(`已填入并应用「${p.name}」`);
-    });
-
-    // 编辑一条预设（内联，无弹窗）：点 ✎ 只改名字，不选择预设，也不覆盖当前 API 草稿。
-    const commitPresetEdit = ($row) => {
-        const $inp = $row.find('.sp-preset-rename-input');
-        if (!$inp.length) return;
-        const id = $row.attr('data-id');
-        const p = loadApiPresets().find(x => x.id === id);
-        const name = $inp.val().trim() || (p ? p.name : '');
-        renameApiPreset(id, name);
-        renderApiPresetList();       // 回到按钮态（名字/模型已更新）
-        renderUtilityPresetList();   // 机械预设列表同名同步
-        showPresetHint(`已改名为「${name}」`);
-    };
-    $in('#sp-preset-list').on('click', '.sp-preset-rename', function (e) {
-        e.preventDefault(); e.stopPropagation();
-        const id = $(this).attr('data-id');
-        const p = loadApiPresets().find(x => x.id === id);
-        if (!p) return;
-        const $row = $(this).closest('.sp-preset-item-row');
-        $row.addClass('sp-preset-item-row-edit').html(
-            `<input type="text" class="sp-input sp-preset-rename-input" value="${escapeAttr(p.name)}" maxlength="40" spellcheck="false">` +
-            `<button type="button" class="sp-preset-rename-ok" title="保存预设名称"><i class="fa-solid fa-check"></i></button>`
-        );
-        $row.find('.sp-preset-rename-input').trigger('focus').trigger('select');
-        showPresetHint(`编辑「${p.name}」名称；当前 API 输入不会改变`);
-    });
-    $in('#sp-preset-list').on('click', '.sp-preset-rename-ok', function (e) {
-        e.preventDefault(); e.stopPropagation();
-        commitPresetEdit($(this).closest('.sp-preset-item-row'));
-    });
-    $in('#sp-preset-list').on('keydown', '.sp-preset-rename-input', function (e) {
-        if (e.key === 'Enter') { e.preventDefault(); commitPresetEdit($(this).closest('.sp-preset-item-row')); }
-        else if (e.key === 'Escape') { e.preventDefault(); renderApiPresetList(); }
-    });
-
-    // ＋新增 → 把当前输入框这套存成新预设，名字先按 URL 域名自动生成（同名自动加序号）；
-    // 存好后可在列表里点 ✎ 就地改名。覆盖内容仍是「删掉重存」。零弹窗。
-    $in('#sp-preset-save').on('click', function () {
-        saveCurrentAsPreset();
-    });
-
-    $in('#sp-preset-update').on('click', function () {
-        const p = activeApiPreset();
-        const cur = readApiInputs();
-        if (p) {
-            if (!apiInputsSaveable(cur)) { showPresetHint('请求超时必须填写 5–600 秒，未更新预设'); return; }
-            upsertApiPreset(p.name, cur, p.id);
-            renderApiPresetList();
-            renderUtilityPresetList();
-            showPresetHint(`已更新预设「${p.name}」`);
-        } else {
-            saveCurrentAsPreset();
-        }
-    });
-
-    // 删除当前选中预设 —— 内联二次确认（图标变红勾，再点才删；3 秒无操作复原），零弹窗
-    let delArmed = false, delTimer = null;
-    $in('#sp-preset-del').on('click', function () {
-        const id = getSettings().apiPresetActiveId;
-        if (!id) return;
-        const $btn = $(this), $i = $btn.find('i');
-        if (!delArmed) {
-            delArmed = true;
-            $i.attr('class', 'fa-solid fa-check');
-            $btn.css('color', '#e06c6c').attr('title', '再点一次确认删除');
-            showPresetHint('再点一次垃圾桶确认删除');
-            delTimer = setTimeout(() => {
-                delArmed = false; $i.attr('class', 'fa-solid fa-trash');
-                $btn.css('color', '').attr('title', '删除当前选中的预设');
-            }, 3000);
-            return;
-        }
-        clearTimeout(delTimer); delArmed = false;
-        $i.attr('class', 'fa-solid fa-trash'); $btn.css('color', '').attr('title', '删除当前选中的预设');
-        const p = loadApiPresets().find(x => x.id === id);
-        if (getSettings().utilityPresetId === id) getSettings().utilityPresetId = '';   // 删掉的正是机械预设 → 退回不分流
-        deleteApiPreset(id);
-        renderApiPresetList();
-        renderUtilityPresetList();
-        showPresetHint(p ? `已删除「${p.name}」` : '已删除');
-    });
-
-    // ── 机械任务预设：点假框展开候选（含「跟随主 API」项）；选一项即时生效落盘，无需保存 ──
-    $in('#sp-util-preset-box').on('click', function (e) {
-        e.preventDefault();
-        $in('#sp-util-preset-list').slideToggle(120);
-        $(this).toggleClass('sp-preset-box-open');
-    });
-    $in('#sp-util-preset-list').on('click', '.sp-preset-item', function () {
-        const id = $(this).attr('data-id') || '';   // 空 = 跟随主 API（不分流）
-        getSettings().utilityPresetId = id;
-        saveSettingsDebounced();
-        renderUtilityPresetList();
-        $in('#sp-util-preset-list').slideUp(120);
-        $in('#sp-util-preset-box').removeClass('sp-preset-box-open');
-    });
-}
-
-// 机械任务预设：内联候选列表 =「跟随主 API（不分流）」+ 每个已存预设。选中项高亮。
-function renderUtilityPresetList() {
-    const $list = $in('#sp-util-preset-list');
-    if (!$list.length) return;
-    const list = loadApiPresets();
-    const activeId = getSettings().utilityPresetId || '';
-    const follow = `<button type="button" class="sp-preset-item${!activeId ? ' sp-preset-item-active' : ''}" data-id="">跟随主 API（不分流）</button>`;
-    const items = list.map(p => `<button type="button" class="sp-preset-item${p.id === activeId ? ' sp-preset-item-active' : ''}" data-id="${escapeAttr(p.id)}">${escapeHtml(p.name)}</button>`).join('');
-    $list.html(follow + items);
-    syncUtilityPresetLabel();
-}
-
-// 「假框」显示当前机械预设名；id 指向的预设不存在（被删）→ 清 id 并回显「跟随主 API」
-function syncUtilityPresetLabel() {
-    const $lb = $in('#sp-util-preset-label');
-    if (!$lb.length) return;
-    const id = getSettings().utilityPresetId || '';
-    const p = id ? loadApiPresets().find(x => x.id === id) : null;
-    if (id && !p) { getSettings().utilityPresetId = ''; }   // 悬空 id 自愈
-    $lb.text(p ? `机械任务 → ${p.name}` : '跟随主 API（不分流）');
-}
-
-// 按 URL 域名生成预设名；无 URL 用「预设」。撞已有名自动加 -2/-3…
-function autoPresetName(url) {
-    let base = '';
-    try { base = url ? new URL(url).hostname.replace(/^www\./, '') : ''; } catch { base = ''; }
-    if (!base) base = '预设';
-    const names = new Set(loadApiPresets().map(p => p.name));
-    if (!names.has(base)) return base;
-    for (let i = 2; ; i++) { const n = `${base}-${i}`; if (!names.has(n)) return n; }
 }
 
 function applyTheme(theme) {
