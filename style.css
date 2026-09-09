@@ -352,6 +352,7 @@ q::after {
 .sp-activity-card-head {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 8px;
     margin-bottom: 6px;
 }
@@ -390,7 +391,8 @@ q::after {
     line-height: 1.45;
     color: var(--sp-on-surface);
 }
-.sp-activity-quote { flex: 0 0 auto; }
+.sp-activity-quote,
+.sp-activity-open-lines { flex: 0 0 auto; }
 
 .sp-side-tab {
     position: relative;

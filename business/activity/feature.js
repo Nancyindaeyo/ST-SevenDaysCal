@@ -1,5 +1,5 @@
 import { diffSnapshots, sameSnapshot } from './diff.js';
-import { diaryNote, normalizeActivityEntry, sourceLabel } from './schema.js';
+import { normalizeActivityEntry, sourceLabel } from './schema.js';
 import { createActivityStore } from './store.js';
 import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList } from './ui.js';
 
@@ -74,13 +74,12 @@ export function createActivityFeature(env = {}) {
             ? input.items
             : diffSnapshots(snapshot || {}, after || {});
         if (!items.length && !snapshot) return null;
-        const note = String(input.note || '').trim() || (input.source === 'advance' ? diaryNote(items) : '');
         const entry = store.prepend(chatId(), normalizeActivityEntry({
             ...input,
             items,
             snapshot,
             after,
-            note,
+            note: String(input.note || '').trim(),
             undone: false,
             stale: false,
         }));
@@ -187,6 +186,9 @@ export function createActivityFeature(env = {}) {
         $root?.on?.('click', '.sp-activity-quote', function () {
             void quoteToSpace(env.$(this).attr('data-id'));
         });
+        $root?.on?.('click', '.sp-activity-open-lines', function () {
+            void env.openLines?.();
+        });
         $root?.on?.('click', '.sp-activity-realign', function () {
             void realign();
         });
@@ -217,6 +219,7 @@ export function createActivityFeature(env = {}) {
             unread = 0;
             restyled = false;
             watched = { floorId: -1, signature: '' };
+            store.clearMemory();
             if (open) paint();
         },
         get unread() { return unread; },

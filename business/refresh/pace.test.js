@@ -44,3 +44,28 @@ test('strip only paints live automations', () => {
     assert.doesNotMatch(html, /冷知识/);
     assert.doesNotMatch(html, /补日期/);
 });
+
+test('pace state survives a reload-shaped hydrate', async () => {
+    const { clampPaceToLatest, normalizePaceState, snapshotPaceState } = await import('./pace-persist.js');
+    const { createRefreshController } = await import('./controller.js');
+    const saved = snapshotPaceState({
+        align: { lastFloor: 4, counter: 2 },
+        advance: { lastFloor: 4, counter: 1 },
+        pendingAdvance: true,
+        lastReconcileFloor: 4,
+    });
+    assert.equal(normalizePaceState(saved).align.counter, 2);
+    const clamped = clampPaceToLatest(saved, 6);
+    assert.equal(clamped.align.lastFloor, 6);
+    assert.equal(clamped.align.counter, 2);
+    assert.equal(clamped.lastReconcileFloor, -1);
+    const controller = createRefreshController({ enabled: () => false });
+    controller.hydrate({
+        counter: clamped.align.counter,
+        lastFloor: clamped.align.lastFloor,
+        pendingAdvance: true,
+    });
+    assert.equal(controller.state().counter, 2);
+    assert.equal(controller.state().lastFloor, 6);
+    assert.equal(controller.state().pendingAdvance, true);
+});

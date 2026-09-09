@@ -12,6 +12,7 @@ import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
 import { readRefreshBar, refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
+import { clampPaceToLatest, snapshotPaceState } from './business/refresh/pace-persist.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createActivityFeature } from './business/activity/feature.js';
 import { beatFoldHtml } from './business/beat/ui.js';
@@ -1034,6 +1035,7 @@ const timeTravel = createTimeTravelController({
             const target = destinationDate;
             if (target?.month != null && target?.day != null) linesFeature.setLastDay(`${+target.month}-${+target.day}`);
         }
+        persistPaceNow();
     },
     onSequenceEnd: ({ sessionId }) => releaseTimeTravelClaim(sessionId),
     onError: error => {
@@ -1545,8 +1547,34 @@ let linesMode           = false;
 const manualEditing = { point: false, lines: false, outline: false };
 const activityFeature = createActivityFeature({
     chatId: () => getContext().chatId,
-    storage: localStorage,
-    keyForChat: id => `sp-activity:${id || ''}`,
+    storage: {
+        getItem() {
+            const saved = readStore(keyDesc('activity', 'user', ''));
+            const fromStore = Array.isArray(saved?.entries) ? saved.entries : (Array.isArray(saved) ? saved : null);
+            if (fromStore) return JSON.stringify(fromStore);
+            const chatId = getContext().chatId;
+            if (!chatId) return '[]';
+            try {
+                const legacy = localStorage.getItem(`sp-activity:${chatId}`);
+                if (!legacy) return '[]';
+                const parsed = JSON.parse(legacy);
+                if (!Array.isArray(parsed) || !parsed.length) return '[]';
+                writeStore(keyDesc('activity', 'user', ''), { entries: parsed, ts: Date.now() });
+                localStorage.removeItem(`sp-activity:${chatId}`);
+                return JSON.stringify(parsed);
+            } catch {
+                return '[]';
+            }
+        },
+        setItem(_key, value) {
+            let entries = [];
+            try { entries = JSON.parse(value); } catch { entries = []; }
+            writeStore(keyDesc('activity', 'user', ''), { entries: Array.isArray(entries) ? entries : [], ts: Date.now() });
+            const chatId = getContext().chatId;
+            if (chatId) try { localStorage.removeItem(`sp-activity:${chatId}`); } catch {}
+        },
+    },
+    keyForChat: () => 'activity-user',
     query: $in,
     $,
     root: () => $in('.sp-root'),
@@ -1598,6 +1626,10 @@ const activityFeature = createActivityFeature({
         const ok = await openPluginViewWithPrefill('space');
         spaceFeature.ui?.setQuote?.(item);
         return { status: ok ? 'quoted' : 'failed' };
+    },
+    openLines: () => {
+        activityFeature.close();
+        return openPluginViewWithPrefill('lines');
     },
 });
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
@@ -2246,6 +2278,9 @@ jQuery(async () => {
         const _mig = store.migrateChatFromLocalStorage(getContext().chatId);
         // 插件总关只能截断新聊天初始化，不能截断上面的硬清场。
         if (!pluginEnabled()) { coordinateRuntime?.feature?.close?.(); return; }
+        hydratePaceFromStore();
+        activityFeature.onChatChanged();
+        paintPaceSoon();
         coordinateRuntime?.feature?.close?.();
         $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
         $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
@@ -2353,8 +2388,9 @@ jQuery(async () => {
         beatFeature?.onAiFloor?.(mid);
         activityFeature.markFloorRestyle({ floorId: mid, signature: _floorSig(mid) });
         // Master switch: linesEnabled=false disables auto-advance + inline block
-        if (getSettings().linesEnabled === false) { paintPaceSoon(); return; }
+        if (getSettings().linesEnabled === false) { persistPaceNow(); paintPaceSoon(); return; }
         await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
+        persistPaceNow();
         paintPaceSoon();
         return;
     };
@@ -2433,7 +2469,7 @@ jQuery(async () => {
     // 面·大纲自动注入：独立监听，跟线彻底解耦（绝不复用 _stListeners.char——它 linesEnabled=false
     // 会 early-return，连坐大纲）。每隔 N 楼独立判定一次剧情是否推进到下一节点，推进则游标 +1。
     if (_stListeners.outlineJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
-    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); paintPaceSoon(); };
+    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); persistPaceNow(); paintPaceSoon(); };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
     // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
     // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
@@ -2462,9 +2498,10 @@ jQuery(async () => {
         if (messageId <= almanacLastJudgedMsgId) return;
         almanacLastJudgedMsgId = messageId;
         if (getSettings().almanacAutoDetect === false) return;
-        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) { paintPaceSoon(); return; }
+        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) { persistPaceNow(); paintPaceSoon(); return; }
         almanacJudgeCounter = 0;
         dateCoordinator.runOnce(renderKey, ({ signal }) => runJudgeDateStep({ messageId, signal }));   // fire-and-forget；runOnce 兼并发去重
+        persistPaceNow();
         paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
@@ -2481,9 +2518,10 @@ jQuery(async () => {
         ledgerLastCapturedMsgId = messageId;
         // 时旅首楼：标注由显式步骤接管（LEDGER_CAPTURE step），跳过自动标注，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_CAPTURE)) return;
-        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) { paintPaceSoon(); return; }
+        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) { persistPaceNow(); paintPaceSoon(); return; }
         ledgerCaptureCounter = 0;
         runLedgerCaptureStep();   // fire-and-forget，自带守卫
+        persistPaceNow();
         paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
@@ -2500,9 +2538,10 @@ jQuery(async () => {
         ledgerLastJudgedMsgId = messageId;
         // 时旅首楼：判定由显式步骤接管（LEDGER_JUDGE step），跳过自动判定，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_JUDGE)) return;
-        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) { paintPaceSoon(); return; }
+        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) { persistPaceNow(); paintPaceSoon(); return; }
         ledgerJudgeCounter = 0;
         runLedgerJudgeStep();   // fire-and-forget，自带守卫
+        persistPaceNow();
         paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
@@ -2832,6 +2871,61 @@ function readPaceSnapshot() {
         ledgerJudgeInterval: getLedgerJudgeInterval(),
     };
 }
+
+function paceStoreKey() {
+    return keyDesc('pace', 'user', '');
+}
+
+function hydratePaceFromStore() {
+    const latest = latestAiFloor(getContext().chat)?.index ?? -1;
+    const saved = clampPaceToLatest(readStore(paceStoreKey()), latest);
+    refreshController.hydrate({
+        counter: saved.align.counter,
+        lastFloor: saved.align.lastFloor,
+        lastReconcileFloor: saved.lastReconcileFloor,
+        pendingAdvance: saved.pendingAdvance,
+        pendingDashed: saved.pendingDashed,
+    });
+    if (linesFeature?.lifecycle) {
+        linesFeature.lifecycle.counter = saved.advance.counter;
+        linesFeature.lifecycle.lastSeenMaxMesId = saved.advance.lastFloor;
+    }
+    outlineFeature?.judge?.hydrate?.({
+        messageCounter: saved.outline.counter,
+        lastJudgedMessageId: saved.outline.lastFloor,
+    });
+    linesFeature?.dashed?.hydrateAuto?.({
+        autoCount: saved.dashed.counter,
+        autoFloor: saved.dashed.lastFloor,
+    });
+    almanacLastJudgedMsgId = saved.date.lastFloor;
+    almanacJudgeCounter = saved.date.counter;
+    ledgerLastCapturedMsgId = saved.ledgerCapture.lastFloor;
+    ledgerCaptureCounter = saved.ledgerCapture.counter;
+    ledgerLastJudgedMsgId = saved.ledgerJudge.lastFloor;
+    ledgerJudgeCounter = saved.ledgerJudge.counter;
+}
+
+function persistPaceNow() {
+    if (!getContext()?.chatId) return;
+    const align = refreshController.state?.() || {};
+    const outline = outlineFeature?.judge?.state?.() || {};
+    const dashed = linesFeature?.dashed?.state?.() || {};
+    writeStore(paceStoreKey(), snapshotPaceState({
+        align: { lastFloor: align.lastFloor, counter: align.counter },
+        advance: { lastFloor: linesFeature?.lifecycle?.lastSeenMaxMesId, counter: linesFeature?.lifecycle?.counter },
+        outline: { lastFloor: outline.lastJudgedMessageId, counter: outline.messageCounter },
+        dashed: { lastFloor: dashed.autoFloor, counter: dashed.autoCount },
+        date: { lastFloor: almanacLastJudgedMsgId, counter: almanacJudgeCounter },
+        ledgerCapture: { lastFloor: ledgerLastCapturedMsgId, counter: ledgerCaptureCounter },
+        ledgerJudge: { lastFloor: ledgerLastJudgedMsgId, counter: ledgerJudgeCounter },
+        pendingAdvance: refreshController.stagger?.hasPendingAdvance?.() === true,
+        pendingDashed: refreshController.stagger?.pendingDashed === true,
+        lastReconcileFloor: align.lastReconcileFloor,
+    }));
+}
+
+hydratePaceFromStore();
 
 function paintPace() {
     const rows = pluginEnabled() ? collectPaceRows(readPaceSnapshot()) : [];
@@ -3940,6 +4034,7 @@ function injectModal() {
         .on('change.spLinesMode', 'input[name="sp-lines-mode"]', function () {
             saveLinesMode(this.value);
             linesFeature.resetCounter();
+            persistPaceNow();
             paintPaceSoon();
         });
     $in('.sp-fab-toggle-btn').on('click', function () {
@@ -4707,6 +4802,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         linesFeature.dashed.resetAuto?.();
+        persistPaceNow();
         paintPaceSoon();
     });
     $in('#sp-dashed-cleanup-enabled').on('change', function () {
@@ -4734,6 +4830,7 @@ function injectModal() {
         getSettings().outlineJudgeEnabled = this.checked;
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
+        persistPaceNow();
         paintPaceSoon();
     });
     $in('#sp-lines-advance-latest').on('change', function () {
@@ -4747,6 +4844,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
+        persistPaceNow();
         paintPaceSoon();
     });
     // 历·自动确认当前日期 开关：改完重置历计数（避免残留计数刚开就判）
@@ -4754,6 +4852,7 @@ function injectModal() {
         getSettings().almanacAutoDetect = this.checked;
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
+        persistPaceNow();
         paintPaceSoon();
     });
     // 历·确认间隔：改完重新计数
@@ -4763,6 +4862,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
+        persistPaceNow();
         paintPaceSoon();
     });
     // 界面字号缩放：−/＋ 各 ±5%，夹 0.8–1.3、吸附到 0.05 网格；写 --sp-scale（即时生效）+ 存 uiScale + 回填读数。
@@ -4811,11 +4911,12 @@ function injectModal() {
         getSettings().ledgerReconcileEnabled = this.checked;
         saveSettingsDebounced();
         refreshController.resetCounter();
+        persistPaceNow();
         paintPaceSoon();
     });
     $in('#sp-ledger-reconcile-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 3)));
-        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); paintPaceSoon();
+        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); persistPaceNow(); paintPaceSoon();
     });
     // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
     $in('#sp-ledger-inject').on('change', function () {
@@ -4828,15 +4929,16 @@ function injectModal() {
         getSettings().ledgerCaptureEnabled = this.checked;
         saveSettingsDebounced();
         ledgerCaptureCounter = 0;
+        persistPaceNow();
         paintPaceSoon();
     });
     $in('#sp-ledger-capture-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 5)));
-        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0; paintPaceSoon();
+        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0; persistPaceNow(); paintPaceSoon();
     });
     $in('#sp-ledger-judge-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 4)));
-        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0; paintPaceSoon();
+        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0; persistPaceNow(); paintPaceSoon();
     });
     // 楼内渲染框·主开关：关 → 整框全清、停观察；开 → 重算窗口挂回。三个子开关只在它开时才起效。
     $in('#sp-inline-render-enabled').on('change', function () {

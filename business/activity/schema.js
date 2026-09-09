@@ -88,18 +88,9 @@ export function moduleLabel(module) {
     return ACTIVITY_MODULES[module] || module || '';
 }
 
-export function diaryNote(items = []) {
-    const list = Array.isArray(items) ? items.filter(item => item?.title) : [];
-    if (!list.length) return '线跟着正文往前走了一拍，条目没改名面。';
-    const bits = list.slice(0, 4).map(item => {
-        const title = item.title;
-        if (item.action === 'add') return `新开「${title}」`;
-        if (item.action === 'complete') return `「${title}」收束了`;
-        if (item.action === 'stall') return `「${title}」先停着`;
-        if (item.action === 'advance') return `「${title}」往前走了`;
-        if (item.action === 'edit') return `「${title}」改了走向`;
-        return `「${title}」${actionLabel(item.action)}`;
-    });
-    if (list.length > 4) bits.push(`还有 ${list.length - 4} 处`);
-    return bits.join('，');
+export function entryTouchesLines(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (entry.source === 'advance' || entry.source === 'dashed') return true;
+    if (entry.snapshot?.lines != null || entry.after?.lines != null) return true;
+    return (Array.isArray(entry.items) ? entry.items : []).some(item => item?.module === 'lines' || item?.module === 'dashed');
 }

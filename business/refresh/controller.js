@@ -121,6 +121,12 @@ export function createRefreshController(env = {}) {
     return {
         align, regenerate, onAiFloor, stagger,
         resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; stagger.reset(); },
+        hydrate(state = {}) {
+            counter = Math.max(0, Math.floor(Number(state.counter) || 0));
+            lastFloor = Number.isInteger(Number(state.lastFloor)) ? Number(state.lastFloor) : -1;
+            lastReconcileFloor = Number.isInteger(Number(state.lastReconcileFloor)) ? Number(state.lastReconcileFloor) : -1;
+            stagger.hydrate?.({ pendingAdvance: state.pendingAdvance === true, pendingDashed: state.pendingDashed === true });
+        },
         didReconcile: messageId => lastReconcileFloor === Number(messageId),
         state: () => ({ counter, lastFloor, lastReconcileFloor, busy, pendingAdvance: stagger.pendingAdvance, pendingDashed: stagger.pendingDashed }),
         get busy() { return busy; },

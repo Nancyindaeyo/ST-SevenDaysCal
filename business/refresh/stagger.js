@@ -30,6 +30,10 @@ export function createStaggerGate() {
             pendingAdvance = false;
             return true;
         },
+        hydrate({ pendingAdvance: nextAdvance = false, pendingDashed: nextDashed = false } = {}) {
+            pendingAdvance = nextAdvance === true;
+            pendingDashed = nextDashed === true;
+        },
         hasPendingAdvance: () => pendingAdvance,
         get pendingAdvance() { return pendingAdvance; },
         get pendingDashed() { return pendingDashed; },

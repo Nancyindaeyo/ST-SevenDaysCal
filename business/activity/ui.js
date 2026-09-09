@@ -1,4 +1,4 @@
-import { actionLabel, moduleLabel, sourceLabel } from './schema.js';
+import { actionLabel, entryTouchesLines, moduleLabel, sourceLabel } from './schema.js';
 
 function escape(value) {
     return String(value ?? '')
@@ -68,6 +68,9 @@ export function renderActivityList(entries = []) {
         const quote = (entry.note || (entry.items || []).length)
             ? `<button type="button" class="sp-btn sp-activity-quote" data-id="${escape(entry.id)}">拿到间里聊</button>`
             : '';
+        const jump = entryTouchesLines(entry)
+            ? `<button type="button" class="sp-btn sp-activity-open-lines" data-id="${escape(entry.id)}">去线里看</button>`
+            : '';
         const stale = entry.stale && !entry.undone
             ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';
@@ -78,6 +81,7 @@ export function renderActivityList(entries = []) {
                 <time>${escape(timeLabel(entry.ts))}</time>
                 ${undo}
                 ${quote}
+                ${jump}
             </div>
             ${stale}
             ${note}

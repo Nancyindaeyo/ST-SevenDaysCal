@@ -219,6 +219,10 @@ export function createOutlineJudge({
         messageCounter = 0;
     };
     const resetCounter = () => { messageCounter = 0; };
+    const hydrate = (state = {}) => {
+        messageCounter = Math.max(0, Math.floor(Number(state.messageCounter) || 0));
+        if (Number.isInteger(Number(state.lastJudgedMessageId))) lastJudgedMessageId = Number(state.lastJudgedMessageId);
+    };
     const canRelocate = () => {
         const target = repository.capture();
         const saved = repository.readOutline(target);
@@ -230,6 +234,7 @@ export function createOutlineJudge({
         onCharacterMessage,
         onChatChanged,
         resetCounter,
+        hydrate,
         canRelocate,
         abort,
         getInterval: interval,

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { diaryNote, normalizeActivityEntry, sourceLabel } from './schema.js';
+import { entryTouchesLines, normalizeActivityEntry, sourceLabel } from './schema.js';
 import { createActivityStore } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
@@ -17,7 +17,8 @@ test('normalize activity entry keeps undo snapshot', () => {
     assert.equal(entry.items[0].title, '体检');
     assert.equal(entry.snapshot.point, 'before');
     assert.equal(sourceLabel('align-auto'), '自动对齐');
-    assert.match(diaryNote([{ module: 'lines', title: '体检', action: 'complete' }, { module: 'lines', title: '调查', action: 'advance' }]), /体检.*收束.*调查.*往前走/);
+    assert.equal(entryTouchesLines(entry), false);
+    assert.equal(entryTouchesLines({ source: 'advance', items: [] }), true);
 });
 
 test('store prepends per chat and caps', () => {
@@ -105,6 +106,29 @@ test('activity cards keep align notes and mark a restyled floor', () => {
     assert.match(html, /拿到间里聊/);
 });
 
+test('advance cards jump to lines and do not auto-write diary notes', () => {
+    const html = renderActivityList([{
+        id: '2', ts: Date.now(), source: 'advance', undone: false,
+        items: [{ module: 'lines', title: '调查', action: 'advance' }],
+        snapshot: { lines: 'x' },
+    }]);
+    assert.match(html, /去线里看/);
+    assert.doesNotMatch(html, /往前走了一拍/);
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'advance',
+        items: [{ module: 'lines', title: '调查', action: 'advance' }],
+        snapshot: { lines: 'before' },
+        after: { lines: 'after' },
+    });
+    assert.equal(entry.note, '');
+});
+
 test('restyle of the same floor flags that floor\'s align card', () => {
     const memory = new Map();
     const feature = createActivityFeature({
@@ -150,7 +174,7 @@ test('replayFloorAdvance restores the latest undone advance for a floor', async 
         after: { lines: 'after-1' },
         items: [{ module: 'lines', title: '线', action: 'advance' }],
     });
-    assert.match(first.note, /往前走/);
+    assert.equal(first.note, '');
     assert.equal((await feature.replayFloorAdvance(3)).status, 'updated');
     assert.equal(lines, 'before');
     assert.equal(feature.list()[0].undone, true);
