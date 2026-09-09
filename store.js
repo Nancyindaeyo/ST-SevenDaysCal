@@ -42,8 +42,8 @@ export const OWN_KEYS = ['sp-store', 'sp-memory', 'sp-theater', 'sp-ledger'];
 // sp-store 收纳用户可清理数据与 internal 数据；theater-draft 是设备相关草稿，留 localStorage。
 // dashed（虚线·冷知识）与 almanac（历）都不分视角，运行时固定走 user scope（子键恒为 dashed-user / almanac-user）。
 // 顺序无所谓，但注意没有任何一个是另一个的前缀——子键解析(usageByKind/clearKind)依赖这点。
-export const KINDS = ['schedule', 'outline', 'lines', 'creative-chat', 'space-chat', 'dashed', 'almanac', 'caldesc', 'caldesc-fallback', 'date-anchor'];
-export const INTERNAL_KINDS = Object.freeze(['caldesc', 'caldesc-fallback', 'date-anchor']);
+export const KINDS = ['schedule', 'outline', 'lines', 'creative-chat', 'space-chat', 'dashed', 'almanac', 'caldesc', 'caldesc-fallback', 'date-anchor', 'beat'];
+export const INTERNAL_KINDS = Object.freeze(['caldesc', 'caldesc-fallback', 'date-anchor', 'beat']);
 export const USER_CLEAR_KINDS = Object.freeze(KINDS.filter(kind => !INTERNAL_KINDS.includes(kind)));
 const isInternalKind = kind => INTERNAL_KINDS.includes(String(kind || ''));
 

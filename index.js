@@ -1910,6 +1910,14 @@ beatFeature = createBeatFeature({
     openSettings: () => { if (!settingsOpen) toggleSettings(); },
     toast: (message, error) => showToast(message, null, error),
     collectContext: collectBeatLedgerContext,
+    floorId: () => latestAiFloor(getContext().chat)?.index ?? -1,
+    read: () => readStore(keyDesc('beat', 'user', '')),
+    write: value => {
+        const key = keyDesc('beat', 'user', '');
+        if (!key) return;
+        if (!value) removeStore(key);
+        else writeStore(key, value);
+    },
     uiHost: {
         $,
         query: $in,
@@ -2051,6 +2059,7 @@ jQuery(async () => {
     // 重新挂载主 Shadow root 前先销毁旧棱实例，清理 Esc、图片监听、owner 与 UI 委托。
     theaterFeature?.destroy?.();
     theaterFeature = createTheaterHostFeature();
+    removeStalePluginHosts();
     injectModal();
     injectFab();
     injectToastContainer();
@@ -2208,7 +2217,7 @@ jQuery(async () => {
         _lastMainView = 'schedule';
         coordinateRuntime?.feature?.onChatChanged({ chatId: getContext()?.chatId ?? null, chatMetadataRef: getContext()?.chatMetadata ?? null, enabled: pluginEnabled() });
         refreshController.resetCounter();
-        beatFeature?.reset?.();
+        beatFeature?.onChatChanged?.();
         paintPaceSoon();
         const loadingChatId = String(getContext()?.chatId || '');
         await loadExternalChat({ force: true });
@@ -2323,6 +2332,7 @@ jQuery(async () => {
         syncLatestScheduleBlock();   // 点·日程条：同上，随新楼补挂（只读）
         const mid = Number(messageId);
         await refreshController.onAiFloor(mid);
+        beatFeature?.onAiFloor?.(mid);
         // Master switch: linesEnabled=false disables auto-advance + inline block
         if (getSettings().linesEnabled === false) { paintPaceSoon(); return; }
         await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
@@ -2342,6 +2352,9 @@ jQuery(async () => {
     if (_stListeners.timeTravelDeleted) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
     _stListeners.timeTravelDeleted = createLedgerDeletedHandler({ cancel: cancelTimeTravelForDeletion, reconcile: reconcileLedgerSources, toast: showToast, refreshInject: refreshLedgerInjection, refreshInline: () => refreshInlineWindow(true), refreshPanel: () => { if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel(); } });
     eventSource.on(event_types.MESSAGE_DELETED, _stListeners.timeTravelDeleted);
+    if (_stListeners.beatDeleted) eventSource.removeListener?.(event_types.MESSAGE_DELETED, _stListeners.beatDeleted);
+    _stListeners.beatDeleted = () => { if (pluginEnabled()) beatFeature?.syncFloor?.(); };
+    eventSource.on(event_types.MESSAGE_DELETED, _stListeners.beatDeleted);
     // 线·swipe：滑到新 swipe 时线跟着重算（临时存 localStorage，发下条消息即固定）。
     // pendingGeneration=true → 该 swipe 会触发新生成，此刻新回复还没好，先记标记，等它的
     // CHARACTER_MESSAGE_RENDERED 再从楼层基线 B0 重算；=false → 滑回已生成的 swipe，直接取临时层已存线，不请求 API。
@@ -2990,7 +3003,19 @@ function setExtBtnState(state) {
 
 // ─── FAB ─────────────────────────────────────────────────────────────────────
 
+let _fabResizeAbort = null;
+
+function removeStalePluginHosts() {
+    document.querySelectorAll(`#${MODAL_ID}, #${DIALOG_HOST_ID}, #${FAB_ID}`).forEach(el => el.remove());
+    _spShadow = null;
+    _spDialogShadow = null;
+    _fabResizeAbort?.abort();
+    _fabResizeAbort = null;
+    fabDragState = null;
+}
+
 function injectFab() {
+    document.querySelectorAll(`#${FAB_ID}`).forEach(el => el.remove());
     let savedPos = null;
     try { savedPos = JSON.parse(localStorage.getItem('sp-fab-pos') || 'null'); } catch { /* 位置数据损坏则忽略，不能让 FAB 注入整个崩掉 */ }
     const mobile = isMobile();
@@ -3007,6 +3032,8 @@ function injectFab() {
     markTauriMobileSurface(document.getElementById(FAB_ID), 'free-window');
 
     let wasMobile = isMobile();
+    _fabResizeAbort?.abort();
+    _fabResizeAbort = new AbortController();
     window.addEventListener('resize', () => {
         const nowMobile = isMobile();
         if (nowMobile && !wasMobile) {
@@ -3030,7 +3057,7 @@ function injectFab() {
             }
         }
         wasMobile = nowMobile;
-    });
+    }, { signal: _fabResizeAbort.signal });
 
     const fab = document.getElementById(FAB_ID);
     const fabButton = fab?.querySelector('.sp-fab-btn');
@@ -3086,6 +3113,9 @@ function onFabPointerEnd(ev) {
 }
 
 function injectModal() {
+    document.querySelectorAll(`#${MODAL_ID}, #${DIALOG_HOST_ID}`).forEach(el => el.remove());
+    _spShadow = null;
+    _spDialogShadow = null;
     const cfg = loadCfg();
     const hasCustomApi = !!(cfg.url && cfg.key);
     // 弹窗宿主独立于主面板：主面板关闭时仍保持可见，空宿主不拦截页面点击。
@@ -3563,13 +3593,12 @@ function injectModal() {
                                         <div class="sp-settings-section-body">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-lines-enabled" ${getSettings().linesEnabled !== false ? 'checked' : ''}><span>线</span></label>
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-dashed-enabled" ${getSettings().dashedEnabled === true ? 'checked' : ''}><span>冷知识（默认关；开了也不跟线推进绑在一起）</span></label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-dashed-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(Math.max(1, Number(getSettings().dashedAutoInterval) || 6)))}"><span>条 AI 楼最多抽一次，和点/线对齐错开</span><span class="sp-pace-remain" data-pace-remain="dashed"></span></label>
                                             <div class="sp-mode-opt sp-mode-opt-sub sp-dashed-keep-row">
                                                 <input type="checkbox" id="sp-dashed-cleanup-enabled" ${getSettings().dashedCleanupEnabled !== false ? 'checked' : ''}>
                                                 <label for="sp-dashed-cleanup-enabled">冷知识保存数量</label>
                                                 <input id="sp-dashed-keep-count" class="sp-input sp-interval-input" type="number" min="2" step="1" value="${escapeAttr(String(linesFeature.dashed.normalizeKeepCount(getSettings().dashedKeepCount)))}" ${getSettings().dashedCleanupEnabled !== false ? '' : 'disabled'} aria-label="保留最近多少条未锁冷知识">
                                             </div>
-                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-capture-enabled" ${getSettings().ledgerCaptureEnabled === true ? 'checked' : ''}><span>刻度</span></label>
+                                            <p class="sp-cfg-hint">冷知识抽间隔、刻度总开关在「跟剧情走」。</p>
                                         </div>
                                     </details>
 
@@ -3625,12 +3654,20 @@ function injectModal() {
                                             <p class="sp-cfg-hint">只把「现在演到哪」往后指一格，不重写整份面，也不塞给主楼。楼数越大越省。新装默认关。</p>
                                         </div>
                                     </details>
+                                    <details class="sp-settings-section" id="sp-pace-dashed-section">
+                                        <summary class="sp-settings-section-title">冷知识</summary>
+                                        <div class="sp-settings-section-body">
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-dashed-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(Math.max(1, Number(getSettings().dashedAutoInterval) || 6)))}"><span>条 AI 楼最多抽一次，和点/线对齐错开</span><span class="sp-pace-remain" data-pace-remain="dashed"></span></label>
+                                            <p class="sp-cfg-hint">总开关和保存数量还在「功能与内容开关」。这里只管抽的间隔。关着时倒数会显示关着。</p>
+                                        </div>
+                                    </details>
                                     <details class="sp-settings-section" id="sp-pace-ledger-section">
                                         <summary class="sp-settings-section-title">刻度</summary>
                                         <div class="sp-settings-section-body">
+                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-capture-enabled" ${getSettings().ledgerCaptureEnabled === true ? 'checked' : ''}><span>刻度</span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-capture-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerCaptureInterval) || 5))))}"><span>条 AI 回复标注一次</span><span class="sp-pace-remain" data-pace-remain="ledger-capture"></span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-judge-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerJudgeInterval) || 4))))}"><span>条 AI 回复更新一次现状</span><span class="sp-pace-remain" data-pace-remain="ledger-judge"></span></label>
-                                            <p class="sp-cfg-hint">两项节奏均受“刻度 · 自动标注”开关统辖。</p>
+                                            <p class="sp-cfg-hint">总开关在这里。关着时两项节奏都不跑。</p>
                                         </div>
                                     </details>
                                 </div>

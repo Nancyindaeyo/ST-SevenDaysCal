@@ -13,10 +13,10 @@ export function beatFoldHtml() {
         <summary class="sp-fold-summary">
             <i class="fa-solid fa-chevron-right sp-fold-chevron" aria-hidden="true"></i>
             <span>本轮拍</span>
-            <span class="sp-fold-hint">卡住时出 4～5 条下一楼短大纲</span>
+            <span class="sp-fold-hint">卡住时出 4～5 条下一楼短大纲；新的一楼会清空</span>
         </summary>
         <div class="sp-beat-panel" id="sp-beat-panel">
-            <p class="sp-cfg-hint">读纠偏后的点/线、面当前节点、间近期发言和近文。可改、可复制、可删、可填主楼输入框。不代发，不填棱。</p>
+            <p class="sp-cfg-hint">读纠偏后的点/线、面当前节点、间近期发言和近文。可改、可复制、可删、可填主楼输入框。不代发，不填棱。只跟当前这楼：新的一楼会清空上一楼的拍，更新插件不会丢。</p>
             <div class="sp-refresh-bar-actions">
                 <button type="button" class="sp-btn sp-btn-primary" id="sp-beat-gen">生成本轮拍</button>
             </div>

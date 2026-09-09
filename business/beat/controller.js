@@ -7,10 +7,37 @@ export function createBeatController(env = {}) {
     let busy = false;
     let abortController = null;
 
-    const setShots = next => {
+    const floorId = () => {
+        const id = Number(env.floorId?.());
+        return Number.isInteger(id) && id >= 0 ? id : null;
+    };
+    const persist = () => {
+        const id = floorId();
+        if (id == null || !shots.length) {
+            env.write?.(null);
+            return;
+        }
+        env.write?.({ shots, floorId: id, ts: Date.now() });
+    };
+    const setShots = (next, { save = true } = {}) => {
         shots = clampBeatShots(next);
+        if (save) persist();
         env.onChange?.(shots);
         return shots;
+    };
+    const syncFloor = () => {
+        const id = floorId();
+        const saved = env.read?.();
+        if (saved && id != null && Number(saved.floorId) === id) {
+            shots = clampBeatShots(saved.shots);
+            env.onChange?.(shots);
+            return 'kept';
+        }
+        const had = shots.length || (Array.isArray(saved?.shots) && saved.shots.length);
+        shots = [];
+        if (saved) env.write?.(null);
+        env.onChange?.(shots);
+        return had ? 'cleared' : 'empty';
     };
 
     const abort = (reason = 'manual-abort') => {
@@ -45,6 +72,7 @@ export function createBeatController(env = {}) {
             );
             if (abortController !== controller || controller.signal.aborted) return { status: 'cancelled' };
             const parsed = parseBeatShots(raw);
+            if (abortController !== controller || controller.signal.aborted) return { status: 'cancelled' };
             if (parsed.length < 4) {
                 const error = diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'beat-count' });
                 env.toast?.('本轮拍需要 4～5 条短大纲，这次没有解析出来', true);
@@ -69,8 +97,21 @@ export function createBeatController(env = {}) {
         generate,
         abort,
         reset: () => setShots([]),
+        syncFloor,
+        onAiFloor(messageId) {
+            const incoming = Number(messageId);
+            if (!Number.isInteger(incoming) || incoming < 0) return 'skipped';
+            if (floorId() !== incoming) return 'skipped';
+            abort('new-floor');
+            return syncFloor();
+        },
+        onChatChanged() {
+            abort('chat-boundary');
+            return syncFloor();
+        },
         updateShot(index, patch) {
             shots = clampBeatShots(shots.map((shot, i) => (i === Number(index) ? { ...shot, ...patch } : shot)));
+            persist();
             return shots;
         },
         replace: next => setShots(next),

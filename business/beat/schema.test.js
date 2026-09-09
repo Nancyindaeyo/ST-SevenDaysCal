@@ -54,3 +54,36 @@ test('removeShot drops one outline and keeps the rest', async () => {
     assert.deepEqual(latest.map(shot => shot.title), ['A', 'C', 'D']);
     assert.equal(controller.shots.length, 3);
 });
+
+test('beat shots stay on the current floor and clear on the next AI floor', async () => {
+    const { createBeatController } = await import('./controller.js');
+    let stored = null;
+    let floor = 10;
+    const controller = createBeatController({
+        floorId: () => floor,
+        read: () => stored,
+        write: value => { stored = value; },
+    });
+    controller.replace([{ angle: 'today', title: 'A', body: '甲' }]);
+    assert.equal(stored.floorId, 10);
+    assert.equal(controller.onAiFloor(10), 'kept');
+    assert.equal(controller.shots.map(shot => shot.title).join(), 'A');
+    floor = 12;
+    assert.equal(controller.onAiFloor(12), 'cleared');
+    assert.equal(controller.shots.length, 0);
+    assert.equal(stored, null);
+});
+
+test('beat shots survive a plugin reload on the same floor', async () => {
+    const { createBeatController } = await import('./controller.js');
+    let stored = null;
+    const env = {
+        floorId: () => 7,
+        read: () => stored,
+        write: value => { stored = value; },
+    };
+    createBeatController(env).replace([{ angle: 'today', title: 'A', body: '甲' }]);
+    const reloaded = createBeatController(env);
+    assert.equal(reloaded.syncFloor(), 'kept');
+    assert.equal(reloaded.shots[0].title, 'A');
+});
