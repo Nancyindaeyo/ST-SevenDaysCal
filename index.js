@@ -22,6 +22,8 @@ import { spaceMessagePlainText } from './business/space/schema.js';
 import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
+import { paintScheduleHome, showPanelView } from './business/shell/panel.js';
+import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
 import * as store from './store.js';
 import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfirmed, removeStore } from './store.js';
@@ -2268,23 +2270,12 @@ jQuery(async () => {
         activityFeature.onChatChanged();
         paintPaceSoon();
         coordinateRuntime?.feature?.close?.();
-        $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-        $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
-        $inAll('.sp-sub-btn').removeClass('sp-view-active');
-        $in('.sp-sub-btn[data-view="user"]').addClass('sp-view-active');
-        $in('#sp-sub-toggle').show();
+        const panelOpen = $(`#${MODAL_ID}`).is(':visible') && !pointState.isGenerating;
+        paintScheduleHome($in, $inAll, { sub: 'user', wraps: panelOpen });
         closeTaDrawer();            // 换 chat：收起可能开着的 TA▾ 抽屉
         updateTaTriggerLabel();     // charViewName 已清 → 标签回落「TA」
-        $in('#sp-content-title').text('点');
         pointState.cachedSchedule = loadCachedForCurrentChat();
-        if ($(`#${MODAL_ID}`).is(':visible') && !pointState.isGenerating) {
-            $in('#sp-outline-wrap').hide();
-            $in('#sp-lines-wrap').hide();
-            $in('#sp-space-wrap').hide();
-            $in('#sp-theater-wrap').hide();
-            $in('#sp-anchor-wrap').hide();
-            $in('#sp-almanac-wrap').hide();
-            $in('#sp-body').show();
+        if (panelOpen) {
             $inAll('.sp-outline-btn').removeClass('sp-btn-active');
             updateCreativeChatModeUI();
             $in('#sp-chat-msgs').empty();
@@ -3946,13 +3937,6 @@ function injectModal() {
     $in('.sp-settings-btn').on('click', () => { activityFeature.close(); toggleSettings(); });
     $in('.sp-settings-close-btn').on('click', toggleSettings);
     activityFeature.bindUi();
-    $in('#sp-settings-overlay')
-        .off('change.spLinesMode', 'input[name="sp-lines-mode"]')
-        .on('change.spLinesMode', 'input[name="sp-lines-mode"]', function () {
-            saveLinesMode(this.value);
-            linesFeature.resetCounter();
-            rememberPace();
-        });
     $in('.sp-fab-toggle-btn').on('click', function () {
         const nowEnabled = !fabEnabled();
         getSettings().fabShow = nowEnabled;
@@ -4445,15 +4429,7 @@ function injectModal() {
                 spaceMode = false;
                 theaterMode = false;
                 axisState.almanacMode = false;
-                $in('#sp-body').hide();
-                $in('#sp-lines-wrap').hide();
-                $in('#sp-space-wrap').hide();
-                $in('#sp-theater-wrap').hide();
-                $in('#sp-anchor-wrap').hide();
-                $in('#sp-almanac-wrap').hide();
-                $in('#sp-outline-wrap').css('display', 'flex');
-                $in('#sp-sub-toggle').hide();
-                $in('#sp-content-title').text('面');
+                showPanelView($in, 'outline');
                 outlineFeature.open();
                 return;
             }
@@ -4464,15 +4440,7 @@ function injectModal() {
                 spaceMode = false;
                 theaterMode = false;
                 axisState.almanacMode = false;
-                $in('#sp-body').hide();
-                $in('#sp-outline-wrap').hide();
-                $in('#sp-space-wrap').hide();
-                $in('#sp-theater-wrap').hide();
-                $in('#sp-anchor-wrap').hide();
-                $in('#sp-almanac-wrap').hide();
-                $in('#sp-lines-wrap').css('display', 'flex');
-                $in('#sp-sub-toggle').hide();
-                $in('#sp-content-title').text('线');
+                showPanelView($in, 'lines');
                 // 生成在途时切回来：重建 loading，别 fallback 到"生成线"空态误导用户
                 if (linesRuntime.busy) {
                     linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
@@ -4490,15 +4458,7 @@ function injectModal() {
                 linesMode = false;
                 theaterMode = false;
                 axisState.almanacMode = false;
-                $in('#sp-body').hide();
-                $in('#sp-outline-wrap').hide();
-                $in('#sp-lines-wrap').hide();
-                $in('#sp-theater-wrap').hide();
-                $in('#sp-anchor-wrap').hide();
-                $in('#sp-almanac-wrap').hide();
-                $in('#sp-space-wrap').css('display', 'flex');
-                $in('#sp-sub-toggle').hide();
-                $in('#sp-content-title').text('间');
+                showPanelView($in, 'space');
                 spaceFeature.open();
                 return;
             }
@@ -4509,15 +4469,7 @@ function injectModal() {
                 linesMode = false;
                 spaceMode = false;
                 axisState.almanacMode = false;
-                $in('#sp-body').hide();
-                $in('#sp-outline-wrap').hide();
-                $in('#sp-lines-wrap').hide();
-                $in('#sp-space-wrap').hide();
-                $in('#sp-anchor-wrap').hide();
-                $in('#sp-almanac-wrap').hide();
-                $in('#sp-theater-wrap').css('display', 'flex');
-                $in('#sp-sub-toggle').hide();
-                $in('#sp-content-title').text('棱');
+                showPanelView($in, 'theater');
                 if (theaterFeature.busy) setTheaterBody(loadingHtml('正在折射', 'sp-abort-theater'));
                 else theaterFeature.open();
                 return;
@@ -4525,10 +4477,7 @@ function injectModal() {
             if (view === 'anchor') {
                 enterCoordinateSidebar({
                     resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
-                    hidePanels: () => { $in('#sp-body').hide(); $in('#sp-outline-wrap').hide(); $in('#sp-lines-wrap').hide(); $in('#sp-space-wrap').hide(); $in('#sp-theater-wrap').hide(); $in('#sp-almanac-wrap').hide(); },
-                    showCoordinate: () => $in('#sp-anchor-wrap').css('display', 'flex'),
-                    hideSubToggle: () => $in('#sp-sub-toggle').hide(),
-                    setTitle: title => $in('#sp-content-title').text(title),
+                    show: () => showPanelView($in, 'anchor'),
                     feature: coordinateRuntime?.feature,
                 });
                 return;
@@ -4540,28 +4489,14 @@ function injectModal() {
                 linesMode = false;
                 spaceMode = false;
                 theaterMode = false;
-                $in('#sp-body').hide();
-                $in('#sp-outline-wrap').hide();
-                $in('#sp-lines-wrap').hide();
-                $in('#sp-space-wrap').hide();
-                $in('#sp-theater-wrap').hide();
-                $in('#sp-anchor-wrap').hide();
-                $in('#sp-almanac-wrap').css('display', 'flex');
-                $in('#sp-sub-toggle').hide();
-                $in('#sp-content-title').text('轴');
+                showPanelView($in, 'almanac');
                 renderAlmanacPanel();
                 return;
             }
             // view === 'schedule' — leaving outline/lines/space/theater/anchor/almanac, restore body
-            if (outlineMode) { outlineMode = false; $in('#sp-outline-wrap').hide(); }
-            if (linesMode)   { linesMode   = false; $in('#sp-lines-wrap').hide(); }
-            if (spaceMode)   { spaceMode   = false; $in('#sp-space-wrap').hide(); }
-            if (theaterMode) { theaterMode = false; $in('#sp-theater-wrap').hide(); }
-            coordinateRuntime?.feature?.close?.(); $in('#sp-anchor-wrap').hide();
-            if (axisState.almanacMode) { axisState.almanacMode = false; $in('#sp-almanac-wrap').hide(); }
-            $in('#sp-body').show();
-            $in('#sp-sub-toggle').show();
-            $in('#sp-content-title').text('点');
+            outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
+            coordinateRuntime?.feature?.close?.();
+            showPanelView($in, 'schedule');
             $inAll('.sp-sub-btn').removeClass('sp-view-active');
             $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
             updateTaTriggerLabel();   // 回点视图：TA▾ 标签跟随当前视角（char 显名 / user 回落 TA）
@@ -4604,267 +4539,55 @@ function injectModal() {
     bindApiPresetEvents();
     renderApiPresetList();
     renderUtilityPresetList();
-    $in('#sp-scale-row').on('change.autoSave', 'input[name="sp-lines-scale"]', function () {
-        const charKey = charStableKey(getContext());
-        if (!charKey) return;
-        setScale(charKey, this.value);
-        refreshLinesInjection();
-    });
-    $in('#sp-adult-row').on('change.autoSave', 'input[name="sp-lines-adult-mode"]', function () {
-        const charKey = charStableKey(getContext());
-        if (!charKey) return;
-        setAdultMode(charKey, this.value);
-        refreshLinesInjection();
-    });
-    // 插件总开关：立刻生效——关则全隐身（藏球/清楼内块/断后台/撤注入），开则按各子开关恢复。
-    // 用 stSaveSettings 立即落盘，避免用户切完立刻刷新丢状态（与 customPrompt 同理）。
-    $in('#sp-plugin-enabled').on('change', function () {
-        getSettings().pluginEnabled = this.checked;
-        stSaveSettings();
-        applyPluginEnabled(this.checked);
-    });
-    // 潜伏注入总闸：立刻生效——重设线 / 面 / 暗历三路注入（关时内部各自清空）。
-    $in('#sp-inject-enabled').on('change', function () {
-        getSettings().injectEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshLinesInjection();
-        outlineFeature.injection.refresh();
-        refreshLedgerInjection();
-    });
-    // Master switch: apply immediately so the user sees inline blocks appear/
-    // disappear the moment they toggle, not on next AI message.
-    $in('#sp-lines-enabled').on('change', function () {
-        getSettings().linesEnabled = this.checked;
-        saveSettingsDebounced();
-        // Refresh chat area: on → back-fill latest floor with block; off → clear all
-        backfillLinesInlineBlocks();
-        paintPaceSoon();
-    });
-    // 线·楼内块显隐开关（独立于线主开关 linesEnabled）：立刻生效。渲染窗口按段开关重算所有窗内楼。
-    // 线的推进与潜伏注入不受影响（refreshLinesInjection 另在 backfill/sync 路径）。
-    $in('#sp-lines-inline-enabled').on('change', function () {
-        getSettings().linesInlineEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 轴日历块开关：立刻生效。段开关变 → 刷新当前渲染窗口（每层楼的轴日历段随之显/隐）。
-    $in('#sp-almanac-inline-enabled').on('change', function () {
-        getSettings().almanacInlineEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 点·日程条开关：立刻生效。段开关变 → 重算所有窗内楼。
-    $in('#sp-schedule-inline-enabled').on('change', function () {
-        getSettings().scheduleInlineEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    $in('#sp-adult-blur-enabled').on('change', function () {
-        getSettings().adultBlurEnabled = this.checked;
-        saveSettingsDebounced();
-        if (linesMode) linesFeature.refreshPanel();
-        if (!outlineMode && !linesMode && !spaceMode) {
-            const saved = readStore(getCacheKey(currentView, charViewName));
-            pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || '用户', currentView, loadCalDesc()) : null;
-            if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
-        }
-        refreshInlineWindow(true);
-    });
-    // 标注池·显隐开关（AI 楼）：只控这只读回显框显/隐，与注入 ledgerInject 解耦（关它注入照旧、只是不回显）。
-    $in('#sp-ledger-inline-enabled').on('change', function () {
-        getSettings().ledgerInlineEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 召回·显隐开关（用户楼）：独立于标注池，只控用户楼召回框显/隐；与注入解耦。
-    $in('#sp-recall-inline-enabled').on('change', function () {
-        getSettings().recallInlineEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 统一框渲染深度：0=跟随酒馆助手（读不到再兜底），正数=用它。改了立即重算窗口。
-    $in('#sp-inline-render-depth').on('change', function () {
-        const n = Math.max(0, Math.floor(Number(this.value) || 0));
-        getSettings().inlineRenderDepth = n;
-        this.value = String(n);   // 规范化回填（负数/小数 → 0/取整）
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 潜伏注入开关：立刻生效——on → 注入当前活跃线；off → 清空扩展 prompt
-    $in('#sp-lines-inject').on('change', function () {
-        getSettings().linesInject = this.checked;
-        saveSettingsDebounced();
-        refreshLinesInjection();
-    });
-    // 时间戳开关：on → 立即注入首尾戳指令；off → 清空扩展 prompt（下楼主模型就不再被要求打戳）。
-    // 面板开着则重渲染历，让「时间戳」只读行随之出现/消失（读回不依赖开关，但显示随开关走更直观）。
-    $in('#sp-storyclock-enabled').on('change', function () {
-        getSettings().storyClockEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshStoryClockInjection({ announce: true });
-        if (axisState.almanacMode) renderAlmanacPanel();
-    });
-    // 冷知识自动开关：off 只停后台抽取与楼层提示，历史保留并仍可在线面板查看。
-    $in('#sp-dashed-enabled').on('change', function () {
-        getSettings().dashedEnabled = this.checked;
-        saveSettingsDebounced();
-        if (linesMode) linesFeature.refreshPanel();
-        syncLatestInlineBlock();
-        paintPaceSoon();
-    });
-    $in('#sp-dashed-interval').on('change', function () {
-        const n = Math.max(1, parseInt(this.value, 10) || 6);
-        getSettings().dashedAutoInterval = n;
-        this.value = String(n);
-        saveSettingsDebounced();
-        linesFeature.dashed.resetAuto?.();
-        rememberPace();
-    });
-    $in('#sp-dashed-cleanup-enabled').on('change', function () {
-        getSettings().dashedCleanupEnabled = this.checked;
-        $in('#sp-dashed-keep-count').prop('disabled', !this.checked);
-        saveSettingsDebounced();
-        if (this.checked) linesFeature.dashed.cleanup(true);
-    });
-    $in('#sp-dashed-keep-count').on('change', function () {
-        const count = linesFeature.dashed.normalizeKeepCount(this.value);
-        getSettings().dashedKeepCount = count;
-        this.value = String(count);
-        saveSettingsDebounced();
-        if (getSettings().dashedCleanupEnabled !== false) linesFeature.dashed.cleanup(true);
-    });
-    // 大纲自动注入（面）开关：on → 按当前大纲+游标立即注入；off → 清空扩展 prompt（游标留 chat_metadata，再开即续）
-    $in('#sp-outline-inject').on('change', function () {
-        getSettings().outlineInject = this.checked;
-        saveSettingsDebounced();
-        outlineFeature.resetJudgeCounter();
-        outlineFeature.injection.refresh();
-        if (outlineMode) outlineFeature.refreshPanel();
-    });
-    $in('#sp-outline-judge').on('change', function () {
-        getSettings().outlineJudgeEnabled = this.checked;
-        saveSettingsDebounced();
-        outlineFeature.resetJudgeCounter();
-        rememberPace();
-    });
-    $in('#sp-lines-advance-latest').on('change', function () {
-        getSettings().linesAdvanceIncludeLatest = this.checked;
-        saveSettingsDebounced();
-    });
-    // 大纲判定间隔：改完即重新计数（避免旧计数立刻触发判定）
-    $in('#sp-outline-judge-interval').on('change', function () {
-        const n = Math.max(1, parseInt(this.value, 10) || 3);
-        getSettings().outlineJudgeInterval = n;
-        this.value = String(n);
-        saveSettingsDebounced();
-        outlineFeature.resetJudgeCounter();
-        rememberPace();
-    });
-    // 历·自动确认当前日期 开关：改完重置历计数（避免残留计数刚开就判）
-    $in('#sp-almanac-autodetect').on('change', function () {
-        getSettings().almanacAutoDetect = this.checked;
-        saveSettingsDebounced();
-        paceBook.date.resetCounter();
-        rememberPace();
-    });
-    // 历·确认间隔：改完重新计数
-    $in('#sp-almanac-judge-interval').on('change', function () {
-        const n = Math.max(1, parseInt(this.value, 10) || 3);
-        getSettings().almanacJudgeInterval = n;
-        this.value = String(n);
-        saveSettingsDebounced();
-        paceBook.date.resetCounter();
-        rememberPace();
-    });
-    // 界面字号缩放：−/＋ 各 ±5%，夹 0.8–1.3、吸附到 0.05 网格；写 --sp-scale（即时生效）+ 存 uiScale + 回填读数。
-    function applyUiScale(v) {
-        const s = Math.min(1.3, Math.max(0.8, Math.round(v * 20) / 20));
-        getSettings().uiScale = s;
-        document.documentElement.style.setProperty('--sp-scale', String(s));
-        $in('#sp-uiscale-val').text(Math.round(s * 100) + '%');
-        saveSettingsDebounced();
-    }
-    $in('#sp-uiscale-minus').on('click', () => applyUiScale((Number(getSettings().uiScale) || 1) - 0.05));
-    $in('#sp-uiscale-plus').on('click',  () => applyUiScale((Number(getSettings().uiScale) || 1) + 0.05));
-    // 界面字体·应用：读取 CSS 中首个 @font-face 的 family 后再一次性保存；失败不污染旧设置。
-    // （按钮/输入框在 shadow 窗口内，$→$in）
-    $in('#sp-font-apply').on('click', async () => {
-        const url = ($in('#sp-cfg-font-url').val() || '').trim();
-        if (!url) {
-            showToast('字体 CSS URL 不能为空，未修改现有字体', null, true);
-            return;
-        }
-        try {
-            const response = await fetch(url);
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const family = parseFontFamilyFromCss(await response.text());
-            if (!family) throw new Error('未找到有效的 @font-face font-family');
-            getSettings().uiFontUrl = url;
-            getSettings().uiFontFamily = family;
-            saveSettingsDebounced();
-            applyUiFont();
-            showToast(`字体已应用：${family}`);
-        } catch (error) {
-            console.warn('[SP font] CSS 读取或解析失败', error);
-            showToast('字体 CSS 读取失败，未修改现有字体；请检查 URL 或 CSS 中的 @font-face', null, true);
-        }
-    });
-    // 界面字体·恢复默认：回填构画自带的有爱圆体 URL/字体名
-    $in('#sp-font-reset').on('click', () => {
-        getSettings().uiFontUrl    = SP_FONT_DEFAULT_URL;
-        getSettings().uiFontFamily = SP_FONT_DEFAULT_FAMILY;
-        $in('#sp-cfg-font-url').val(SP_FONT_DEFAULT_URL);
-        saveSettingsDebounced();
-        applyUiFont();
-        showToast('已恢复默认字体');
-    });
-    $in('#sp-ledger-reconcile').on('change', function () {
-        getSettings().ledgerReconcileEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshController.resetCounter();
-        rememberPace();
-    });
-    $in('#sp-ledger-reconcile-interval').on('change', function () {
-        const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 3)));
-        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); rememberPace();
-    });
-    // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
-    $in('#sp-ledger-inject').on('change', function () {
-        getSettings().ledgerInject = this.checked;
-        saveSettingsDebounced();
-        refreshLedgerInjection();
-        refreshInlineWindow(true);   // 回显框随注入集变——开/关即时刷窗，让「标注打捞」出现/消失
-    });
-    $in('#sp-ledger-capture-enabled').on('change', function () {
-        getSettings().ledgerCaptureEnabled = this.checked;
-        saveSettingsDebounced();
-        paceBook.ledgerCapture.resetCounter();
-        rememberPace();
-    });
-    $in('#sp-ledger-capture-interval').on('change', function () {
-        const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 5)));
-        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); paceBook.ledgerCapture.resetCounter(); rememberPace();
-    });
-    $in('#sp-ledger-judge-interval').on('change', function () {
-        const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 4)));
-        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); paceBook.ledgerJudge.resetCounter(); rememberPace();
-    });
-    // 楼内渲染框·主开关：关 → 整框全清、停观察；开 → 重算窗口挂回。三个子开关只在它开时才起效。
-    $in('#sp-inline-render-enabled').on('change', function () {
-        getSettings().inlineRenderEnabled = this.checked;
-        saveSettingsDebounced();
-        refreshInlineWindow(true);
-    });
-    // 通知提醒·三档：off 全静音 / lite 仅手动生成·刷新 / full 另在后台自动改动时提示
-    $in('input[name="sp-notify-mode"]').on('change', function () {
-        getSettings().notifyMode = $in('input[name="sp-notify-mode"]:checked').val();
-        saveSettingsDebounced();
-    });
-    // 锚：楼层收藏入口开关——on → 补按钮；off → 清掉所有已注入按钮
-    $in('#sp-anchor-inline-btn').on('change', function () {
-        getSettings().anchorInlineBtn = this.checked;
-        saveSettingsDebounced();
-        coordinateRuntime?.feature?.scanButtons();
+    bindSettingsPanel({
+        $in,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        saveNow: stSaveSettings,
+        saveLinesMode,
+        saveLinesInterval,
+        resetLinesCounter: () => linesFeature.resetCounter(),
+        rememberPace,
+        paintPaceSoon,
+        charKey: () => charStableKey(getContext()),
+        setScale,
+        setAdultMode,
+        applyPluginEnabled,
+        refreshLinesInjection,
+        refreshOutlineInjection: () => outlineFeature.injection.refresh(),
+        refreshLedgerInjection,
+        refreshStoryClockInjection,
+        refreshInline: refreshInlineWindow,
+        backfillInline: backfillLinesInlineBlocks,
+        onAdultBlurChanged: () => {
+            if (linesMode) linesFeature.refreshPanel();
+            if (!outlineMode && !linesMode && !spaceMode) {
+                const saved = readStore(getCacheKey(currentView, charViewName));
+                pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || '用户', currentView, loadCalDesc()) : null;
+                if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
+            }
+        },
+        isAlmanacMode: () => axisState.almanacMode,
+        isLinesMode: () => linesMode,
+        isOutlineMode: () => outlineMode,
+        renderAlmanacPanel,
+        refreshLinesPanel: () => linesFeature.refreshPanel(),
+        syncLatestInlineBlock,
+        resetDashedAuto: () => linesFeature.dashed.resetAuto?.(),
+        cleanupDashed: notify => linesFeature.dashed.cleanup(notify),
+        normalizeDashedKeepCount: value => linesFeature.dashed.normalizeKeepCount(value),
+        resetOutlineJudge: () => outlineFeature.resetJudgeCounter(),
+        refreshOutlinePanel: () => outlineFeature.refreshPanel(),
+        resetDateCounter: () => paceBook.date.resetCounter(),
+        toast: showToast,
+        parseFontFamily: parseFontFamilyFromCss,
+        applyUiFont,
+        fontDefaultUrl: SP_FONT_DEFAULT_URL,
+        fontDefaultFamily: SP_FONT_DEFAULT_FAMILY,
+        resetAlignCounter: () => refreshController.resetCounter(),
+        resetLedgerCaptureCounter: () => paceBook.ledgerCapture.resetCounter(),
+        resetLedgerJudgeCounter: () => paceBook.ledgerJudge.resetCounter(),
+        scanAnchorButtons: () => coordinateRuntime?.feature?.scanButtons(),
     });
     // Inline model list: pick an item → write to input + refresh active highlight
     $in('#sp-model-list-items').on('click', '.sp-model-list-item', function () {
@@ -4888,7 +4611,6 @@ function injectModal() {
     $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); syncPresetState(); });
     $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); syncPresetState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
     $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-lines-interval').on('input change', function () { const n = Number(this.value); if (!Number.isInteger(n) || n < 1) return; saveLinesInterval(n); this.value = String(n); paintPaceSoon(); });
 
     $in('#sp-body').on('click', '.sp-tab', function () {
         const rawDay = String($(this).attr('data-day') || '').trim().toLowerCase();
@@ -5156,23 +4878,11 @@ function refreshCharPinIcon() {
 // false 却不动 DOM，若这里再按标志判断就会漏隐藏 → 出现「点 + 坐标」同屏。故一律硬隐藏。
 function resetPanelToScheduleHome() {
     outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
-    $in('#sp-outline-wrap').hide();
-    $in('#sp-lines-wrap').hide();
-    $in('#sp-space-wrap').hide();
-    $in('#sp-theater-wrap').hide();
-    $in('#sp-anchor-wrap').hide();
-    $in('#sp-almanac-wrap').hide();
     axisState._almanacEditor = null;
     resetLedgerRenderState();
     axisCalendarManager.close();
-    $in('#sp-body').show();
-    $in('#sp-sub-toggle').show();
-    $in('#sp-content-title').text('点');
+    paintScheduleHome($in, $inAll, { sub: currentView, wraps: true });
     $inAll('.sp-outline-btn').removeClass('sp-btn-active');
-    $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-    $in('.sp-side-tab.sp-view-btn[data-view="schedule"]').addClass('sp-view-active');
-    $inAll('.sp-sub-btn').removeClass('sp-view-active');
-    $in(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
     syncRefreshBar('schedule');
 }
 function openSchedule() {

@@ -1,5 +1,8 @@
-export function enterCoordinateSidebar({ resetModes, hidePanels, showCoordinate, hideSubToggle, setTitle, feature } = {}) {
-    resetModes?.(); hidePanels?.(); showCoordinate?.(); hideSubToggle?.(); setTitle?.('坐标'); feature?.open?.('chars');
+export function enterCoordinateSidebar({ resetModes, hidePanels, showCoordinate, hideSubToggle, setTitle, show, feature } = {}) {
+    resetModes?.();
+    if (show) show();
+    else { hidePanels?.(); showCoordinate?.(); hideSubToggle?.(); setTitle?.('坐标'); }
+    feature?.open?.('chars');
 }
 
 export function createCoordinateUI({ root = null, onDestroy = null } = {}) {
