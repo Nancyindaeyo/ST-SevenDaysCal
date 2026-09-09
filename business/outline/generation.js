@@ -1,5 +1,6 @@
-import { buildOutlinePrompt } from './prompts.js';
-import { normalizeOutlineResponse } from './schema.js';
+import { buildOutlineContinuePrompt, buildOutlineNodePrompt, buildOutlinePrompt } from './prompts.js';
+import { parseOutline, normalizeOutlineResponse } from './schema.js';
+import { canPartialOutlineRegen, normalizeOutlineRegenMode, appendOutlineNodes, replaceOutlineNode } from './regen.js';
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
 
 export function createOutlineGeneration({
@@ -54,6 +55,9 @@ export function createOutlineGeneration({
         if (!repository.isCurrent(target) || busy) return { status: 'cancelled' };
         judge?.abort('superseded-owner');
         const baseline = repository.baseline(target);
+        const mode = canPartialOutlineRegen(baseline.raw, normalizeOutlineRegenMode(apiOptions?.mode))
+            ? normalizeOutlineRegenMode(apiOptions.mode)
+            : 'all';
         const controller = new AbortController();
         const task = Object.freeze({ target, baseline, controller });
         owner = task;
@@ -68,9 +72,16 @@ export function createOutlineGeneration({
                 openSettings?.();
                 throw makeDiagnosticError('config-missing');
             }
+            const cursor = repository.cursor(target) || 1;
+            const currentBeat = parseOutline(baseline.raw)[cursor - 1] || parseOutline(baseline.raw)[0];
+            const promptHead = mode === 'current'
+                ? buildOutlineNodePrompt(userName, charName, currentBeat, cursor)
+                : mode === 'continue'
+                    ? buildOutlineContinuePrompt(userName, charName, baseline.raw)
+                    : buildOutlinePrompt(userName, charName, 'user');
             const raw = await callApi?.({
                 ctx,
-                prompt: [buildOutlinePrompt(userName, charName, 'user'), apiOptions?.promptAddon].filter(Boolean).join('\n\n'),
+                prompt: [promptHead, apiOptions?.promptAddon].filter(Boolean).join('\n\n'),
                 config,
                 userName,
                 charName,
@@ -80,11 +91,20 @@ export function createOutlineGeneration({
             });
             if (isEditing() || !currentAndOwned(task) || !repository.matches(target, baseline)) return { status: 'cancelled' };
             if (!String(raw || '').trim()) throw diagnostic.rejected(makeDiagnosticError('empty-output', { phase: 'empty-output' }), { phase: 'parse', reasonCode: 'outline-empty' });
-            const normalizedRaw = normalizeOutlineResponse(raw);
+            let normalizedRaw = normalizeOutlineResponse(raw);
             if (!normalizedRaw) throw diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'outline-no-beats' });
-            diagnostic.accepted({ phase: 'validation', reasonCode: 'outline-valid' });
+            if (mode === 'current') {
+                const merged = replaceOutlineNode(baseline.raw, normalizedRaw, cursor);
+                if (!merged.ok) throw diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'outline-node-merge-failed' });
+                normalizedRaw = merged.raw;
+            } else if (mode === 'continue') {
+                const merged = appendOutlineNodes(baseline.raw, normalizedRaw);
+                if (!merged.ok) throw diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'outline-continue-merge-failed' });
+                normalizedRaw = merged.raw;
+            }
+            diagnostic.accepted({ phase: 'validation', reasonCode: mode === 'all' ? 'outline-valid' : `outline-${mode}` });
             let committed;
-            try { committed = await (repository.commitOutlineConfirmed || repository.commitOutline)(target, { raw: normalizedRaw, ts: now(), cursor: 1 }, baseline, { ownerGuard: () => currentAndOwned(task) }); }
+            try { committed = await (repository.commitOutlineConfirmed || repository.commitOutline)(target, { raw: normalizedRaw, ts: now(), cursor: mode === 'all' ? 1 : cursor }, baseline, { ownerGuard: () => currentAndOwned(task) }); }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'outline-save-failed' }); }
             if (!(committed === true || committed?.ok === true)) {
                 if (!currentAndOwned(task) || !repository.matches(target, baseline)) return { status: 'cancelled' };

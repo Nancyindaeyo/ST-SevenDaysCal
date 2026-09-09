@@ -26,6 +26,7 @@ Event: main|会议|开会|下午|公司||true
     assert.equal(/体检/.test(applied.raw), false);
     assert.equal(/会议/.test(applied.raw), true);
     assert.deepEqual(applied.skippedLocks, ['会议']);
+    assert.deepEqual(applied.applied, [{ module: 'point', title: '体检', action: 'complete' }]);
 });
 
 test('line stall marks unlocked line and summarize can say unchanged', () => {

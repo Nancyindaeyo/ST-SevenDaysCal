@@ -52,10 +52,11 @@ function findPointEvent(parsed, title) {
 }
 
 export function applyPointPatches(raw, patches, { feedback = '', calendar = null } = {}) {
-    if (!String(raw || '').trim() || !patches?.length) return { raw, changed: false, skippedLocks: [] };
+    if (!String(raw || '').trim() || !patches?.length) return { raw, changed: false, skippedLocks: [], applied: [] };
     const parsed = parseCalendar(raw, calendar);
     const days = parsed.allDays || parsed.days || [];
     const skippedLocks = [];
+    const applied = [];
     let changed = false;
     for (const patch of patches.filter(item => item.target === 'point')) {
         if (patch.op === 'add') {
@@ -80,6 +81,7 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
                 if (day) day.events.push(event);
             }
             changed = true;
+            applied.push({ module: 'point', title, action: 'add' });
             continue;
         }
         const hit = findPointEvent(parsed, patch.title);
@@ -92,6 +94,7 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
         if (patch.op === 'complete') {
             bucket.splice(hit.eventIndex, 1);
             changed = true;
+            applied.push({ module: 'point', title: hit.event.title, action: 'complete' });
             continue;
         }
         if (patch.op === 'postpone') {
@@ -107,26 +110,30 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
             }
             if (patch.fields[2]) event.time = patch.fields[2];
             changed = true;
+            applied.push({ module: 'point', title: event.title, action: 'postpone' });
             continue;
         }
         if (patch.op === 'edit') {
             if (patch.fields[1]) hit.event.desc = patch.fields[1];
             if (patch.fields[2]) hit.event.time = patch.fields[2];
             changed = true;
+            applied.push({ module: 'point', title: hit.event.title, action: 'edit' });
             continue;
         }
         if (patch.op === 'stall') {
             hit.event.desc = hit.event.desc ? `${hit.event.desc}（暂缓）` : '暂缓';
             changed = true;
+            applied.push({ module: 'point', title: hit.event.title, action: 'stall' });
         }
     }
-    return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken), changed, skippedLocks };
+    return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken), changed, skippedLocks, applied };
 }
 
 export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
-    if (!String(raw || '').trim() || !patches?.length) return { raw, changed: false, skippedLocks: [] };
+    if (!String(raw || '').trim() || !patches?.length) return { raw, changed: false, skippedLocks: [], applied: [] };
     const model = parseLines(raw);
     const skippedLocks = [];
+    const applied = [];
     let changed = false;
     for (const patch of patches.filter(item => item.target === 'line')) {
         const want = String(patch.name || '').trim();
@@ -142,20 +149,23 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
         if (patch.op === 'complete') {
             line.stage = '收束';
             changed = true;
+            applied.push({ module: 'lines', title: line.name, action: 'complete' });
             continue;
         }
         if (patch.op === 'stall') {
             line.stall = true;
             changed = true;
+            applied.push({ module: 'lines', title: line.name, action: 'stall' });
             continue;
         }
         if (patch.op === 'edit') {
             if (patch.fields[1]) line.desc = patch.fields[1];
             if (patch.fields[2]) line.next = patch.fields[2];
             changed = true;
+            applied.push({ module: 'lines', title: line.name, action: 'edit' });
         }
     }
-    return { raw: serializeLines(model), changed, skippedLocks, terminal: model.filter(line => TERMINAL_LINE_STAGES.has(line.stage)).map(line => line.name) };
+    return { raw: serializeLines(model), changed, skippedLocks, applied, terminal: model.filter(line => TERMINAL_LINE_STAGES.has(line.stage)).map(line => line.name) };
 }
 
 export function summarizeReconcile({ point, lines, note }) {

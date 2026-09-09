@@ -62,6 +62,9 @@ export const DEFAULT_SETTINGS = {
     scheduleAutoDetect   : false, // 已废弃：旧「点后台跟随今天」。点/线对齐改走 ledgerReconcileEnabled
     ledgerReconcileEnabled: false, // 点/线按正文自动对齐：每 N 条 AI 楼打补丁；默认关
     ledgerReconcileInterval: 3,    // 自动对齐节奏：每几条 AI 回复一次，最小 1
+    outlineRegenMode: 'current',   // 刷新条重做面：current | continue | all
+    dashedAutoInterval: 6,         // 冷知识自动：每几条 AI 楼抽一次
+    dashedTheme: '',               // 冷知识主题钉：空=近文边角
     // 棱（小剧场）
     theaterStylePrompt   : '',   // 写作 agent 文风提示词
     theaterBeautifyPrompt: '',   // 已废弃：棱固定纯文字，不再走美化

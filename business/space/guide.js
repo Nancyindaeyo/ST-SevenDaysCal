@@ -218,18 +218,20 @@ export function createSpaceGuide(env = {}) {
 
     const commit = async () => {
         const applied = [];
-        for (const name of GUIDE_MODULES) {
-            if (state.decisions[name] !== 'apply') continue;
-            const draft = state.drafts[name];
-            if (!draft) continue;
-            const ok = await env.applyDraft?.(name, draft);
+        const names = GUIDE_MODULES.filter(name => state.decisions[name] === 'apply' && state.drafts[name]);
+        const before = names.length ? env.snapshotModules?.(names) || {} : {};
+        for (const name of names) {
+            const ok = await env.applyDraft?.(name, state.drafts[name]);
             if (ok) applied.push(name);
         }
         if (!applied.length && GUIDE_MODULES.every(name => state.decisions[name] === 'pending')) {
             env.toast?.('先给点/线/面各选一项：保持、按草案改、或不用你想', true);
             return { status: 'invalid' };
         }
-        env.toast?.(applied.length ? `已写入：${applied.map(name => ({ point: '点', lines: '线', outline: '面' }[name])).join('、')}` : '没有改账本');
+        if (applied.length) {
+            const after = env.snapshotModules?.(applied) || {};
+            env.recordActivity?.({ source: 'guide', snapshot: before, after });
+        }
         const wantBeat = state.wantBeat;
         leave();
         if (wantBeat) env.generateBeat?.();

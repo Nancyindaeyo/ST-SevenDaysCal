@@ -1,7 +1,9 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
+import { itemsFromPatches } from '../activity/diff.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
 import { normalizeRefreshSelection } from './bar.js';
+import { createStaggerGate } from './stagger.js';
 
 export function latestAiFloor(chat = []) {
     for (let i = (chat || []).length - 1; i >= 0; i--) {
@@ -17,7 +19,9 @@ export function createRefreshController(env = {}) {
     let lastFloor = -1;
     let counter = 0;
     let lastReconcileFloor = -1;
+    const stagger = env.stagger || createStaggerGate();
     const selectedOf = options => normalizeRefreshSelection(options?.selected || []);
+    const snapshotSelected = names => env.snapshotModules?.(names) || {};
 
     async function align(options = {}) {
         if (busy) return { status: 'skipped', reason: 'busy' };
@@ -35,6 +39,7 @@ export function createRefreshController(env = {}) {
             const pointRaw = selected.includes('point') ? String(env.readPointRaw?.() || '') : '';
             const linesRaw = selected.includes('lines') ? String(env.readLinesRaw?.() || '') : '';
             if (!pointRaw && !linesRaw) return { status: 'skipped', reason: 'empty' };
+            const before = snapshotSelected(selected);
             const prompt = buildReconcilePrompt({
                 userName: ctx.name1 || '用户',
                 charName: ctx.name2 || '角色',
@@ -53,7 +58,17 @@ export function createRefreshController(env = {}) {
             diagnostic.accepted({ phase: 'validation', reasonCode: parsed.unchanged ? 'reconcile-unchanged' : 'reconcile-patched' });
             const summary = summarizeReconcile({ point, lines, note: parsed.note });
             env.onPatched?.({ point: point.changed, lines: lines.changed });
-            return { status: 'updated', summary, unchanged: parsed.unchanged && !point.changed && !lines.changed, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };
+            const after = snapshotSelected(selected);
+            const items = itemsFromPatches(point, lines);
+            if (point.changed || lines.changed) {
+                env.onActivity?.({
+                    source: options.auto ? 'align-auto' : 'align',
+                    items,
+                    snapshot: before,
+                    after,
+                });
+            }
+            return { status: 'updated', summary, items, unchanged: parsed.unchanged && !point.changed && !lines.changed, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };
         } catch (error) {
             if (error?.name === 'AbortError') return { status: 'cancelled' };
             diagnostic.rejected?.(error, { phase: 'request' });
@@ -68,11 +83,14 @@ export function createRefreshController(env = {}) {
         if (!reason) return { status: 'invalid', reason: 'need-reason' };
         const addon = buildRefreshAddon({ reason, feedback: options.feedback, align: false });
         const travel = { feedback: 'refresh-bar', promptAddon: addon };
+        const before = snapshotSelected(selected);
         const results = {};
         if (selected.includes('point')) results.point = await env.regenPoint?.(travel);
         if (selected.includes('lines')) results.lines = await env.regenLines?.(travel);
         if (selected.includes('dashed')) results.dashed = await env.regenDashed?.({ reroll: true, manual: true, promptAddon: addon });
-        if (selected.includes('outline')) results.outline = await env.regenOutline?.({ reroll: true, module: 'outline', promptAddon: addon });
+        if (selected.includes('outline')) results.outline = await env.regenOutline?.({ reroll: true, module: 'outline', promptAddon: addon, mode: options.outlineMode || 'current' });
+        const after = snapshotSelected(selected);
+        env.onActivity?.({ source: 'refresh', snapshot: before, after });
         return { status: 'updated', results };
     }
 
@@ -92,14 +110,13 @@ export function createRefreshController(env = {}) {
         counter = 0;
         const result = await align({ auto: true, selected: ['point', 'lines'] });
         if (result?.status === 'updated' || result?.status === 'failed') lastReconcileFloor = messageId;
-        const summary = result?.status === 'updated' ? result.summary : (result?.status === 'failed' ? `点/线对齐失败：${diagnosticMessage(result.error)}` : '');
-        if (summary) env.toastAlways?.(summary, result?.status === 'failed');
+        if (result?.status === 'failed') env.toastAlways?.(`点/线对齐失败：${diagnosticMessage(result.error)}`, true);
         return result;
     }
 
     return {
-        align, regenerate, onAiFloor,
-        resetCounter: () => { counter = 0; lastFloor = -1; },
+        align, regenerate, onAiFloor, stagger,
+        resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; stagger.reset(); },
         didReconcile: messageId => lastReconcileFloor === Number(messageId),
         get busy() { return busy; },
     };

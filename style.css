@@ -326,6 +326,42 @@ q::after {
 .sp-sidebar-tabs:not(.sp-sidebar-util)::-webkit-scrollbar { width: 0; height: 0; }  /* WebKit：同上 */
 .sp-sidebar-spacer { flex: 1 1 auto; }
 .sp-sidebar-util   { flex: 0 0 auto; border-top: 1px solid var(--sp-divider); padding-top: 4px; }  /* 设置常驻底部，永不被压缩挤丢 */
+.sp-activity-btn { position: relative; }
+.sp-activity-badge {
+    position: absolute;
+    top: 4px;
+    right: 2px;
+    min-width: 14px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 7px;
+    background: var(--sp-primary);
+    color: var(--sp-sheet-bg);
+    font-size: 9px;
+    line-height: 14px;
+    font-family: var(--sp-font-mono);
+}
+.sp-activity-list { list-style: none; margin: 0; padding: 8px 12px 20px; display: flex; flex-direction: column; gap: 10px; }
+.sp-activity-card {
+    border: 1px solid var(--sp-divider);
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: color-mix(in oklab, var(--sp-on-surface) 3%, transparent);
+}
+.sp-activity-card.is-undone { opacity: 0.6; }
+.sp-activity-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 6px;
+}
+.sp-activity-card-head b { flex: 1; font-size: var(--sp-fs-85); }
+.sp-activity-card-head time { color: var(--sp-subtle); font-size: var(--sp-fs-62); font-family: var(--sp-font-mono); }
+.sp-activity-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.sp-activity-items li { display: flex; justify-content: space-between; gap: 8px; font-size: var(--sp-fs-80); }
+.sp-activity-items em { color: var(--sp-subtle); font-style: normal; }
+.sp-activity-undone { font-size: var(--sp-fs-62); color: var(--sp-subtle); }
+.sp-activity-empty { padding: 24px 16px; }
 
 .sp-side-tab {
     position: relative;

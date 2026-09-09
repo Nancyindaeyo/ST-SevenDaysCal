@@ -56,6 +56,30 @@ Think: 节点成立原因、叙事作用或转折逻辑
 </outline_widget>`;
 }
 
+export function buildOutlineNodePrompt(userName, charName, current, cursor) {
+    const beat = current || {};
+    return `请暂停角色扮演，以编剧顾问身份只改写大纲里的「当前节点」，不要输出其他节点，也不要另起一份整面。
+【重要】除固定的机器字段名外，创作正文必须使用中文（人名、地名可保留原文）。
+【人称】以编剧顾问的第三人称视角撰写，直呼角色名字，不要扮演角色。
+当前是第 ${Math.max(1, Number(cursor) || 1)} 个节点：${beat.time || ''}《${beat.title || ''}》${beat.type ? '·' + beat.type : ''}
+已有 Scene：${beat.scene || '（空）'}
+请按最新剧情重写这一节点的 Beat / Scene / Subtext / Think，时间跨度与前后节点衔接保持宏观。只输出这一个完整节点。
+
+${buildOutlineCreationContract()}`;
+}
+
+export function buildOutlineContinuePrompt(userName, charName, existingRaw) {
+    return `请暂停角色扮演，以编剧顾问身份只为当前故事往后追加新的大纲节点。
+【重要】除固定的机器字段名外，创作正文必须使用中文（人名、地名可保留原文）。
+【人称】以编剧顾问的第三人称视角撰写，直呼角色名字，不要扮演角色。
+下面是已经写好的面，不要改写、不要重复、不要回头合并这些节点：
+${String(existingRaw || '').trim()}
+
+只输出要追加的新节点。没有值得追加的走向时可以只写一个自然的下一阶段。
+
+${buildOutlineCreationContract()}`;
+}
+
 export function buildOutlinePrompt(userName, charName, perspective = 'user') {
     const subject = perspective === 'char' ? charName : userName;
     return `请暂停角色扮演，以编剧顾问身份根据以上剧情，为当前故事生成大纲。

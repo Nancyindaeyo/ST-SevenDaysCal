@@ -44,6 +44,8 @@ export function createSpaceFeature(env = {}) {
         toast: (message, error) => env.ui?.toast?.(message, error),
         collectContext: env.collectGuideContext,
         applyDraft: env.applyGuideDraft,
+        snapshotModules: env.snapshotGuideModules,
+        recordActivity: env.recordGuideActivity,
         generateBeat: env.generateBeat,
         onChange: () => {
             if (!env.isOpen?.()) return;

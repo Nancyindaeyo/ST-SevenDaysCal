@@ -55,16 +55,20 @@ export function parseCompleteOutline(raw) {
     return parseOutline(raw).filter(isCompleteOutlineBeat);
 }
 
-export function normalizeOutlineResponse(raw) {
-    const beats = parseCompleteOutline(raw);
-    if (!beats.length) return '';
-    const blocks = beats.map(beat => [
+export function serializeOutlineBeats(beats) {
+    const complete = (beats || []).filter(isCompleteOutlineBeat);
+    if (!complete.length) return '';
+    const blocks = complete.map(beat => [
         `Beat: ${beat.time}|${beat.title}|${beat.type}|${beat.line}|${beat.outcome}`,
         `Scene: ${beat.scene}`,
         `Subtext: ${beat.subtext}`,
         `Think: ${beat.think}`,
     ].join('\n'));
     return `<outline_widget>\n${blocks.join('\n')}\n</outline_widget>`;
+}
+
+export function normalizeOutlineResponse(raw) {
+    return serializeOutlineBeats(parseCompleteOutline(raw));
 }
 
 import { normalizeEditableText } from '../utils/text-edit.js';

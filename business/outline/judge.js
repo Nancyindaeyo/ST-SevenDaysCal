@@ -16,6 +16,7 @@ export function createOutlineJudge({
     injection,
     onCursorChanged,
     toast,
+    onActivity,
     logDiagnostic,
     isEditing = () => false,
 } = {}) {
@@ -117,7 +118,15 @@ export function createOutlineJudge({
             diagnostic.committed({ reasonCode: stored?.stale ? 'outline-cursor-saved-stale' : 'outline-cursor-saved' });
             if (stored?.stale || !currentAndOwned(task)) { finish(task); return { status: 'cancelled', reason: 'committed-but-stale', committed: true }; }
             finish(task);
-            try { toast?.('面已自动推进到下一节点'); notifyChanged(task, saved.raw, cursor + 1); }
+            try {
+                onActivity?.({
+                    source: 'outline',
+                    items: [{ module: 'outline', title: next.title || `节点 ${cursor + 1}`, action: 'cursor' }],
+                    snapshot: { outline: { raw: saved.raw, cursor } },
+                    after: { outline: { raw: saved.raw, cursor: cursor + 1 } },
+                });
+                notifyChanged(task, saved.raw, cursor + 1);
+            }
             catch (error) { diagnostic.uiFailed(error, { reasonCode: 'outline-ui-refresh-failed' }); }
             return { status: 'updated' };
         } catch (error) {

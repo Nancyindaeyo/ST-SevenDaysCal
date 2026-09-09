@@ -872,8 +872,8 @@ test('line participant drift blocks dispatch and a stale same-chat lease cannot 
     releaseOld(); assert.equal((await oldRun).status, 'cancelled'); assert.equal(oldCommits, 0);
 });
 
-function automaticLinesFeature(status, { mode = 'turns' } = {}) {
-    const toasts = []; let calls = 0;
+function automaticLinesFeature(status, { mode = 'turns', didReconcile = false } = {}) {
+    const toasts = []; const activities = []; let calls = 0; let deferred = false;
     const feature = createLinesFeature({
         runtime: { busy: false },
         generation: { run: async () => { calls++; return { status }; } },
@@ -887,10 +887,19 @@ function automaticLinesFeature(status, { mode = 'turns' } = {}) {
         floorSignature: () => 'sig',
         swipeId: () => 0,
         toast: value => toasts.push(value),
+        onActivity: entry => activities.push(entry),
+        readRaw: () => 'lines-raw',
+        didReconcile: () => didReconcile,
+        deferAdvance: () => { deferred = true; },
+        consumeDeferredAdvance: () => {
+            if (!deferred) return false;
+            deferred = false;
+            return true;
+        },
         dayAnchor: () => '1-1',
         dayAdvance: ({ dayAnchor, previousDay }) => ({ shouldAdvance: dayAnchor !== previousDay }),
     });
-    return { feature, toasts, calls: () => calls };
+    return { feature, toasts, activities, calls: () => calls, deferred: () => deferred };
 }
 
 const retirementRaw = lines => serializeLines(lines.map(line => ({
@@ -1007,13 +1016,14 @@ test('a same-chat edit while confirmed retirement waits makes the old cleanup st
     assert.deepEqual(harness.cached, []);
 });
 
-test('automatic line success toast is emitted only for an updated generation result', async () => {
+test('automatic line success writes recent activity and does not toast', async () => {
     for (const status of ['failed', 'cancelled', 'skipped', 'updated']) {
         const harness = automaticLinesFeature(status);
         assert.equal(harness.feature.onMessageReceived({ messageId: 0, type: 'normal' }), true);
         await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
         assert.equal(harness.calls(), 1);
-        assert.equal(harness.toasts.filter(value => /线已随剧情自动推进/.test(value)).length, status === 'updated' ? 1 : 0, status);
+        assert.equal(harness.toasts.filter(value => /线已随剧情自动推进/.test(value)).length, 0, status);
+        assert.equal(harness.activities.length, status === 'updated' ? 1 : 0, status);
     }
 });
 
@@ -1030,5 +1040,15 @@ test('date aftermath uses the generation result and repeated same-floor CMR does
     await replay.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
     await replay.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
     assert.equal(replay.calls(), 1, '同楼 CMR 重放不得再次生成');
-    assert.equal(replay.toasts.filter(value => /线已随剧情自动推进/.test(value)).length, 1);
+    assert.equal(replay.toasts.filter(value => /线已随剧情自动推进/.test(value)).length, 0);
+    assert.equal(replay.activities.length, 1);
+});
+
+test('same-floor reconcile defers line advance instead of running it', async () => {
+    const harness = automaticLinesFeature('updated', { didReconcile: true });
+    harness.feature.onMessageReceived({ messageId: 0, type: 'normal' });
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    assert.equal(harness.calls(), 0);
+    assert.equal(harness.deferred(), true);
+    assert.equal(harness.activities.length, 0);
 });

@@ -68,11 +68,7 @@ export function createLinesFeature(env = {}) {
         ...env.generationEnv,
         owners,
         runtime,
-        commit: async (...args) => {
-            const result = await commitGenerationResult(...args);
-            if ((result === true || result?.ok === true) && !result?.stale && env.dashedEnabled?.() === true) dashed?.run?.();
-            return result;
-        },
+        commit: async (...args) => commitGenerationResult(...args),
         onStart: () => { if (env.isPanelActive?.()) refreshPanel?.(); },
         cleanup: (owner, chatId) => cleanupOwner(owner, chatId),
     }));
@@ -310,20 +306,44 @@ export function createLinesFeature(env = {}) {
         lifecycle.lastSeenMaxMesId = mid;
         let advance = false;
         const mode = env.getMode?.();
+        const reconcileRan = env.didReconcile?.(mid) === true;
         if (!autoSuppressed && mode === 'days') lifecycle.holdConfirmedFloor(credential);
-        else if (!autoSuppressed && mode === 'turns') advance = lifecycle.advanceCounter({ mode, interval: env.getInterval?.() }).shouldAdvance;
+        else if (!autoSuppressed && mode === 'turns') {
+            const wouldAdvance = lifecycle.advanceCounter({ mode, interval: env.getInterval?.() }).shouldAdvance;
+            if (wouldAdvance && reconcileRan) env.deferAdvance?.();
+            else advance = wouldAdvance;
+        }
+        if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.()) advance = true;
+        const before = advance ? env.readRaw?.() || '' : '';
         const result = await appendInlineBlock(mid, advance);
-        if (advance && result?.status === 'updated' && env.getSettings?.().notifyMode === 'full') env.toast?.('线已随剧情自动推进 · 请注意查看');
+        if (advance && result?.status === 'updated') {
+            env.onActivity?.({ source: 'advance', snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
+        }
+        if (!autoSuppressed && mode !== 'days') await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
     };
     const onDateAftermath = async ({ chatId = env.chatId?.(), messageId, day } = {}) => {
         if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false || env.getMode?.() !== 'days') return false;
         const mid = Number(messageId ?? ((env.chat?.() || []).length - 1));
         const credential = lifecycle.consumeConfirmedFloor(mid, chatId);
         if (!credential || day == null) return false;
-        const advance = lifecycle.detectInGameDayChange({ day, decide: env.dayAdvance });
-        if (!advance) { await appendInlineBlock(mid, false); return false; }
+        const wouldAdvance = lifecycle.detectInGameDayChange({ day, decide: env.dayAdvance });
+        if (!wouldAdvance) {
+            await appendInlineBlock(mid, false);
+            await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
+            return false;
+        }
+        if (env.didReconcile?.(mid)) {
+            env.deferAdvance?.();
+            await appendInlineBlock(mid, false);
+            await env.tryDashed?.(mid, { blocked: true });
+            return false;
+        }
+        const before = env.readRaw?.() || '';
         const result = await appendInlineBlock(mid, true);
-        if (result?.status === 'updated' && env.getSettings?.().notifyMode === 'full') env.toast?.('线已随剧情自动推进 · 请注意查看');
+        if (result?.status === 'updated') {
+            env.onActivity?.({ source: 'advance', snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
+        }
+        await env.tryDashed?.(mid, { blocked: true });
         return true;
     };
     const onSwiped = async ({ mesId, info } = {}) => {
