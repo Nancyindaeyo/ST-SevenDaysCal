@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
+import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile, uniqueNamedHit } from './patch.js';
 import { normalizeTheaterCount } from '../theater/recipe.js';
 
 test('parse reconcile patch lines', () => {
@@ -42,4 +42,33 @@ Desc: 旧描述
 
 test('theater count helper still clamps', () => {
     assert.equal(normalizeTheaterCount(2), 2);
+});
+
+test('fuzzy title match only fires when a unique candidate exists', () => {
+    assert.equal(uniqueNamedHit([{ title: '年度体检' }, { title: '会议' }], '体检', item => item.title), 0);
+    assert.equal(uniqueNamedHit([{ title: '年度体检' }, { title: '体检复盘' }], '体检', item => item.title), -1);
+    assert.equal(uniqueNamedHit([{ title: '' }], '体检', item => item.title), -1);
+});
+
+test('point add overflow goes to future instead of day 1', () => {
+    const raw = `<calendar_widget>
+StartDate: 2024-03-01
+Day: 1|晴|12℃
+Event: main|会议|开会|下午|公司||false
+</calendar_widget>`;
+    const applied = applyPointPatches(raw, [{ target: 'point', op: 'add', title: '远行', fields: ['Day 99', 'main', '远行', '出门', '早晨', '', ''] }]);
+    assert.equal(applied.changed, true);
+    assert.match(applied.raw, /Future|未来|远行/);
+    assert.equal((applied.raw.match(/Event:/g) || []).length >= 2, true);
+});
+
+test('ambiguous line names are not patched', () => {
+    const raw = `<storylines_widget>
+Line: 调查笔记|延展|今天|world|false|false
+Desc: 甲
+Line: 调查后续|延展|今天|world|false|false
+Desc: 乙
+</storylines_widget>`;
+    const applied = applyLinePatches(raw, [{ target: 'line', op: 'stall', name: '调查', fields: ['调查'] }]);
+    assert.equal(applied.changed, false);
 });

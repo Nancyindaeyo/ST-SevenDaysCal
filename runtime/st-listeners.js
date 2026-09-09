@@ -26,8 +26,8 @@ export function createChatFloorHandlers(h) {
             if (h.isExternalMode?.()) void h.pruneExternalSnapshots?.(h.getContext?.()?.chat || []);
         },
         // 时光旅行·预检占闸：必须先于 char 注册（同一 CMR tick 内按注册序先跑）——时旅首楼定型时，
-        // 先把自动化闸整体占住（isInitialFloor 才占），让同 tick 的线/面/暗账/暗历/点全部 isSuppressed
-        // 短路，避免与显式时旅步骤重复生成/重复记账。token 随 onSequenceEnd（完成/失败/取消）或 cancel 释放。
+        // 先把自动化闸整体占住（isInitialFloor 才占），让同 tick 的线推进/点线 N 楼对齐/面/暗账全部 isSuppressed
+        // 短路。点/线/轴改由时旅步骤按目标日重跑，而不是普通新楼通道。token 随 onSequenceEnd 或 cancel 释放。
         timeTravelPreflight: messageId => {
             if (!h.pluginEnabled?.()) return;
             if (!h.timeTravel?.isInitialFloor?.(messageId)) return;
@@ -36,7 +36,7 @@ export function createChatFloorHandlers(h) {
             const token = h.automationGate?.claim?.({
                 scopeId: h.getContext?.().chatId,
                 messageId: Number(messageId),
-                modules: Object.values(modules).filter(module => module !== modules.LINES),
+                modules: Object.values(modules),
             });
             if (token) h.timeTravelClaimTokens?.set?.(session.sessionId, token);
         },
@@ -53,7 +53,6 @@ export function createChatFloorHandlers(h) {
             await h.refresh?.onAiFloor?.(mid);
             h.beat?.onAiFloor?.(mid);
             h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
-            if (h.getSettings?.().linesEnabled === false) { h.rememberPace?.(); return; }
             await h.lines?.onCharacterRendered?.({ messageId: mid, type, autoSuppressed: h.isAutomationSuppressed?.(mid, modules.LINES) });
             h.rememberPace?.();
         },

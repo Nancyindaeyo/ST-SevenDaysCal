@@ -288,7 +288,12 @@ export function createLinesFeature(env = {}) {
         });
     };
     const onCharacterRendered = async ({ messageId, type, autoSuppressed = false } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return;
+        if (!env.pluginEnabled?.()) return;
+        if (env.getSettings?.().linesEnabled === false) {
+            const mid = Number(messageId);
+            if (!autoSuppressed) await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
+            return;
+        }
         const mid = Number(messageId);
         const signature = env.floorSignature?.(mid) || '';
         lifecycle.floorTextSig[mid] = signature;

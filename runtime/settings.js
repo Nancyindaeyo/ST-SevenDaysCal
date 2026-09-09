@@ -231,14 +231,16 @@ export function saveLinesInterval(n) {
     saveSettingsDebounced();
 }
 
+export function normalizeLinesMode(mode) {
+    return mode === 'days' || mode === 'turns' || mode === 'manual' ? mode : 'manual';
+}
+
 export function getLinesMode() {
-    const m = getSettings().linesMode;
-    return m === 'days' || m === 'manual' ? m : 'turns';
+    return normalizeLinesMode(getSettings().linesMode);
 }
 
 export function saveLinesMode(mode) {
-    const valid = (mode === 'days' || mode === 'manual') ? mode : 'turns';
-    getSettings().linesMode = valid;
+    getSettings().linesMode = normalizeLinesMode(mode);
     saveSettingsDebounced();
 }
 

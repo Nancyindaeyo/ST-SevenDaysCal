@@ -21,6 +21,8 @@ export async function runChatChanged(h) {
     h.activity?.close?.();
     h.dashed?.abort?.(REASON);
     h.dashed?.resetAuto?.();
+    h.refresh?.abort?.(REASON);
+    h.resetMemoryPauseNotice?.();
     h.theater?.onChatChanged?.();
     h.ledgerCapture?.reset?.(REASON);
     h.ledgerJudge?.reset?.(REASON);

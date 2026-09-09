@@ -77,6 +77,7 @@ import {
     runTimeTravelDirectionFlow,
     timeTravelAbortReason,
     travelAnniversaryCoverage,
+    travelAlignReason,
 } from './business/axis/time-travel-session.js';
 import { escapeHtml, escapeAttr, autoGrowTextarea, cleanText } from './utils/dom.js';
 import { _cnToNumber, _CN_MONTH_ALIAS, extractDayFromTime } from './utils/cn-date.js';
@@ -267,7 +268,7 @@ import {
     worldInfoFailureNoticeKey,
 } from './runtime/world-info-context.js';
 import { paintWiEntryFull, paintWiExcludeList, paintWiList, worldInfoPanelIdentity } from './runtime/world-info-panel.js';
-import { capMemTextAsync } from './business/memory/recall.js';
+import { capMemText, capMemTextAsync } from './business/memory/recall.js';
 import {
     dispatchStoreClearInvalidate,
     dispatchStoreClearRefreshAfter,
@@ -935,7 +936,7 @@ const renderAlmanacPanel = createAxisPanel({
 // when the rendered floor triggers the normal listeners in the same tick.
 const automationGate = createAutomationGate();
 const dateCoordinator = createDateCoordinator();
-const AUTOMATION_MODULES = Object.freeze({ LINES: 'lines', OUTLINE: 'outline', POINT: 'point', LEDGER_CAPTURE: 'ledger-capture', LEDGER_JUDGE: 'ledger-judge' });
+const AUTOMATION_MODULES = Object.freeze({ LINES: 'lines', OUTLINE: 'outline', POINT: 'point', AXIS: 'axis', LEDGER_CAPTURE: 'ledger-capture', LEDGER_JUDGE: 'ledger-judge' });
 function bridgeAbortSignal(externalSignal, internalController) {
     if (!externalSignal) return () => {};
     const abort = () => internalController.abort(externalSignal.reason ?? 'external-abort');
@@ -1090,10 +1091,23 @@ const timeTravel = createTimeTravelController({
         showToast('时光旅行同步未完整完成，请手动检查各模块', null, true);
     },
     steps: [
-        // 线不再被时旅步骤直生；若时旅确实落地正常新 AI 楼，由 MESSAGE_RECEIVED→CMR 统一入口处理。
-        { key: AUTOMATION_MODULES.LINES, canRun: () => false, run: async () => ({ status: 'skipped' }) },
-        { key: AUTOMATION_MODULES.OUTLINE, canRun: () => outlineFeature.canRelocate(), run: ({ promptAddon, signal }) => outlineFeature.relocate(promptAddon, signal) },
         { key: AUTOMATION_MODULES.POINT, canRun: () => !!readStore(getCacheKey('user', ''))?.raw, run: ({ destinationDate, promptAddon, signal }) => syncPointToToday(false, { targetDate: destinationDate, targetScope: { view: 'user', charName: '' }, promptAddon, feedback: 'time-travel', signal, allowPendingFollowup: false }) },
+        { key: AUTOMATION_MODULES.LINES, canRun: () => {
+            if (readStore(getCacheKey('user', ''))?.raw) return true;
+            return getSettings().linesEnabled !== false && !!readStore(getLinesCacheKey())?.raw;
+        }, run: ({ destinationDate, promptAddon, signal }) => {
+            const selected = ['point'];
+            if (getSettings().linesEnabled !== false) selected.push('lines');
+            return refreshController.align({
+                selected,
+                reason: travelAlignReason(destinationDate, loadCalDesc(), formatTravelDate),
+                feedback: 'time-travel',
+                promptAddon,
+                signal,
+            });
+        } },
+        { key: AUTOMATION_MODULES.AXIS, canRun: () => true, run: async () => { runAnchorAftermath(); return { status: 'updated' }; } },
+        { key: AUTOMATION_MODULES.OUTLINE, canRun: () => outlineFeature.canRelocate(), run: ({ promptAddon, signal }) => outlineFeature.relocate(promptAddon, signal) },
         { key: AUTOMATION_MODULES.LEDGER_CAPTURE, canRun: () => getSettings().ledgerCaptureEnabled === true, run: ({ destinationDate, promptAddon, signal }) => runLedgerCaptureStep(true, { targetDate: destinationDate, promptAddon, feedback: 'time-travel', signal }) },
         { key: AUTOMATION_MODULES.LEDGER_JUDGE, canRun: () => getSettings().ledgerCaptureEnabled === true, run: ({ destinationDate, promptAddon, signal }) => runLedgerJudgeStep(true, { targetDate: destinationDate, promptAddon, feedback: 'time-travel', signal }) },
     ],
@@ -1558,7 +1572,7 @@ const activityFeature = createActivityFeature({
     },
     writeOutline: async ({ raw, cursor } = {}) => {
         const target = outlineFeature.repository.capture();
-        if (!outlineFeature.repository.commitOutline(target, { raw: String(raw || ''), ts: Date.now(), cursor: cursor || 1 })) return false;
+        if (!outlineFeature.repository.commitOutline(target, { raw: String(raw || ''), ts: Date.now(), cursor: cursor ?? 1 })) return false;
         outlineFeature.refreshPanel();
         outlineFeature.injection.refresh();
         return true;
@@ -1812,18 +1826,19 @@ const refreshController = createRefreshController({
     pluginEnabled,
     enabled: () => getSettings().ledgerReconcileEnabled === true,
     interval: getLedgerReconcileInterval,
+    linesEnabled: () => getSettings().linesEnabled !== false,
     isSuppressed: messageId => isAutomationSuppressed(messageId, AUTOMATION_MODULES.POINT) || isAutomationSuppressed(messageId, AUTOMATION_MODULES.LINES),
     readPointRaw: () => readStore(getCacheKey('user', ''))?.raw || '',
     readLinesRaw: () => readStore(getLinesCacheKey())?.raw || '',
-    writePointRaw: async raw => {
+    writePointRaw: async (raw, options = {}) => {
         const key = getCacheKey('user', '');
         const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+        return writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() }, options);
     },
-    writeLinesRaw: async raw => {
+    writeLinesRaw: async (raw, options = {}) => {
         const key = getLinesCacheKey();
         const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+        return writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() }, options);
     },
     regenPoint: travel => pointController.triggerGenerate(travel),
     regenLines: travel => linesFeature.actions.reroll(travel),
@@ -1910,7 +1925,8 @@ async function applyGuideDraft(name, draft) {
         if (!normalized) { showToast('面草案解析失败，没有写入', null, true); return false; }
         const target = outlineFeature.repository.capture();
         const saved = outlineFeature.repository.readOutline(target);
-        if (!outlineFeature.repository.commitOutline(target, { raw: normalized, ts: Date.now(), cursor: saved?.cursor || 1 })) return false;
+        const stored = await outlineFeature.repository.commitOutlineConfirmed(target, { raw: normalized, ts: Date.now(), cursor: saved?.cursor ?? 1 });
+        if (!(stored === true || stored?.ok === true)) return false;
         outlineFeature.refreshPanel();
         outlineFeature.injection.refresh();
         return true;
@@ -2249,6 +2265,7 @@ jQuery(async () => {
         activity: activityFeature,
         dashed: linesFeature.dashed,
         theater: theaterFeature,
+        resetMemoryPauseNotice() { memoryPauseNoticeShown = false; },
         ledgerCapture: ledgerCaptureController,
         ledgerJudge: ledgerJudgeController,
         axisGeneration: axisGenerationController,
@@ -2460,6 +2477,7 @@ function _abortAllBackground() {
     outlineFeature.abortAll('plugin-disabled');
     spaceFeature.abortAll('plugin-disabled');
     linesFeature.dashed.abort('plugin-disabled');
+    refreshController.abort('plugin-disabled');
     pointState.scheduleAbortController = null;
     theaterFeature.onPluginDisabled();
     axisGenerationController.reset('plugin-disabled');
@@ -4021,7 +4039,7 @@ async function getMemText(opts = {}) {
         return await capMemTextAsync(raw, !!opts.full, {
             countTokens: async text => getContext().getTokenCountAsync(text),
         });
-    } catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退原文', safeDiagnosticLog('memory', 'request', err, { background: true })); return raw; }
+    } catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退长度估算', safeDiagnosticLog('memory', 'request', err, { background: true })); return capMemText(raw, !!opts.full); }
 }
 
 // historyLimit：喂给这次调用的「最近可见 AI 楼」条数上限。默认 3。

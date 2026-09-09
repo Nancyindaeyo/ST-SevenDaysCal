@@ -32,23 +32,37 @@ function namedInFeedback(title, feedback) {
     return !!(needle && hay && hay.includes(needle));
 }
 
+export function uniqueNamedHit(items, want, getName) {
+    const needle = String(want || '').trim();
+    if (!needle) return -1;
+    const named = [];
+    for (let i = 0; i < items.length; i++) {
+        const text = String(getName(items[i]) || '').trim();
+        if (!text) continue;
+        named.push({ i, text });
+    }
+    const exact = named.filter(item => item.text === needle);
+    if (exact.length) return exact[0].i;
+    const fuzzy = named.filter(item => item.text.includes(needle) || needle.includes(item.text));
+    return fuzzy.length === 1 ? fuzzy[0].i : -1;
+}
+
 function findPointEvent(parsed, title) {
     const want = String(title || '').trim();
     if (!want) return null;
+    const hits = [];
     const days = parsed.allDays || parsed.days || [];
     for (let d = 0; d < days.length; d++) {
-        const events = days[d].events || [];
-        const exact = events.findIndex(ev => String(ev.title || '').trim() === want);
-        if (exact >= 0) return { dayIndex: d, eventIndex: exact, event: events[exact], future: false };
-        const fuzzy = events.findIndex(ev => String(ev.title || '').includes(want) || want.includes(String(ev.title || '')));
-        if (fuzzy >= 0) return { dayIndex: d, eventIndex: fuzzy, event: events[fuzzy], future: false };
+        for (let e = 0; e < (days[d].events || []).length; e++) {
+            hits.push({ dayIndex: d, eventIndex: e, event: days[d].events[e], future: false });
+        }
     }
     const futureEvents = parsed.future?.events || [];
-    const exactF = futureEvents.findIndex(ev => String(ev.title || '').trim() === want);
-    if (exactF >= 0) return { dayIndex: 'future', eventIndex: exactF, event: futureEvents[exactF], future: true };
-    const fuzzyF = futureEvents.findIndex(ev => String(ev.title || '').includes(want) || want.includes(String(ev.title || '')));
-    if (fuzzyF >= 0) return { dayIndex: 'future', eventIndex: fuzzyF, event: futureEvents[fuzzyF], future: true };
-    return null;
+    for (let e = 0; e < futureEvents.length; e++) {
+        hits.push({ dayIndex: 'future', eventIndex: e, event: futureEvents[e], future: true });
+    }
+    const index = uniqueNamedHit(hits, want, hit => hit.event?.title);
+    return index >= 0 ? hits[index] : null;
 }
 
 export function applyPointPatches(raw, patches, { feedback = '', calendar = null } = {}) {
@@ -77,8 +91,13 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
                 parsed.future.events.push(event);
             } else {
                 const n = Math.max(1, parseInt(dest.replace(/\D/g, ''), 10) || 1);
-                const day = days[n - 1] || days[0];
-                if (day) day.events.push(event);
+                if (n > days.length) {
+                    parsed.future ||= { events: [] };
+                    parsed.future.events.push(event);
+                } else {
+                    const day = days[n - 1];
+                    if (day) day.events.push(event);
+                }
             }
             changed = true;
             applied.push({ module: 'point', title, action: 'add' });
@@ -137,9 +156,8 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
     let changed = false;
     for (const patch of patches.filter(item => item.target === 'line')) {
         const want = String(patch.name || '').trim();
-        const index = model.findIndex(line => line.name === want) >= 0
-            ? model.findIndex(line => line.name === want)
-            : model.findIndex(line => line.name.includes(want) || want.includes(line.name));
+        if (!want) continue;
+        const index = uniqueNamedHit(model, want, line => line.name);
         if (index < 0) continue;
         const line = model[index];
         if (line.pin && !namedInFeedback(line.name, feedback)) {

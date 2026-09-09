@@ -12,7 +12,8 @@ export function buildRefreshAddon({ reason = '', feedback = '', align = false } 
     return parts.join('\n\n');
 }
 
-export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '' } = {}) {
+export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '', promptAddon = '' } = {}) {
+    const extra = String(promptAddon || '').trim();
     return `请暂停角色扮演，作为账本校对助手，根据【最新 AI 楼正文】给点（日程）和线（平行事件）打纠偏补丁。
 不要重写整张表。锁定条目（pin=true / 锁定）默认不动，除非用户反馈点名。
 
@@ -27,7 +28,7 @@ ${String(pointRaw || '').trim() || '（空）'}
 【当前线】
 ${String(linesRaw || '').trim() || '（空）'}
 
-${buildRefreshAddon({ reason, feedback, align: true })}
+${buildRefreshAddon({ reason, feedback, align: true })}${extra ? `\n\n${extra}` : ''}
 
 只输出：
 <reconcile_patch>

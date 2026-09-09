@@ -13,13 +13,12 @@ export function worldInfoActivationEntries(result, mode) {
     const entries = mode === 'luker' ? result.activatedEntries : result.allActivatedEntries;
     if (mode === 'luker') {
         if (!Array.isArray(entries)) return null;
-        if (entries.some(entry => !entry || typeof entry !== 'object' || !worldInfoCandidateKey(entry.world, entry.uid))) return null;
-        return entries;
+    } else if (!(entries instanceof Set)) {
+        return null;
     }
-    if (!(entries instanceof Set)) return null;
-    const values = [...entries];
-    if (values.some(entry => !entry || typeof entry !== 'object' || !worldInfoCandidateKey(entry.world, entry.uid))) return null;
-    return values;
+    const values = mode === 'luker' ? entries : [...entries];
+    const valid = values.filter(entry => entry && typeof entry === 'object' && worldInfoCandidateKey(entry.world, entry.uid));
+    return valid.length ? valid : null;
 }
 
 export function worldInfoMaxContext(ctx, { getMaxPromptTokens } = {}) {

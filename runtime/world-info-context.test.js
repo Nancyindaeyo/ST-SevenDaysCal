@@ -59,6 +59,9 @@ test('activation entries reject malformed luker/native payloads', () => {
     assert.equal(worldInfoActivationEntries({ activatedEntries: [{ world: 'a' }] }, 'luker'), null);
     const ok = worldInfoActivationEntries({ activatedEntries: [{ world: 'a', uid: '1' }] }, 'luker');
     assert.equal(ok.length, 1);
+    const mixed = worldInfoActivationEntries({ activatedEntries: [{ world: 'a' }, { world: 'a', uid: '2' }] }, 'luker');
+    assert.equal(mixed.length, 1);
+    assert.equal(mixed[0].uid, '2');
     assert.equal(worldInfoActivationEntries({ allActivatedEntries: [{ world: 'a', uid: '1' }] }, 'native'), null);
     const native = worldInfoActivationEntries({ allActivatedEntries: new Set([{ world: 'a', uid: '1' }]) }, 'native');
     assert.equal(native[0].uid, '1');

@@ -41,7 +41,7 @@ export function createTheaterController({ owners, repository, generate, drawPool
             const pieces = Array.isArray(result?.pieces) && result.pieces.length ? result.pieces : (result ? [result] : []);
             if (!pieces.length) { const emptyError = diagnostic.rejected(makeDiagnosticError('empty-output', { phase: 'parse' }), { phase: 'parse', reasonCode: 'theater-empty-draft' }); error?.(emptyError, owner); return { status: 'failed', reason: 'empty', error: emptyError }; }
             const saved = repository.pushDrafts ? await repository.pushDrafts(owner.chatId, pieces) : await repository.pushDraft(owner.chatId, pieces[0]);
-            if (!saved?.ok && !pieces.length) { const saveError = diagnostic.rejected(makeDiagnosticError('save', { phase: 'save' }), { phase: 'save', reasonCode: 'theater-draft-save-failed' }); error?.(saveError, owner); return { status: 'failed', reason: 'draft-save', error: saveError }; }
+            if (!saved?.ok) { const saveError = diagnostic.rejected(makeDiagnosticError('save', { phase: 'save' }), { phase: 'save', reasonCode: 'theater-draft-save-failed' }); error?.(saveError, owner); return { status: 'failed', reason: 'draft-save', error: saveError }; }
             diagnostic.committed({ reasonCode: saved?.persistFailed ? 'theater-draft-memory-only' : 'theater-draft-saved' });
             commit?.(pieces[0], owner); current?.(pieces[0], owner);
             return { status: 'updated', piece: pieces[0], pieces, persistFailed: saved?.persistFailed === true };

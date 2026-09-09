@@ -21,6 +21,7 @@ import { eventSource, event_types } from '../../../../script.js';
 import { LITERAL_DOUBLE_BRACKET_RULE, normalizeTagRules, TAG_NAME_SOURCE } from './utils/tag-names.js';
 import { diagnosticMessage, safeDiagnosticLog } from './api/diagnostics.js';
 import { getChatRoot, persistExternalRoots, registerExternalStorageContext } from './runtime/external-chat-storage.js';
+import { chatFingerprints, firstRemovedIndex, pruneMemoryAfterDelete } from './business/memory/invalidate.js';
 
 registerExternalStorageContext(getContext);
 
@@ -48,6 +49,7 @@ let _abortController = null;      // reserved for rebuild flow (see abortRebuild
 let _jobAbortController = null;   // shared signal for per-job fetches; aborted on CHAT_CHANGED
 let _isRebuilding = false;        // block every persist while rebuildAll holds uncommitted memory
 let _lifecycleEpoch = 0;          // invalidates late completions even when upstream ignores AbortSignal
+let _chatFingerprints = [];
 
 function builtInMemoryEnabled() {
     const settings = _getSettings();
@@ -747,8 +749,13 @@ export function abortAll(reason = 'reset') {
 }
 
 // ─── Event handlers ──────────────────────────────────────────────────────────
+function rememberChatFingerprints(chat = getChat()) {
+    _chatFingerprints = chatFingerprints(chat);
+}
+
 function onCharacterMessageRendered() {
     if (!builtInMemoryEnabled()) return;
+    rememberChatFingerprints();
     const current = meta();
     if (!current || current.system.paused) return;
     // A new AI floor arrived: any stable group (not the newest) whose L0 is missing
@@ -788,10 +795,12 @@ function onMessageMutated(mesId) {
         });
         persist();
     }
+    rememberChatFingerprints();
 }
 
 function onChatChanged() {
     abortAll('chat-boundary');
+    rememberChatFingerprints();
 }
 
 // ─── Public init ─────────────────────────────────────────────────────────────
@@ -820,12 +829,15 @@ export function initMemory({ getSettings, callApi, onPause }) {
         const m = meta();
         if (!m) return;
         const chat = getChat();
+        const deletedFrom = firstRemovedIndex(_chatFingerprints, chatFingerprints(chat));
+        pruneMemoryAfterDelete(m, deletedFrom);
         const validMids = new Set(chat.map((_, i) => String(i)));
         for (const [k, l0] of Object.entries(m.L0)) {
             if (!validMids.has(l0.range[0]) || !validMids.has(l0.range[1])) delete m.L0[k];
         }
         m.L1 = m.L1.filter(l1 => validMids.has(l1.range[0]) && validMids.has(l1.range[1]));
         persist();
+        rememberChatFingerprints(chat);
     };
     _listeners.chat = onChatChanged;
 

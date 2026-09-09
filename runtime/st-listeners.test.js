@@ -126,7 +126,7 @@ test('char with lines off still remembers pace after refresh', async () => {
     await createChatFloorHandlers(h).char(2, 'new');
     assert.ok(h.calls.includes('refresh.onAiFloor'));
     assert.ok(h.calls.includes('remember'));
-    assert.ok(!h.calls.includes('lines.onCharacterRendered'));
+    assert.ok(h.calls.includes('lines.onCharacterRendered'));
 });
 
 test('time travel preflight claims only on the initial floor', () => {
@@ -137,7 +137,7 @@ test('time travel preflight claims only on the initial floor', () => {
     h.timeTravel.isInitialFloor = () => true;
     handlers.timeTravelPreflight(2);
     assert.equal(h.claimed.length, 1);
-    assert.ok(!h.claimed[0].modules.includes(MODULES.LINES));
+    assert.ok(h.claimed[0].modules.includes(MODULES.LINES));
     assert.equal(h.tokens.get('s1').id, 'tok');
 });
 

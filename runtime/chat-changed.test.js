@@ -75,6 +75,7 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     const names = h.calls;
     assert.ok(names.indexOf('begin') < names.indexOf('load'));
     assert.ok(names.indexOf('memory.abortAll') < names.indexOf('migrate'));
+    assert.ok(names.includes('refresh.abort'));
     assert.ok(names.indexOf('migrate') < names.indexOf('hydrate'));
     assert.ok(names.indexOf('reloadPanel') < names.indexOf('injLines'));
     assert.equal(names.filter(name => name === 'activity.onChatChanged').length, 2);

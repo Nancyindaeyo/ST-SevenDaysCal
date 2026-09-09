@@ -65,6 +65,13 @@ export function collectTimeTravelContext(sourceDate, targetDate, env = {}) {
     };
 }
 
+export function travelAlignReason(destinationDate, calendar, formatDate) {
+    const when = typeof formatDate === 'function' ? String(formatDate(destinationDate, calendar) || '').trim() : '';
+    return when
+        ? `时光旅行已落到${when}。请按目标日和本楼正文对齐未锁的点和线，不要按出发日或楼数推进。`
+        : '时光旅行已落到目标日。请按目标日和本楼正文对齐未锁的点和线，不要按出发日或楼数推进。';
+}
+
 export function appendTravelPromptContext(prompt, travelContext = null) {
     if (!travelContext) return prompt;
     if (travelContext.feedback === 'time-travel') {

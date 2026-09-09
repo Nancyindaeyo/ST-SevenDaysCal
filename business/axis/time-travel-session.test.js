@@ -7,6 +7,7 @@ import {
     runTimeTravelDirectionFlow,
     timeTravelAbortReason,
     travelAnniversaryCoverage,
+    travelAlignReason,
     travelDirectionValue,
 } from './time-travel-session.js';
 
@@ -44,6 +45,7 @@ test('travel prompt addon only stamps a date during time-travel feedback', () =>
         promptAddon: '加',
         targetDate: { month: 3, day: 4 },
     }), /目标日期：3月4日/);
+    assert.match(travelAlignReason({ month: 3, day: 4 }, null, () => '3月4日'), /3月4日/);
 });
 
 test('direct travel adopts the chosen direction without AI', async () => {

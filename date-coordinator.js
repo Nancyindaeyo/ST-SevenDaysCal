@@ -42,6 +42,14 @@ function hasResolvedDate(result) {
     return !!result?.date && Number.isFinite(Number(result.date.month)) && Number.isFinite(Number(result.date.day));
 }
 
+function settledReusable(record) {
+    return record?.result != null && hasResolvedDate(record.result);
+}
+
+function inFlight(record) {
+    return !!record?.promise && record.result == null;
+}
+
 // 同一版正文的日期任务只执行一次；业务层仍决定何时检测、如何解析及怎样落地日期。
 export function createDateCoordinator() {
     const records = new Map();
@@ -110,7 +118,12 @@ export function createDateCoordinator() {
         const key = normalizeRenderKey(renderKey);
         if (!key || typeof execute !== 'function') return Promise.resolve({ status: 'unresolved' });
         let record = records.get(key.id);
-        if (record?.promise) return record.promise;
+        if (inFlight(record) || settledReusable(record)) return record.promise;
+        if (record?.result != null && !hasResolvedDate(record.result)) {
+            record.promise = null;
+            record.resolutionPromise = null;
+            record.result = null;
+        }
         if (!record) record = createRecord(key);
         record.promise = Promise.resolve()
             .then(() => Promise.allSettled(record.predecessors))
@@ -132,7 +145,8 @@ export function createDateCoordinator() {
         const previous = record.promise ? await waitWithSignal(record.promise, signal) : record.result;
         if (signal?.aborted) return cancelledResult();
         if (typeof acceptPrevious === 'function' && acceptPrevious(previous)) return previous;
-        if (record.resolutionPromise) return waitWithSignal(record.resolutionPromise, signal);
+        if (inFlight(record) && record.resolutionPromise) return waitWithSignal(record.resolutionPromise, signal);
+        record.resolutionPromise = null;
 
         record.resolutionPromise = Promise.resolve()
             .then(() => Promise.allSettled(record.predecessors))
