@@ -99,7 +99,7 @@ test('activity cards keep align notes and mark a restyled floor', () => {
         snapshot: { point: 'x' },
     }]);
     assert.match(html, /体检已发生/);
-    assert.match(html, /这楼换过正文/);
+    assert.match(html, /这楼重 roll 了/);
     assert.match(html, /拿到间里聊/);
 });
 
@@ -129,6 +129,39 @@ test('restyle of the same floor flags that floor\'s align card', () => {
     assert.equal(feature.restyled, true);
     assert.equal(feature.list()[0].stale, true);
     assert.equal(feature.list()[0].note, '体检已发生');
+});
+
+test('replayFloorAdvance restores the latest undone advance for a floor', async () => {
+    let lines = 'after-1';
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readLines: () => lines,
+        writeLines: async raw => { lines = raw; },
+        query: () => ({ length: 0 }),
+    });
+    feature.record({
+        source: 'advance',
+        floorId: 3,
+        snapshot: { lines: 'before' },
+        after: { lines: 'after-1' },
+        items: [{ module: 'lines', title: '线', action: 'advance' }],
+    });
+    assert.equal((await feature.replayFloorAdvance(3)).status, 'updated');
+    assert.equal(lines, 'before');
+    assert.equal(feature.list()[0].undone, true);
+    lines = 'after-1';
+    feature.record({
+        source: 'advance',
+        floorId: 3,
+        snapshot: { lines: 'before' },
+        after: { lines: 'after-1' },
+        items: [{ module: 'lines', title: '线', action: 'advance' }],
+    });
+    lines = 'edited';
+    assert.equal((await feature.replayFloorAdvance(3)).status, 'diverged');
+    assert.equal(lines, 'edited');
 });
 
 test('diffSnapshots ignores untouched modules', () => {

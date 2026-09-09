@@ -3,6 +3,44 @@ import { adultInjectionGuidance } from './adult.js';
 
 export const TERMINAL_STAGES = TERMINAL_LINE_STAGES;
 
+function clockDate(meta) {
+    const date = meta?.date;
+    const month = Number(date?.month ?? meta?.month);
+    const day = Number(date?.day ?? meta?.day);
+    if (!Number.isFinite(month) || !Number.isFinite(day)) return null;
+    return `${month}-${day}`;
+}
+
+export function stampDayKey(clock) {
+    if (!clock || typeof clock !== 'object') return null;
+    return clockDate(clock.endMeta) || clockDate(clock.startMeta);
+}
+
+export function latestStampDay(chat, latestIndex, parseClock) {
+    const mid = Number(latestIndex);
+    const message = Array.isArray(chat) ? chat[mid] : null;
+    if (!message || message.is_user || message.is_system || typeof parseClock !== 'function') return null;
+    return stampDayKey(parseClock(message.mes || ''));
+}
+
+export function previousStampDay(chat, latestIndex, parseClock) {
+    const mid = Number(latestIndex);
+    if (!Array.isArray(chat) || !Number.isInteger(mid) || mid < 1 || typeof parseClock !== 'function') return null;
+    for (let i = mid - 1; i >= 0; i--) {
+        const message = chat[i];
+        if (!message || message.is_user || message.is_system) continue;
+        const key = stampDayKey(parseClock(message.mes || ''));
+        if (key) return key;
+    }
+    return null;
+}
+
+export function dayCrossedSincePreviousFloor({ chat = [], latestIndex, latestDay, parseClock } = {}) {
+    const latest = latestDay ?? latestStampDay(chat, latestIndex, parseClock);
+    const previous = previousStampDay(chat, latestIndex, parseClock);
+    return !!(latest && previous && latest !== previous);
+}
+
 export function createAdvanceStrategy({ mode = 'turns', interval = 1, dayAnchor = null, previousDay = null, counter = 0 } = {}) {
     if (mode === 'manual') return { shouldAdvance: false, counter };
     if (mode === 'days') {

@@ -13,7 +13,7 @@ import { publicCueChips, stripInternalLineLines } from './vectors/codec.js';
 import { vectorGlyphSvg } from './vectors/glyph.js';
 import { linesViewModel } from './render.js';
 import { buildLineInjectText, inlineState } from './inline.js';
-import { chooseSwipeLayer, floorToFinalize, markEditedFloor } from './strategy.js';
+import { chooseSwipeLayer, dayCrossedSincePreviousFloor, floorToFinalize, latestStampDay, markEditedFloor } from './strategy.js';
 import { renderActionMenu } from '../utils/action-menu.js';
 
 const LINE_EDGE_COLORS = Object.freeze({
@@ -325,18 +325,36 @@ export function createLinesFeature(env = {}) {
         }
         if (!autoSuppressed && mode !== 'days') await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
     };
-    const onDateAftermath = async ({ chatId = env.chatId?.(), messageId, day } = {}) => {
+    const onDateAftermath = async ({ chatId = env.chatId?.(), messageId } = {}) => {
         if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false || env.getMode?.() !== 'days') return false;
-        const mid = Number(messageId ?? ((env.chat?.() || []).length - 1));
+        const chat = env.chat?.() || [];
+        const mid = Number(messageId ?? (chat.length - 1));
         const credential = lifecycle.consumeConfirmedFloor(mid, chatId);
-        if (!credential || day == null) return false;
-        const wouldAdvance = lifecycle.detectInGameDayChange({ day, decide: env.dayAdvance });
-        if (!wouldAdvance) {
+        // 只认「这楼刚落地/重 roll」的凭证；轴面板 ±1 天没有凭证，不能推进。
+        if (!credential) return false;
+        const latestDay = latestStampDay(chat, mid, env.parseClock);
+        const crossed = dayCrossedSincePreviousFloor({ chat, latestIndex: mid, latestDay, parseClock: env.parseClock });
+        const existingAdvance = env.latestFloorAdvance?.(mid);
+        if (!crossed) {
+            if (existingAdvance) {
+                const restored = await env.replayFloorAdvance?.(mid);
+                if (restored?.status === 'diverged') {
+                    env.toast?.('之后又改过了，没法按新正文收回这楼的推进。可先在【改】里撤回，再手动推进。', true);
+                }
+            }
             await appendInlineBlock(mid, false);
             await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
             return false;
         }
-        if (env.didReconcile?.(mid)) {
+        if (existingAdvance) {
+            const restored = await env.replayFloorAdvance?.(mid);
+            if (restored?.status === 'diverged') {
+                env.toast?.('之后又改过了，没法按新正文重放推进。可先在【改】里撤回，再手动推进。', true);
+                await appendInlineBlock(mid, false);
+                await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
+                return false;
+            }
+        } else if (env.didReconcile?.(mid)) {
             env.deferAdvance?.();
             await appendInlineBlock(mid, false);
             await env.tryDashed?.(mid, { blocked: true });

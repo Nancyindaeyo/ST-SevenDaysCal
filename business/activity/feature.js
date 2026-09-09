@@ -102,6 +102,27 @@ export function createActivityFeature(env = {}) {
         return { status: 'updated' };
     };
 
+    const latestAdvanceForFloor = floorId => store.list(chatId()).find(item => (
+        item.source === 'advance'
+        && Number(item.floorId) === Number(floorId)
+        && !item.undone
+        && item.snapshot?.lines != null
+    )) || null;
+
+    const replayFloorAdvance = async floorId => {
+        const entry = latestAdvanceForFloor(floorId);
+        if (!entry) return { status: 'empty' };
+        const current = capture(Object.keys(entry.snapshot));
+        if (entry.after && !sameSnapshot(current, entry.after)) {
+            return { status: 'diverged' };
+        }
+        await restore(entry.snapshot);
+        store.update(chatId(), entry.id, { undone: true, stale: false });
+        env.onRestored?.(entry);
+        paint();
+        return { status: 'updated' };
+    };
+
     const markFloorRestyle = ({ floorId, signature } = {}) => {
         const id = Number(floorId);
         const sig = String(signature || '');
@@ -124,7 +145,7 @@ export function createActivityFeature(env = {}) {
 
     const realign = async () => {
         const result = await env.realign?.({
-            reason: '这楼换过正文，请按最新 AI 楼重新校对未锁的点和线。',
+            reason: '这楼重 roll 了，请按最新 AI 楼重新校对未锁的点和线。',
         });
         if (result?.status === 'failed') {
             env.toast?.('按新正文对齐失败', true);
@@ -173,6 +194,8 @@ export function createActivityFeature(env = {}) {
         undo,
         capture,
         restore,
+        latestAdvanceForFloor,
+        replayFloorAdvance,
         markFloorRestyle,
         realign,
         quoteToSpace,

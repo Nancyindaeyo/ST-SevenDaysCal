@@ -22,7 +22,7 @@ export function activityOverlayHtml() {
         </div>
         <div id="sp-activity-pace" class="sp-activity-pace"></div>
         <div id="sp-activity-restyle" class="sp-activity-restyle" hidden>
-            <p>这楼换过正文。推进只在日期往前变时自动跑；点/线要对齐到新正文，点下面这颗。</p>
+            <p>这楼重 roll 了。推进只看前一楼和这楼的时间戳是不是同一天；重 roll 后会按新正文重放这楼的推进。点/线要对齐到新正文，点下面这颗。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-realign">按新正文再对齐一次</button>
         </div>
         <div class="sp-settings-body" id="sp-activity-body"></div>
@@ -65,7 +65,7 @@ export function renderActivityList(entries = []) {
             ? `<button type="button" class="sp-btn sp-activity-quote" data-id="${escape(entry.id)}">拿到间里聊</button>`
             : '';
         const stale = entry.stale && !entry.undone
-            ? '<p class="sp-activity-stale">这楼换过正文</p>'
+            ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';
         const note = entry.note ? `<p class="sp-activity-note">${escape(entry.note)}</p>` : '';
         return `<li class="sp-activity-card${entry.undone ? ' is-undone' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}" data-id="${escape(entry.id)}">
