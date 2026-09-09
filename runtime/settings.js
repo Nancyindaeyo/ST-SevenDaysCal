@@ -59,7 +59,6 @@ export const DEFAULT_SETTINGS = {
     // 读不到戳（漏打 / 「谷雨」无月日）才由 almanacAutoDetect 决定是否隔 N 楼调一次 API 兜底。点纯下游连带跟随，无独立判定。
     almanacAutoDetect    : true,  // 读不到戳时用 API 兜底判定（戳关时＝历自动判定总开关，回落老行为）
     almanacJudgeInterval : 3,     // API 兜底节奏：每几条 AI 回复兜底一次
-    scheduleAutoDetect   : false, // 已废弃：旧「点后台跟随今天」。点/线对齐改走 ledgerReconcileEnabled
     ledgerReconcileEnabled: false, // 点/线按正文自动对齐：每 N 条 AI 楼打补丁；默认关
     ledgerReconcileInterval: 3,    // 自动对齐节奏：每几条 AI 回复一次，最小 1
     outlineRegenMode: 'current',   // 刷新条重做面：current | continue | all
@@ -67,7 +66,6 @@ export const DEFAULT_SETTINGS = {
     dashedTheme: '',               // 冷知识主题钉：空=近文边角
     // 棱（小剧场）
     theaterStylePrompt   : '',   // 写作 agent 文风提示词
-    theaterBeautifyPrompt: '',   // 已废弃：棱固定纯文字，不再走美化
     theaterCount         : 2,    // 一次生成条数 1–3
     theaterPoolBooks     : [],   // 棱抽取用世界书名（酒馆已导入、不绑角色卡）
     // 暗账·标注：每 N 楼构画 AI 从正文捞「需按时间追踪」的新事件写入 sp-ledger（伤情/身心/约定/周期）。
@@ -116,6 +114,8 @@ export function getSettings() {
     s.ledgerReconcileInterval = Number.isInteger(interval) && interval >= 1 ? interval : 3;
     // 面判定曾绑死 outlineInject：老用户缺字段时跟当时的注入对齐，避免突然停判定。
     if (!Object.prototype.hasOwnProperty.call(s, 'outlineJudgeEnabled')) s.outlineJudgeEnabled = s.outlineInject === true;
+    delete s.scheduleAutoDetect;
+    delete s.theaterBeautifyPrompt;
     return s;
 }
 

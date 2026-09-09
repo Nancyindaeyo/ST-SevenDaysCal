@@ -11,6 +11,7 @@ import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
 import { readRefreshBar, refreshFoldHtml } from './business/refresh/bar.js';
+import { collectPaceRows, paceFoldHtml, paceStripHtml } from './business/refresh/pace.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createActivityFeature } from './business/activity/feature.js';
 import { beatFoldHtml } from './business/beat/ui.js';
@@ -2169,6 +2170,7 @@ jQuery(async () => {
         activityFeature.onChatChanged();
         activityFeature.close();
         linesFeature.dashed.abort('chat-boundary');
+        linesFeature.dashed.resetAuto?.();
         theaterFeature.onChatChanged();
         ledgerCaptureController.reset('chat-boundary');
         ledgerJudgeController.reset('chat-boundary');
@@ -2207,6 +2209,7 @@ jQuery(async () => {
         coordinateRuntime?.feature?.onChatChanged({ chatId: getContext()?.chatId ?? null, chatMetadataRef: getContext()?.chatMetadata ?? null, enabled: pluginEnabled() });
         refreshController.resetCounter();
         beatFeature?.reset?.();
+        paintPaceSoon();
         const loadingChatId = String(getContext()?.chatId || '');
         await loadExternalChat({ force: true });
         if (String(getContext()?.chatId || '') !== loadingChatId) return;
@@ -2321,8 +2324,9 @@ jQuery(async () => {
         const mid = Number(messageId);
         await refreshController.onAiFloor(mid);
         // Master switch: linesEnabled=false disables auto-advance + inline block
-        if (getSettings().linesEnabled === false) return;
+        if (getSettings().linesEnabled === false) { paintPaceSoon(); return; }
         await linesFeature.onCharacterRendered({ messageId: mid, type, autoSuppressed: isAutomationSuppressed(mid, AUTOMATION_MODULES.LINES) });
+        paintPaceSoon();
         return;
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.char);
@@ -2397,7 +2401,7 @@ jQuery(async () => {
     // 面·大纲自动注入：独立监听，跟线彻底解耦（绝不复用 _stListeners.char——它 linesEnabled=false
     // 会 early-return，连坐大纲）。每隔 N 楼独立判定一次剧情是否推进到下一节点，推进则游标 +1。
     if (_stListeners.outlineJudge) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
-    _stListeners.outlineJudge = messageId => outlineFeature.onCharacterMessage(messageId);
+    _stListeners.outlineJudge = messageId => { outlineFeature.onCharacterMessage(messageId); paintPaceSoon(); };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.outlineJudge);
     // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
     // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
@@ -2426,12 +2430,13 @@ jQuery(async () => {
         if (messageId <= almanacLastJudgedMsgId) return;
         almanacLastJudgedMsgId = messageId;
         if (getSettings().almanacAutoDetect === false) return;
-        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) return;
+        if (++almanacJudgeCounter < getAlmanacJudgeInterval()) { paintPaceSoon(); return; }
         almanacJudgeCounter = 0;
         dateCoordinator.runOnce(renderKey, ({ signal }) => runJudgeDateStep({ messageId, signal }));   // fire-and-forget；runOnce 兼并发去重
+        paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.almanacJudge);
-    // 点不单独判定日期；共享善后刷新楼内窗口/轴面板/线日期，只有 scheduleAutoDetect 开启且未被时旅抑制时才后台重排点。
+    // 点不单独判定日期；点/线对齐走刷新条或 ledgerReconcileEnabled，不随「今天」后台整表重排。
     // 暗账·标注：每 N 楼从正文捞新事件写库。独立开关(ledgerCaptureEnabled)/间隔/单调闸；默认关。
     if (_stListeners.ledgerCapture) eventSource.removeListener?.(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
     _stListeners.ledgerCapture = async (messageId) => {
@@ -2444,9 +2449,10 @@ jQuery(async () => {
         ledgerLastCapturedMsgId = messageId;
         // 时旅首楼：标注由显式步骤接管（LEDGER_CAPTURE step），跳过自动标注，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_CAPTURE)) return;
-        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) return;
+        if (++ledgerCaptureCounter < getLedgerCaptureInterval()) { paintPaceSoon(); return; }
         ledgerCaptureCounter = 0;
         runLedgerCaptureStep();   // fire-and-forget，自带守卫
+        paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerCapture);
     // 暗历·判定（刷现状）：每 N 楼重算活跃条目「距今多久」、只让 AI 回该变的那几条。与标注共用 ledgerCaptureEnabled
@@ -2462,9 +2468,10 @@ jQuery(async () => {
         ledgerLastJudgedMsgId = messageId;
         // 时旅首楼：判定由显式步骤接管（LEDGER_JUDGE step），跳过自动判定，防重复 API
         if (isAutomationSuppressed(messageId, AUTOMATION_MODULES.LEDGER_JUDGE)) return;
-        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) return;
+        if (++ledgerJudgeCounter < getLedgerJudgeInterval()) { paintPaceSoon(); return; }
         ledgerJudgeCounter = 0;
         runLedgerJudgeStep();   // fire-and-forget，自带守卫
+        paintPaceSoon();
     };
     eventSource.on(event_types.CHARACTER_MESSAGE_RENDERED, _stListeners.ledgerJudge);
     // 暗历·注入重算（场景感知）：每出一楼就按最新正文重挑注入集——纯 JS 打分、零 API，故不设间隔/单调闸，
@@ -2610,6 +2617,7 @@ function applyPluginEnabled(on) {
         try { ledgerInjectionController.clear(); } catch {}
     }
     try { refreshStoryClockInjection({ announce: true }); } catch {}
+    paintPaceSoon();
 }
 
 
@@ -2761,6 +2769,61 @@ function getLedgerJudgeInterval() {
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 4;
 }
 
+function readPaceSnapshot() {
+    const settings = getSettings();
+    const align = refreshController.state?.() || {};
+    const outline = outlineFeature.judge?.state?.() || {};
+    const dashed = linesFeature.dashed?.state?.() || {};
+    return {
+        alignOn: settings.ledgerReconcileEnabled === true,
+        alignUsed: align.counter || 0,
+        alignInterval: getLedgerReconcileInterval(),
+        linesOn: settings.linesEnabled !== false,
+        linesMode: getLinesMode(),
+        pendingAdvance: refreshController.stagger?.hasPendingAdvance?.() === true,
+        advanceUsed: linesFeature.lifecycle?.counter || 0,
+        advanceInterval: getLinesInterval(),
+        outlineOn: settings.outlineJudgeEnabled === true,
+        outlineUsed: outline.messageCounter || 0,
+        outlineInterval: outlineFeature.judge?.getInterval?.() || 3,
+        dateOn: settings.almanacAutoDetect !== false,
+        dateUsed: almanacJudgeCounter,
+        dateInterval: getAlmanacJudgeInterval(),
+        dashedOn: settings.dashedEnabled === true,
+        dashedUsed: dashed.autoCount || 0,
+        dashedInterval: Math.max(1, Number(settings.dashedAutoInterval) || 6),
+        ledgerOn: settings.ledgerCaptureEnabled === true,
+        ledgerCaptureUsed: ledgerCaptureCounter,
+        ledgerCaptureInterval: getLedgerCaptureInterval(),
+        ledgerJudgeUsed: ledgerJudgeCounter,
+        ledgerJudgeInterval: getLedgerJudgeInterval(),
+    };
+}
+
+function paintPace() {
+    const rows = pluginEnabled() ? collectPaceRows(readPaceSnapshot()) : [];
+    const empty = pluginEnabled() ? '后台节奏都关着' : '插件关着';
+    const $fold = $in('#sp-pace-fold');
+    if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
+    const $settings = $in('#sp-pace-settings');
+    if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
+    for (const row of rows) {
+        const $el = $in(`[data-pace-remain="${row.id}"]`);
+        if (!$el.length) continue;
+        $el.text(row.text).toggleClass('is-off', !!row.off).toggleClass('is-due', !row.off && (!!row.due || row.text === '下一楼' || row.text === '下一楼补'));
+    }
+    if (!rows.length) $in('[data-pace-remain]').text('').removeClass('is-due is-off');
+}
+
+let _pacePaintQueued = false;
+function paintPaceSoon() {
+    if (_pacePaintQueued) return;
+    _pacePaintQueued = true;
+    const kick = () => { _pacePaintQueued = false; paintPace(); };
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(kick);
+    else setTimeout(kick, 0);
+}
+
 // ─── 时间戳·时间锚点体系（注入 + 结构化回读 + 只读显示）─────────────────────────
 // 目标：给整个构画一个「跟着剧情走」的坚固时间源。做法＝强制注入一段提示词，让主楼 AI
 // 每楼正文首尾各打一个 HTML 注释时间戳（<!-- SDC-start … --> / <!-- SDC-end … -->），
@@ -2813,9 +2876,8 @@ function getLedgerJudgeInterval() {
 // 最近 N 楼 AI 正文拼成一段（去标记）。供场景加权命中判断；只读、无副作用。
 // ─── 共享锚点善后 ───────────────────────────────────────────────────────────
 // 任何一处改「今天」锚点（自动判定 applyDetectedDate / 历面板 ±1天·改·恢复自动）后都走这里，统一善后：
-//   1) 刷当前渲染窗口与轴面板；2) 仅在 scheduleAutoDetect 开启且未被时旅抑制时后台重排点。
-// 点连带走 syncPointToToday(true)：其自带「点没生成过就 no-op」「_almSyncingPoint 重入合并」「pointState.isGenerating/
-// chatId/abort」守卫，fire-and-forget 安全；不占前台 pointState.isGenerating 锁。外层仅在 scheduleAutoDetect 开启且未被时旅抑制时调用。
+//   1) 刷当前渲染窗口与轴面板；2) 日期制线推进在这里检测换日。
+// 点不再随「今天」后台整表重排；时旅仍可显式调用 syncPointToToday。点/线对齐走刷新条或 ledgerReconcileEnabled。
 function runAnchorAftermath() {
     syncLatestAlmanacBlock();
     syncLatestScheduleBlock();
@@ -2832,6 +2894,7 @@ function runAnchorAftermath() {
     void linesFeature.onDateAftermath({ messageId: _linesFloorId, chatId: getContext().chatId, day: _linesDay ? `${+_linesDay.month}-${+_linesDay.day}` : null });
     if (axisState.almanacMode) renderAlmanacPanel();
     // 点不再随「今天」后台整表重排；点/线对齐走刷新条或 ledgerReconcileEnabled。
+    paintPaceSoon();
 }
 
 // schedulePointNeedsSync() —— 判断后台跟随/时旅流程是否仍有 pending follow-up 需要补同步。
@@ -3100,6 +3163,7 @@ function injectModal() {
                     </header>
 
                     <div class="sp-panel-tools" id="sp-panel-tools">
+                    ${paceFoldHtml(collectPaceRows(readPaceSnapshot()))}
                     ${refreshFoldHtml({ selected: ['point', 'lines'], outlineMode: getSettings().outlineRegenMode || 'current' })}
                     ${beatFoldHtml()}
                     </div>
@@ -3499,7 +3563,7 @@ function injectModal() {
                                         <div class="sp-settings-section-body">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-lines-enabled" ${getSettings().linesEnabled !== false ? 'checked' : ''}><span>线</span></label>
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-dashed-enabled" ${getSettings().dashedEnabled === true ? 'checked' : ''}><span>冷知识（默认关；开了也不跟线推进绑在一起）</span></label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-dashed-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(Math.max(1, Number(getSettings().dashedAutoInterval) || 6)))}"><span>条 AI 楼最多抽一次，和点/线对齐错开</span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-dashed-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(Math.max(1, Number(getSettings().dashedAutoInterval) || 6)))}"><span>条 AI 楼最多抽一次，和点/线对齐错开</span><span class="sp-pace-remain" data-pace-remain="dashed"></span></label>
                                             <div class="sp-mode-opt sp-mode-opt-sub sp-dashed-keep-row">
                                                 <input type="checkbox" id="sp-dashed-cleanup-enabled" ${getSettings().dashedCleanupEnabled !== false ? 'checked' : ''}>
                                                 <label for="sp-dashed-cleanup-enabled">冷知识保存数量</label>
@@ -3529,19 +3593,20 @@ function injectModal() {
                                     <details class="sp-settings-section" id="sp-axis-section">
                                         <summary class="sp-settings-section-title">日期与对齐</summary>
                                         <div class="sp-settings-section-body">
+                                            <div id="sp-pace-settings" class="sp-pace-settings">${paceStripHtml(collectPaceRows(readPaceSnapshot()), { id: 'sp-pace-settings-strip' })}</div>
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-almanac-autodetect" ${getSettings().almanacAutoDetect !== false ? 'checked' : ''}><span>读不到时间戳时，用 API 补看今天是几号</span></label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复补看一次</span></label>
-                                            <p class="sp-cfg-hint">有完整时间戳时每楼直接读、不调 API。只有漏打戳、或只写了「谷雨」这种没月日的，才隔几楼问一次。关掉＝只认戳。</p>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复补看一次</span><span class="sp-pace-remain" data-pace-remain="date"></span></label>
+                                            <p class="sp-cfg-hint">有完整时间戳时每楼直接读、不调 API。只有漏打戳、或只写了「谷雨」这种没月日的，才隔几楼问一次。关掉＝只认戳。倒数只在真的去补看时往前走。</p>
                                             <hr class="sp-mem-divider">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile" ${getSettings().ledgerReconcileEnabled === true ? 'checked' : ''}><span>点/线按楼对齐正文</span></label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-reconcile-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLedgerReconcileInterval()))}"><span>条 AI 回复对齐一次</span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-reconcile-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLedgerReconcileInterval()))}"><span>条 AI 回复对齐一次</span><span class="sp-pace-remain" data-pace-remain="align"></span></label>
                                             <p class="sp-cfg-hint">默认关。每隔几楼用最新正文改走偏的点和线（完成/推迟/改描述，线也可以收束或暂缓），不整表重做。冷知识和面不自动改。成功记在「最近改动」，失败才弹窗。时旅那一层两边都不跑。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-pace-lines-section">
                                         <summary class="sp-settings-section-title">线</summary>
                                         <div class="sp-settings-section-body">
-                                            <p class="sp-cfg-group">线怎么往前走</p>
+                                            <p class="sp-cfg-group">线怎么往前走 <span class="sp-pace-remain" data-pace-remain="advance"></span></p>
                                             <div class="sp-mode-row">
                                                 <label class="sp-mode-opt"><input type="radio" name="sp-lines-mode" value="days" ${getLinesMode() === 'days' ? 'checked' : ''}><span>故事日期变了就推进（推荐）</span></label>
                                                 <label class="sp-mode-opt"><input type="radio" name="sp-lines-mode" value="turns" ${getLinesMode() === 'turns' ? 'checked' : ''}><span>按楼数，每</span><input id="sp-lines-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLinesInterval()))}"><span>条 AI 回复推进一次</span></label>
@@ -3556,15 +3621,15 @@ function injectModal() {
                                         <div class="sp-settings-section-body">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-outline-judge" ${getSettings().outlineJudgeEnabled === true ? 'checked' : ''}><span>自动判断故事演到面的哪一段</span></label>
                                             <label class="sp-cfg-group">判定节奏</label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-outline-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(outlineFeature.judge.getInterval()))}"><span>条 AI 回复看一次</span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-outline-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(outlineFeature.judge.getInterval()))}"><span>条 AI 回复看一次</span><span class="sp-pace-remain" data-pace-remain="outline"></span></label>
                                             <p class="sp-cfg-hint">只把「现在演到哪」往后指一格，不重写整份面，也不塞给主楼。楼数越大越省。新装默认关。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-pace-ledger-section">
                                         <summary class="sp-settings-section-title">刻度</summary>
                                         <div class="sp-settings-section-body">
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-capture-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerCaptureInterval) || 5))))}"><span>条 AI 回复标注一次</span></label>
-                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-judge-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerJudgeInterval) || 4))))}"><span>条 AI 回复更新一次现状</span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-capture-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerCaptureInterval) || 5))))}"><span>条 AI 回复标注一次</span><span class="sp-pace-remain" data-pace-remain="ledger-capture"></span></label>
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-judge-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerJudgeInterval) || 4))))}"><span>条 AI 回复更新一次现状</span><span class="sp-pace-remain" data-pace-remain="ledger-judge"></span></label>
                                             <p class="sp-cfg-hint">两项节奏均受“刻度 · 自动标注”开关统辖。</p>
                                         </div>
                                     </details>
@@ -3574,7 +3639,7 @@ function injectModal() {
                             <details class="sp-settings-layer" id="sp-settings-manual">
                                 <summary class="sp-settings-layer-title">我自己点</summary>
                                 <div class="sp-settings-layer-body">
-                                    <p class="sp-cfg-hint">刷新账本、本轮拍、间引导都在面板里，不用再开总开关。后台改账成功记在侧栏「改」，失败才弹窗。</p>
+                                    <p class="sp-cfg-hint">刷新账本、本轮拍、间引导都在面板里，不用再开总开关。后台改账成功记在侧栏「改」，失败才弹窗。点/线/面页顶上那条节奏，会告诉你离自动对齐、推进还差几楼。</p>
                                 </div>
                             </details>
 
@@ -3746,6 +3811,8 @@ function injectModal() {
         <div class="sp-root sp-${currentTheme}" style="display:contents">${html}</div>`;
     document.documentElement.appendChild(host);
 
+    paintPace();
+
     if (cfg.key) $in('#sp-cfg-key').val(maskKey(cfg.key)).data('real', cfg.key);
 
     $in('.sp-close-btn').on('click',    closePanel);
@@ -3757,6 +3824,7 @@ function injectModal() {
         .on('change.spLinesMode', 'input[name="sp-lines-mode"]', function () {
             saveLinesMode(this.value);
             linesFeature.resetCounter();
+            paintPaceSoon();
         });
     $in('.sp-fab-toggle-btn').on('click', function () {
         const nowEnabled = !fabEnabled();
@@ -4443,6 +4511,7 @@ function injectModal() {
         saveSettingsDebounced();
         // Refresh chat area: on → back-fill latest floor with block; off → clear all
         backfillLinesInlineBlocks();
+        paintPaceSoon();
     });
     // 线·楼内块显隐开关（独立于线主开关 linesEnabled）：立刻生效。渲染窗口按段开关重算所有窗内楼。
     // 线的推进与潜伏注入不受影响（refreshLinesInjection 另在 backfill/sync 路径）。
@@ -4514,12 +4583,15 @@ function injectModal() {
         saveSettingsDebounced();
         if (linesMode) linesFeature.refreshPanel();
         syncLatestInlineBlock();
+        paintPaceSoon();
     });
     $in('#sp-dashed-interval').on('change', function () {
         const n = Math.max(1, parseInt(this.value, 10) || 6);
         getSettings().dashedAutoInterval = n;
         this.value = String(n);
         saveSettingsDebounced();
+        linesFeature.dashed.resetAuto?.();
+        paintPaceSoon();
     });
     $in('#sp-dashed-cleanup-enabled').on('change', function () {
         getSettings().dashedCleanupEnabled = this.checked;
@@ -4546,6 +4618,7 @@ function injectModal() {
         getSettings().outlineJudgeEnabled = this.checked;
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
+        paintPaceSoon();
     });
     $in('#sp-lines-advance-latest').on('change', function () {
         getSettings().linesAdvanceIncludeLatest = this.checked;
@@ -4558,12 +4631,14 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         outlineFeature.resetJudgeCounter();
+        paintPaceSoon();
     });
     // 历·自动确认当前日期 开关：改完重置历计数（避免残留计数刚开就判）
     $in('#sp-almanac-autodetect').on('change', function () {
         getSettings().almanacAutoDetect = this.checked;
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
+        paintPaceSoon();
     });
     // 历·确认间隔：改完重新计数
     $in('#sp-almanac-judge-interval').on('change', function () {
@@ -4572,6 +4647,7 @@ function injectModal() {
         this.value = String(n);
         saveSettingsDebounced();
         almanacJudgeCounter = 0;
+        paintPaceSoon();
     });
     // 界面字号缩放：−/＋ 各 ±5%，夹 0.8–1.3、吸附到 0.05 网格；写 --sp-scale（即时生效）+ 存 uiScale + 回填读数。
     function applyUiScale(v) {
@@ -4619,10 +4695,11 @@ function injectModal() {
         getSettings().ledgerReconcileEnabled = this.checked;
         saveSettingsDebounced();
         refreshController.resetCounter();
+        paintPaceSoon();
     });
     $in('#sp-ledger-reconcile-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 3)));
-        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter();
+        getSettings().ledgerReconcileInterval = n; this.value = String(n); saveSettingsDebounced(); refreshController.resetCounter(); paintPaceSoon();
     });
     // 暗历·潜伏注入开关（原挂暗历 sheet，2.x 挪进设置「轴」区）：on → 按当前账+场景立即注入；off → 清空扩展 prompt + 回显。
     $in('#sp-ledger-inject').on('change', function () {
@@ -4635,14 +4712,15 @@ function injectModal() {
         getSettings().ledgerCaptureEnabled = this.checked;
         saveSettingsDebounced();
         ledgerCaptureCounter = 0;
+        paintPaceSoon();
     });
     $in('#sp-ledger-capture-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 5)));
-        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0;
+        getSettings().ledgerCaptureInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerCaptureCounter = 0; paintPaceSoon();
     });
     $in('#sp-ledger-judge-interval').on('change', function () {
         const n = Math.max(1, Math.min(30, Math.floor(Number(this.value) || 4)));
-        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0;
+        getSettings().ledgerJudgeInterval = n; this.value = String(n); saveSettingsDebounced(); ledgerJudgeCounter = 0; paintPaceSoon();
     });
     // 楼内渲染框·主开关：关 → 整框全清、停观察；开 → 重算窗口挂回。三个子开关只在它开时才起效。
     $in('#sp-inline-render-enabled').on('change', function () {
@@ -4683,7 +4761,7 @@ function injectModal() {
     $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); syncPresetState(); });
     $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); syncPresetState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
     $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); syncPresetState(); });
-    $in('#sp-lines-interval').on('input change', function () { const n = Number(this.value); if (!Number.isInteger(n) || n < 1) return; saveLinesInterval(n); this.value = String(n); });
+    $in('#sp-lines-interval').on('input change', function () { const n = Number(this.value); if (!Number.isInteger(n) || n < 1) return; saveLinesInterval(n); this.value = String(n); paintPaceSoon(); });
 
     $in('#sp-body').on('click', '.sp-tab', function () {
         const rawDay = String($(this).attr('data-day') || '').trim().toLowerCase();
@@ -7292,6 +7370,7 @@ function toggleSettings() {
         renderTheaterSection();  // 棱 settings + cache usage + template manager
         renderStorageUsage();    // 存储管理面板：本聊天、坐标收藏、本机缓存三层用量统计
         $overlay.stop(true).css({ display: 'flex', opacity: 0 }).animate({ opacity: 1 }, 180);
+        paintPace();
     } else {
         $overlay.stop(true).animate({ opacity: 0 }, 150, function () { $(this).css('display', 'none'); });
         stSaveSettings();   // 关面板即把面板内所有改动立即写盘：兜底防抖未 flush 的字段（customPrompt 等），根治重启丢失

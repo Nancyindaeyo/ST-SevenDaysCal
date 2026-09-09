@@ -118,6 +118,7 @@ export function createRefreshController(env = {}) {
         align, regenerate, onAiFloor, stagger,
         resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; stagger.reset(); },
         didReconcile: messageId => lastReconcileFloor === Number(messageId),
+        state: () => ({ counter, lastFloor, lastReconcileFloor, busy, pendingAdvance: stagger.pendingAdvance, pendingDashed: stagger.pendingDashed }),
         get busy() { return busy; },
     };
 }
