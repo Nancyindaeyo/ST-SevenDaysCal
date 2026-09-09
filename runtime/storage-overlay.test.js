@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backupOverlayProgressCopy, BLOCKING_OVERLAY_STYLE, MIGRATION_UNKNOWN_ABORT_LABEL, OVERLAY_BLOCK_EVENTS } from './storage-overlay.js';
+import { backupOverlayProgressCopy, BLOCKING_OVERLAY_STYLE, createOverlayAbortRelay, MIGRATION_UNKNOWN_ABORT_LABEL, OVERLAY_BLOCK_EVENTS } from './storage-overlay.js';
 
 test('backup overlay progress prefers message then count', () => {
     assert.equal(backupOverlayProgressCopy({ message: '写入中' }), '写入中');
@@ -13,4 +13,13 @@ test('storage lock overlay keeps the page-blocking contract', () => {
     assert.ok(OVERLAY_BLOCK_EVENTS.includes('click'));
     assert.equal(BLOCKING_OVERLAY_STYLE.zIndex, '2147483647');
     assert.equal(MIGRATION_UNKNOWN_ABORT_LABEL, '关闭（请刷新聊天后核实）');
+});
+
+test('migration unknown close replaces abort without a second listener', () => {
+    const calls = [];
+    const relay = createOverlayAbortRelay(() => calls.push('abort'));
+    relay.fire();
+    relay.set(() => calls.push('close'));
+    relay.fire();
+    assert.deepEqual(calls, ['abort', 'close']);
 });

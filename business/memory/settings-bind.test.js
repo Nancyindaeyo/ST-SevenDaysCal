@@ -23,5 +23,6 @@ test('memory counts still use parseInt fallbacks', () => {
     assert.equal(clampParseInt('20abc', { min: 1, max: 50, fallback: 20 }), 20);
     assert.equal(clampParseInt('', { min: 2, max: 30, fallback: 10 }), 10);
     assert.equal(clampParseInt('99', { min: 1, max: 30, fallback: 5 }), 30);
-    assert.equal(clampParseInt(0, { min: 0, max: 500, fallback: 50 }), 50);
+    assert.equal(clampParseInt(0, { min: 0, max: 500, fallback: 50 }), 0);
+    assert.equal(clampParseInt('', { min: 0, max: 500, fallback: 50 }), 50);
 });

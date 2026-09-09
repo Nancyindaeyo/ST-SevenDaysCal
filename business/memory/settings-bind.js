@@ -10,7 +10,9 @@ export function applyBaiBaiBookToggle(settings, checked) {
 }
 
 export function clampParseInt(value, { min, max, fallback }) {
-    return Math.max(min, Math.min(max, parseInt(value, 10) || fallback));
+    const n = parseInt(value, 10);
+    const parsed = Number.isFinite(n) ? n : fallback;
+    return Math.max(min, Math.min(max, parsed));
 }
 
 export function sanitizeTagList(raw) {

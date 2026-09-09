@@ -17,7 +17,7 @@ export function baiBaiBookCoverage(api) {
         }
         return { ready: true, complete: true, missing: 0 };
     } catch {
-        return { ready: true, complete: true, missing: 0 };
+        return { ready: true };
     }
 }
 
@@ -27,6 +27,8 @@ export function baiBaiBookStatusHtml(coverage, escapeHtml = value => String(valu
     }
     const msg = coverage.complete === false
         ? `柏宝书已就绪（缺 ${escapeHtml(String(coverage.missing))} 楼摘要）`
-        : '柏宝书已就绪（覆盖完整）';
+        : coverage.complete === true
+            ? '柏宝书已就绪（覆盖完整）'
+            : '柏宝书已就绪';
     return `<i class="fa-solid fa-circle-check" style="color:var(--cardhub-accent,#7c9)"></i> ${msg}`;
 }

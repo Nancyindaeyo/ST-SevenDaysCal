@@ -265,3 +265,91 @@ export async function packWorldInfoContents(candidates, { budget = WORLD_INFO_TO
         estimatedTokens: finalCount.tokens,
     };
 }
+
+export async function resolveAllWorldNames(env = {}) {
+    try {
+        const cached = await env.readCached?.();
+        if (Array.isArray(cached) && cached.length) return cached;
+    } catch { /* next layer */ }
+    try {
+        const list = await env.readHelper?.();
+        if (Array.isArray(list) && list.length) return list;
+    } catch { /* next layer */ }
+    try {
+        const refreshed = await env.refresh?.();
+        if (Array.isArray(refreshed)) return refreshed;
+    } catch { /* empty */ }
+    return [];
+}
+
+export function normalizeWorldNameList(names) {
+    return [...new Set((names || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
+}
+
+export function wiExcludeSet(raw) {
+    const arr = Array.isArray(raw) ? raw : [];
+    return new Set(arr.filter(x => typeof x === 'string' && x));
+}
+
+export function bookNameExcluded(bookName, excluded, equals) {
+    const name = String(bookName || '').trim();
+    if (!name || !excluded?.size) return false;
+    return [...excluded].some(saved => equals(saved, name));
+}
+
+export function nextExcludeBooks(raw, bookName, excluded, equals) {
+    const name = String(bookName || '').trim();
+    const current = Array.isArray(raw) ? raw : [];
+    if (!name) return [...current];
+    const set = new Set(current);
+    for (const saved of set) if (equals(saved, name)) set.delete(saved);
+    if (excluded) set.add(name);
+    return [...set];
+}
+
+export function filterExcludedWorldInfo(items, excluded, equals) {
+    if (!excluded?.size) return items || [];
+    return (items || []).filter(entry => !bookNameExcluded(entry?.source, excluded, equals));
+}
+
+export async function loadCharacterWorldInfoEntries({
+    loadWorldInfo,
+    linkedNames = [],
+    chatNames = [],
+    globalNames = [],
+    personaBook = '',
+    characterBook = null,
+} = {}) {
+    const items = [];
+    const seen = new Set();
+    for (const name of linkedNames) {
+        try {
+            const data = await loadWorldInfo?.(name);
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'char' });
+        } catch { /* ignore individual load failure */ }
+    }
+    if (items.length === 0 && characterBook?.entries?.length) {
+        appendWorldInfoBook(items, seen, characterBook.entries, characterBook.name || '角色内置世界书', { scope: 'char', embedded: true });
+    }
+    for (const name of chatNames) {
+        try {
+            const data = await loadWorldInfo?.(name);
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'chat' });
+        } catch { /* ignore chat lore load failure */ }
+    }
+    for (const name of globalNames) {
+        if (linkedNames.includes(name)) continue;
+        try {
+            const data = await loadWorldInfo?.(name);
+            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'global' });
+        } catch { /* ignore individual load failure */ }
+    }
+    const persona = String(personaBook || '').trim();
+    if (persona && !linkedNames.includes(persona) && !globalNames.includes(persona)) {
+        try {
+            const data = await loadWorldInfo?.(persona);
+            appendWorldInfoBook(items, seen, data?.entries, persona, { scope: 'persona' });
+        } catch { /* ignore persona book load failure */ }
+    }
+    return items;
+}

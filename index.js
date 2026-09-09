@@ -249,20 +249,24 @@ import {
     initializeWorldInfoSelection,
     mergeWorldInfoSelection,
     normalizeWorldInfoSelectionBucket,
-    worldInfoSelectionAllows,
 } from './runtime/world-info-selection.js';
 import {
-    appendWorldInfoBook,
     collectChatWorldNames,
     collectGlobalWorldNames,
     collectLinkedWorldNames,
     countWorldInfoTokens as countWorldInfoTokenValue,
     filterActivatedWorldInfo,
+    filterExcludedWorldInfo,
+    loadCharacterWorldInfoEntries,
+    nextExcludeBooks,
     packWorldInfoContents,
+    resolveAllWorldNames,
     resolveWorldInfoActivation,
+    wiExcludeSet,
     WORLD_INFO_TOKEN_BUDGET,
     worldInfoFailureNoticeKey,
 } from './runtime/world-info-context.js';
+import { paintWiEntryFull, paintWiExcludeList, paintWiList, worldInfoPanelIdentity } from './runtime/world-info-panel.js';
 import { capMemTextAsync } from './business/memory/recall.js';
 import {
     dispatchStoreClearInvalidate,
@@ -3696,15 +3700,34 @@ function setCurrentWiSelection(ctx, bucket) {
     saveSettingsDebounced();
 }
 
-function saveCurrentWiSelection() {
+const wiPanelState = { cache: new Map(), listRevision: 0, excludeRevision: 0, theaterRevision: 0 };
+
+function saveVisibleWiSelection(visible, entries) {
     const ctx = getContext();
-    const chatKey = chatStableKey(ctx);
-    if (!chatKey) return;
-    const visible = [];
-    $inAll('#sp-wi-list .sp-wi-cb').each(function () { visible.push({ key: $(this).data('key'), checked: this.checked }); });
-    const current = ensureCurrentWiSelection(ctx, [..._wiEntryCache.values()]);
+    if (!chatStableKey(ctx)) return;
+    const current = ensureCurrentWiSelection(ctx, entries);
     const merged = mergeWorldInfoSelection(current, visible);
     if (merged.changed) setCurrentWiSelection(ctx, merged.bucket);
+}
+
+function wiPanelEnv() {
+    return {
+        state: wiPanelState,
+        $, $in, $inAll,
+        getContext,
+        identity: () => worldInfoPanelIdentity(getContext(), charStableKey(getContext())),
+        loadEntries: () => getCharBookEntries(getContext()),
+        ensureSelection: (ctx, entries) => ensureCurrentWiSelection(ctx, entries),
+        saveVisible: saveVisibleWiSelection,
+        diagnosticMessage,
+        escapeAttr,
+        showEntry: entry => paintWiEntryFull({ $in, $ }, entry),
+        listNames: () => getAllWorldNames(getContext()),
+        excludeSet: getWiExcludeSet,
+        setExcluded: setWiExcluded,
+        onExcludeChange: () => { void renderWiList(); },
+        equals: equalsIgnoreCaseAndAccents,
+    };
 }
 
 // ─── World-book global exclusion (B方案) ─────────────────────────────────────
@@ -3714,23 +3737,12 @@ function saveCurrentWiSelection() {
 // 挑选」列表也不再显示被排除的书。存 extension_settings[PLUGIN_ID].wiExcludeBooks = [书名,…]
 // （书名即 ctx.getWorldInfoNames() 的项）。照 wiFilter 的懒创建：无 DEFAULT_SETTINGS 项，getter 兜空。
 function getWiExcludeSet() {
-    const s = getSettings();
-    const arr = Array.isArray(s.wiExcludeBooks) ? s.wiExcludeBooks : [];
-    return new Set(arr.filter(x => typeof x === 'string' && x));
-}
-function hasWiExcluded(bookName, excluded = getWiExcludeSet()) {
-    const name = String(bookName || '').trim();
-    return !!name && [...excluded].some(saved => equalsIgnoreCaseAndAccents(saved, name));
+    return wiExcludeSet(getSettings().wiExcludeBooks);
 }
 
 function setWiExcluded(bookName, excluded) {
-    const name = String(bookName || '').trim();
-    if (!name) return;
     const s = getSettings();
-    const set = new Set(Array.isArray(s.wiExcludeBooks) ? s.wiExcludeBooks : []);
-    for (const saved of set) if (equalsIgnoreCaseAndAccents(saved, name)) set.delete(saved);
-    if (excluded) set.add(name);
-    s.wiExcludeBooks = [...set];
+    s.wiExcludeBooks = nextExcludeBooks(s.wiExcludeBooks, bookName, excluded, equalsIgnoreCaseAndAccents);
     saveSettingsDebounced();
 }
 
@@ -3859,51 +3871,32 @@ function getChatWorldNames(ctx) {
 // Each item: { key, uid, label, preview, content, source, embedded, scope, hostEnabled }
 //   scope = 'char'/'chat'/'persona'/'global' → 角色卡、当前聊天、用户 persona 或全局世界书来源
 async function getCharBookEntries(ctx) {
-    const items = [];
-    const seen = new Set();
+    const items = await loadCharacterWorldInfoEntries({
+        loadWorldInfo: name => ctx.loadWorldInfo(name),
+        linkedNames: getLinkedWorldNames(ctx),
+        chatNames: getChatWorldNames(ctx),
+        globalNames: getGlobalWorldNames(ctx),
+        personaBook: ctx.powerUserSettings?.persona_description_lorebook,
+        characterBook: ctx.characters?.[ctx.characterId]?.data?.character_book,
+    });
+    return filterExcludedWorldInfo(items, getWiExcludeSet(), equalsIgnoreCaseAndAccents);
+}
 
-    const worldNames = getLinkedWorldNames(ctx);
-    for (const name of worldNames) {
-        try {
-            const data = await ctx.loadWorldInfo(name);
-            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'char' });
-        } catch { /* ignore individual load failure */ }
-    }
-
-    if (items.length === 0) {
-        const char = ctx.characters?.[ctx.characterId] ?? {};
-        const charBook = char.data?.character_book;
-        if (charBook?.entries?.length) {
-            appendWorldInfoBook(items, seen, charBook.entries, charBook.name || '角色内置世界书', { scope: 'char', embedded: true });
-        }
-    }
-
-    for (const name of getChatWorldNames(ctx)) {
-        try {
-            const data = await ctx.loadWorldInfo(name);
-            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'chat' });
-        } catch { /* ignore chat lore load failure */ }
-    }
-
-    const globalNames = getGlobalWorldNames(ctx);
-    for (const name of globalNames) {
-        if (worldNames.includes(name)) continue;
-        try {
-            const data = await ctx.loadWorldInfo(name);
-            appendWorldInfoBook(items, seen, data?.entries, name, { scope: 'global' });
-        } catch { /* ignore individual load failure */ }
-    }
-
-    const personaBook = String(ctx.powerUserSettings?.persona_description_lorebook || '').trim();
-    if (personaBook && !worldNames.includes(personaBook) && !globalNames.includes(personaBook)) {
-        try {
-            const data = await ctx.loadWorldInfo(personaBook);
-            appendWorldInfoBook(items, seen, data?.entries, personaBook, { scope: 'persona' });
-        } catch { /* ignore persona book load failure */ }
-    }
-
-    const excluded = getWiExcludeSet();
-    return excluded.size ? items.filter(e => !hasWiExcluded(e.source, excluded)) : items;
+async function getAllWorldNames(ctx) {
+    return resolveAllWorldNames({
+        readCached: () => typeof ctx?.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [],
+        readHelper: async () => {
+            const th = globalThis?.TavernHelper;
+            const fn = th?.getWorldbookNames || th?.getLorebooks;
+            if (typeof fn !== 'function') return [];
+            return fn.call(th);
+        },
+        refresh: async () => {
+            if (typeof ctx?.updateWorldInfoList !== 'function') return null;
+            await ctx.updateWorldInfoList();
+            return typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
+        },
+    });
 }
 
 // Recent chat context — fills the gap between memory (delayed L0/L1 summaries)
@@ -4859,7 +4852,10 @@ function renderTheaterSection() {
 async function renderTheaterPoolList() {
     const $list = $in('#sp-theater-pool-list');
     if (!$list.length) return;
+    const revision = ++wiPanelState.theaterRevision;
+    const identity = worldInfoPanelIdentity(getContext(), charStableKey(getContext()));
     const names = [...new Set((await getAllWorldNames(getContext()) || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
+    if (revision !== wiPanelState.theaterRevision || identity !== worldInfoPanelIdentity(getContext(), charStableKey(getContext()))) return;
     const selected = new Set(getSettings().theaterPoolBooks || []);
     if (!names.length) {
         $list.html('<span class="sp-cfg-hint">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选。</span>');
@@ -4872,7 +4868,7 @@ async function renderTheaterPoolList() {
     const query = String($in('#sp-theater-pool-search').val() || '').trim().toLowerCase();
     if (query) {
         $list.find('.sp-wi-exclude-row').each(function () {
-            const name = String($(this).data('name') || '').toLowerCase();
+            const name = String($(this).attr('data-name') || '').toLowerCase();
             $(this).toggle(name.includes(query));
         });
     }
@@ -4912,321 +4908,12 @@ function renderAdultRow() {
     $row.html(ADULT_MODES.map(v => `<label class="sp-mode-opt"><input type="radio" name="sp-lines-adult-mode" value="${v}"${v === current ? ' checked' : ''}><span>${escapeHtml(ADULT_MODE_LABELS[v])}</span></label>`).join(''));
 }
 
-// Render world-info entry checklist for the current character into #sp-wi-list.
-// Perf: builds one HTML string + inserts once, uses event delegation on the list root.
-let _wiEntryCache = new Map();   // key → entry object, for eye-button popup lookup
-let _wiListRevision = 0;
-
-function _wiListIdentity(ctx) {
-    return JSON.stringify({
-        chatId: String(ctx?.chatId ?? ''),
-        characterId: String(ctx?.characterId ?? ''),
-        characterKey: charStableKey(ctx),
-    });
-}
-
-// Nearest scrollable ancestor — used to keep the viewport steady across a
-// re-render (adding/removing an extra book rebuilds the whole list).
-function _wiScrollParent(el) {
-    let p = el && el.parentElement;
-    while (p) {
-        const oy = getComputedStyle(p).overflowY;
-        if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
-        p = p.parentElement;
-    }
-    return null;
-}
-
 async function renderWiList() {
-    const ctx = getContext();
-    const $list = $in('#sp-wi-list');
-    const revision = ++_wiListRevision;
-    const identity = _wiListIdentity(ctx);
-    const isCurrent = () => revision === _wiListRevision && identity === _wiListIdentity(getContext());
-
-    // Snapshot the current expand + scroll state BEFORE the loading placeholder
-    // wipes the DOM, so a re-render doesn't spring every <details> group back open
-    // or bounce the viewport. First open has no groups yet → everything defaults
-    // open as before.
-    const prevSources = new Set();
-    const openSources = new Set();
-    $list.find('.sp-wi-group').each(function () {
-        const src = String(this.getAttribute('data-source') || '');
-        prevSources.add(src);
-        if (this.open) openSources.add(src);
-    });
-    const hadGroups = prevSources.size > 0;
-    const scrollEl = _wiScrollParent($list[0]);
-    const savedScroll = scrollEl ? scrollEl.scrollTop : 0;
-
-    $list.html('<span class="sp-cfg-hint">正在加载世界书条目…</span>');
-
-    let entries;
-    try {
-        entries = await getCharBookEntries(ctx);
-    } catch (err) {
-        if (!isCurrent()) return;
-        $list.html(`<span class="sp-cfg-hint">加载失败：${escapeHtml(diagnosticMessage(err))}</span>`);
-        return;
-    }
-    if (!isCurrent()) return;
-
-    // Cache entries for the eye-button popup
-    if (!isCurrent()) return;
-    _wiEntryCache = new Map(entries.map(e => [e.key, e]));
-
-    const selection = ensureCurrentWiSelection(ctx, entries);
-
-    // Two-level group: scope (char / chat / persona / global) → source (book name) → entries.
-    // Preserves entry order within each source: char, chat, persona, then global.
-    const scopes = new Map([['char', new Map()], ['chat', new Map()], ['persona', new Map()], ['global', new Map()]]);
-    for (const e of entries) {
-        const scopeGroup = scopes.get(e.scope) || scopes.get('char');
-        if (!scopeGroup.has(e.source)) scopeGroup.set(e.source, []);
-        scopeGroup.get(e.source).push(e);
-    }
-    const SCOPE_LABELS = { char: '角色卡世界书', chat: '当前聊天世界书', persona: '用户世界书', global: '全局世界书' };
-
-    // Build HTML in one pass.
-    const parts = [];
-    if (entries.length) {
-        parts.push(`<div class="sp-wi-all-row">
-            <label class="sp-wi-toggle-all">
-                <input type="checkbox" id="sp-wi-select-all"> 全选 / 全不选
-            </label>
-            <span class="sp-wi-count">${entries.length} 条</span>
-        </div>`);
-    } else {
-        parts.push('<span class="sp-cfg-hint">当前角色没有关联 / 全局启用的世界书。</span>');
-    }
-
-    for (const [scope, groups] of scopes) {
-        if (!groups.size) continue;
-        const scopeCount = [...groups.values()].reduce((n, g) => n + g.length, 0);
-        parts.push(`<div class="sp-wi-scope">
-            <div class="sp-wi-scope-label">${escapeHtml(SCOPE_LABELS[scope])} <span class="sp-wi-scope-count">${scopeCount} 条</span></div>`);
-        for (const [source, group] of groups) {
-            // Each book is collapsible; default open. summary shows a
-            // per-book "select-all" checkbox (indeterminate when partial).
-            const groupChecked = group.filter(e => worldInfoSelectionAllows(selection, e.key)).length;
-            const groupAllOn   = groupChecked === group.length;
-            const groupAllOff  = groupChecked === 0;
-            const escSrc       = escapeAttr(source);
-            // Preserve prior expand state across re-renders; open by default on the
-            // first render and for a newly-appearing book (source not seen before).
-            const groupOpen = !hadGroups || openSources.has(source) || !prevSources.has(source);
-            parts.push(`<details class="sp-wi-group" data-source="${escSrc}"${groupOpen ? ' open' : ''}>
-                <summary class="sp-wi-source-label">
-                    <input type="checkbox" class="sp-wi-group-cb" data-source="${escSrc}"${groupAllOn ? ' checked' : ''}${!groupAllOn && !groupAllOff ? ' data-indeterminate="true"' : ''}>
-                    <span class="sp-wi-source-name">${escapeHtml(source)}</span>
-                    <span class="sp-wi-group-count">${group.length} 条</span>
-                </summary>
-                <div class="sp-wi-items">`);
-            for (const e of group) {
-                const checked = worldInfoSelectionAllows(selection, e.key);
-                parts.push(`<div class="sp-wi-card${checked ? '' : ' sp-wi-card-off'}" data-key="${escapeAttr(e.key)}" data-source="${escSrc}" role="button" tabindex="0">
-                    <div class="sp-wi-card-head">
-                        <input type="checkbox" class="sp-wi-cb" data-key="${escapeAttr(e.key)}"${checked ? ' checked' : ''}>
-                        <span class="sp-wi-label">${escapeHtml(e.label)}</span>
-                    </div>
-                    <div class="sp-wi-card-body">
-                        <div class="sp-wi-preview">${e.preview ? escapeHtml(e.preview) + '…' : '<span class="sp-wi-empty">（无内容）</span>'}</div>
-                        <button class="sp-wi-view-btn" type="button" title="查看全文" data-key="${escapeAttr(e.key)}"><i class="fa-regular fa-eye"></i></button>
-                    </div>
-                </div>`);
-            }
-            parts.push(`</div></details>`);
-        }
-        parts.push(`</div>`);
-    }
-
-    // Single DOM write
-    if (!isCurrent()) return;
-    $list[0].innerHTML = parts.join('');
-
-    // Event delegation — one handler for the whole list, regardless of entry count
-    $list.off('.wi').on('click.wi', '.sp-wi-view-btn', function (ev) {
-        ev.stopPropagation();
-        const key = $(this).data('key');
-        const entry = _wiEntryCache.get(key);
-        if (entry) showWiEntryFull(entry);
-    }).on('click.wi', '.sp-wi-card', function (ev) {
-        if ($(ev.target).closest('.sp-wi-view-btn').length) return;
-        const $card = $(this);
-        const $cb   = $card.find('.sp-wi-cb');
-        if (ev.target !== $cb[0]) {
-            $cb.prop('checked', !$cb.prop('checked'));
-        }
-        $card.toggleClass('sp-wi-card-off', !$cb.prop('checked'));
-        syncWiSelectAll();
-        saveCurrentWiSelection();
-    }).on('keydown.wi', '.sp-wi-card', function (ev) {
-        if (ev.key !== ' ' && ev.key !== 'Enter') return;
-        ev.preventDefault();
-        const $card = $(this);
-        const $cb   = $card.find('.sp-wi-cb');
-        $cb.prop('checked', !$cb.prop('checked'));
-        $card.toggleClass('sp-wi-card-off', !$cb.prop('checked'));
-        syncWiSelectAll();
-        saveCurrentWiSelection();
-    }).on('change.wi', '#sp-wi-select-all', function () {
-        const checked = this.checked;
-        $list.find('.sp-wi-cb').prop('checked', checked);
-        $list.find('.sp-wi-card').toggleClass('sp-wi-card-off', !checked);
-        $list.find('.sp-wi-group-cb').prop({ checked, indeterminate: false });
-        saveCurrentWiSelection();
-    }).on('change.wi', '.sp-wi-group-cb', function (ev) {
-        // Per-book select-all — flip every entry in this <details> group
-        ev.stopPropagation();
-        const $group = $(this).closest('.sp-wi-group');
-        const checked = this.checked;
-        $group.find('.sp-wi-cb').prop('checked', checked);
-        $group.find('.sp-wi-card').toggleClass('sp-wi-card-off', !checked);
-        this.indeterminate = false;
-        syncWiSelectAll();
-        saveCurrentWiSelection();
-    }).on('click.wi', '.sp-wi-group-cb', function (ev) {
-        // Don't let click on the summary's checkbox also toggle <details> open/close
-        ev.stopPropagation();
-    });
-
-    // Keep the viewport where it was across a re-render (skip on first open).
-    if (scrollEl && hadGroups) scrollEl.scrollTop = savedScroll;
-
-    syncWiSelectAll();
+    return paintWiList(wiPanelEnv());
 }
 
-function syncWiSelectAll() {
-    const $cbs = $inAll('#sp-wi-list .sp-wi-cb');
-    if (!$cbs.length) return;
-    const total   = $cbs.length;
-    const checked = $cbs.filter(':checked').length;
-    const $all = $in('#sp-wi-select-all')[0];
-    if ($all) {
-        $all.checked       = checked === total;
-        $all.indeterminate = checked > 0 && checked < total;
-    }
-    // Refresh each group's per-book checkbox based on its own entries
-    $inAll('#sp-wi-list .sp-wi-group').each(function () {
-        const $g = $(this);
-        const $groupCb = $g.find('.sp-wi-group-cb')[0];
-        if (!$groupCb) return;
-        const gCbs = $g.find('.sp-wi-cb');
-        const gTotal = gCbs.length;
-        const gChecked = gCbs.filter(':checked').length;
-        $groupCb.checked       = gChecked === gTotal;
-        $groupCb.indeterminate = gChecked > 0 && gChecked < gTotal;
-    });
-}
-
-// 解析 ST 里注册的「全部世界书名」——供全局排除清单用。
-// getWorldInfoNames() 只读内存缓存 world_names，而它要 updateWorldInfoList()（拉
-// /api/worldinfo/list）才填；用户没开过酒馆 WI 面板 → 缓存冷 → 清单空。读书路径不受影响
-// （走 loadWorldInfo/TavernHelper 直取），所以会出现「读书正常、排除清单空」。分层兜底、
-// 首个非空即用：
-//   1. 暖缓存 getWorldInfoNames()（已填则零成本，行为同旧版）
-//   2. TavernHelper（跨分支便携：新 getWorldbookNames / 旧 getLorebooks）
-//   3. 强制刷新 updateWorldInfoList() 再读——/api/worldinfo/list 权威、根治空清单
-async function getAllWorldNames(ctx) {
-    try {
-        const cached = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
-        if (Array.isArray(cached) && cached.length) return cached;
-    } catch {}
-    try {
-        const th = globalThis?.TavernHelper;
-        const fn = th?.getWorldbookNames || th?.getLorebooks;
-        if (typeof fn === 'function') {
-            const list = await fn.call(th);
-            if (Array.isArray(list) && list.length) return list;
-        }
-    } catch {}
-    try {
-        if (typeof ctx.updateWorldInfoList === 'function') {
-            await ctx.updateWorldInfoList();
-            const refreshed = typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
-            if (Array.isArray(refreshed)) return refreshed;
-        }
-    } catch {}
-    return [];
-}
-
-// 全局排除清单（B方案）：列出 ST 里所有世界书（与角色卡无关），勾选 = 拉黑、构画一律不读。
-// 存 s.wiExcludeBooks（全局），与 renderWiList 的按角色卡挑选正交。书多（三四十本）时套进
-// 内联抽屉 + 查找框：本函数只铺行，查找靠 _filterWiExcludeList 纯前端隐/显，不重渲（重渲会
-// 打断查找框输入焦点）。名单经 getAllWorldNames 解析（冷缓存会强刷 /api/worldinfo/list）。
 async function renderWiExcludeList() {
-    const $list = $in('#sp-wi-exclude-list');
-    if (!$list.length) return;
-    const ctx = getContext();
-    let names = await getAllWorldNames(ctx);
-    names = [...new Set((names || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
-    const excluded = getWiExcludeSet();
-    _syncWiExcludeCount(excluded.size, names.length);
-    if (!names.length) {
-        $list.html('<span class="sp-cfg-hint">当前没有任何世界书。</span>');
-        return;
-    }
-    const rows = names.map(name => {
-        const on = hasWiExcluded(name, excluded);
-        return `<label class="sp-wi-exclude-row${on ? ' sp-wi-exclude-on' : ''}" data-name="${escapeAttr(name)}">
-            <input type="checkbox" class="sp-wi-exclude-cb" data-name="${escapeAttr(name)}"${on ? ' checked' : ''}>
-            <span class="sp-wi-exclude-name">${escapeHtml(name)}</span>
-        </label>`;
-    }).join('');
-    $list[0].innerHTML = rows;
-    $list.off('.wix').on('change.wix', '.sp-wi-exclude-cb', function () {
-        const name = String($(this).data('name') || '');
-        setWiExcluded(name, this.checked);
-        $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
-        _syncWiExcludeCount(getWiExcludeSet().size, names.length);
-        renderWiList();   // 排除变化即时反映到上面的按角色卡挑选列表（被排除的书从中消失/重现）
-    });
-    // 查找框：一次性绑定（每次 render 都重绑，off 先解旧的），输入即隐/显匹配行。
-    const $search = $in('#sp-wi-exclude-search');
-    $search.off('.wix').on('input.wix', function () {
-        _filterWiExcludeList(String(this.value || '').trim().toLowerCase());
-    });
-    if ($search.val()) _filterWiExcludeList(String($search.val()).trim().toLowerCase());
-}
-
-// 查找框纯前端过滤：名字含关键词的行显示、其余隐藏；空词全显。
-function _filterWiExcludeList(kw) {
-    const $rows = $inAll('#sp-wi-exclude-list .sp-wi-exclude-row');
-    if (!kw) { $rows.show(); return; }
-    $rows.each(function () {
-        const name = String(this.getAttribute('data-name') || '').toLowerCase();
-        this.style.display = name.includes(kw) ? '' : 'none';
-    });
-}
-
-// 抽屉标题右侧的计数徽标：「已排除 M / 共 N」，M=0 时只显总数、淡化。
-function _syncWiExcludeCount(excludedN, totalN) {
-    const $c = $in('#sp-wi-exclude-count');
-    if (!$c.length) return;
-    $c.text(excludedN > 0 ? `已排除 ${excludedN} / 共 ${totalN}` : `共 ${totalN}`)
-      .toggleClass('sp-wi-exclude-count-active', excludedN > 0);
-}
-
-// Full-text popup for a single world-info entry
-function showWiEntryFull(entry) {
-    $in('#sp-wi-fullview').remove();
-    const $overlay = $(`<div id="sp-wi-fullview" class="sp-wi-fullview">
-        <div class="sp-wi-fullview-sheet">
-            <div class="sp-wi-fullview-head">
-                <div class="sp-wi-fullview-title">
-                    <div class="sp-wi-fullview-source">${escapeHtml(entry.source)}</div>
-                    <div class="sp-wi-fullview-label">${escapeHtml(entry.label)}</div>
-                </div>
-                <button class="sp-icon-btn sp-wi-fullview-close" title="关闭"><i class="fa-solid fa-xmark"></i></button>
-            </div>
-            <div class="sp-wi-fullview-body">${escapeHtml(entry.content || '').replace(/\n/g, '<br>')}</div>
-        </div>
-    </div>`);
-    $overlay.on('click', function (e) {
-        if (e.target === this) $overlay.remove();
-    });
-    $overlay.find('.sp-wi-fullview-close').on('click', () => $overlay.remove());
-    $in('.sp-sheet').append($overlay);
+    return paintWiExcludeList(wiPanelEnv());
 }
 
 function toggleKeyVisibility() {

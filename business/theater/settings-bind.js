@@ -32,7 +32,7 @@ export function bindTheaterSettings(env = {}) {
         save?.();
     });
     $in('#sp-theater-pool-list').on('change', '.sp-theater-pool-cb', function () {
-        const name = String($(this).data('name') || '');
+        const name = String($(this).attr('data-name') || '');
         settings().theaterPoolBooks = nextTheaterPoolBooks(settings().theaterPoolBooks, name, this.checked);
         save?.();
         $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
@@ -41,7 +41,7 @@ export function bindTheaterSettings(env = {}) {
     $in('#sp-theater-pool-search').on('input', function () {
         const query = this.value;
         $in('#sp-theater-pool-list .sp-wi-exclude-row').each(function () {
-            $(this).toggle(theaterPoolRowVisible($(this).data('name'), query));
+            $(this).toggle(theaterPoolRowVisible($(this).attr('data-name'), query));
         });
     });
 }

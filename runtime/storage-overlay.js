@@ -14,6 +14,14 @@ export const BLOCKING_OVERLAY_STYLE = Object.freeze({
 
 export const MIGRATION_UNKNOWN_ABORT_LABEL = '关闭（请刷新聊天后核实）';
 
+export function createOverlayAbortRelay(initial) {
+    let handler = initial;
+    return {
+        fire(event) { handler?.(event); },
+        set(next) { handler = next; },
+    };
+}
+
 export function backupOverlayProgressCopy(info = {}) {
     return info.message || (info.total ? `${info.done || 0} / ${info.total}` : '处理中…');
 }
@@ -37,7 +45,8 @@ export function mountStorageLockOverlay(env = {}) {
     for (const name of OVERLAY_BLOCK_EVENTS) document.addEventListener(name, block, true);
     document.documentElement.appendChild(overlay);
     const abortBtn = overlay.querySelector('[data-sp-overlay-abort]');
-    if (abortBtn && env.onAbort) abortBtn.addEventListener('click', env.onAbort);
+    const abortRelay = createOverlayAbortRelay(env.onAbort);
+    if (abortBtn && env.onAbort) abortBtn.addEventListener('click', event => abortRelay.fire(event));
     const close = () => {
         for (const name of OVERLAY_BLOCK_EVENTS) document.removeEventListener(name, block, true);
         overlay.remove();
@@ -46,6 +55,7 @@ export function mountStorageLockOverlay(env = {}) {
         overlay,
         statusEl: () => overlay.querySelector('[data-sp-overlay-status]'),
         abortBtn,
+        abortRelay,
         close,
     };
 }
@@ -75,7 +85,7 @@ export function mountMigrationOverlay(env = {}) {
             if (mounted.abortBtn) {
                 mounted.abortBtn.disabled = false;
                 mounted.abortBtn.textContent = MIGRATION_UNKNOWN_ABORT_LABEL;
-                mounted.abortBtn.onclick = () => this.close();
+                mounted.abortRelay.set(() => this.close());
             }
         },
         close: mounted.close,
