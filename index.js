@@ -24,6 +24,10 @@ import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordi
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { paintScheduleHome, showPanelView } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
+import { DIALOG_HOST_ID, FAB_ID, MODAL_ID } from './business/shell/ids.js';
+import { createFab } from './business/shell/fab.js';
+import { detectSTTheme, getEffectiveTheme as resolveTheme, nextThemeMode, paintThemeClasses, themeToggleIcon as themeIconOf, themeToggleTitle as themeTitleOf } from './business/shell/theme.js';
+import { handlePanelViewClick } from './business/shell/view-switch.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
@@ -749,9 +753,6 @@ bindLedgerRender({
     renderLedgerControls,
 });
 
-const MODAL_ID   = 'sp-modal-root';
-const DIALOG_HOST_ID = 'sp-dialog-host';
-const FAB_ID     = 'sp-fab';
 const POS_KEY    = 'sp-pos';
 const SIZE_KEY    = 'sp-size';
 
@@ -1325,13 +1326,6 @@ function appendTravelPromptContext(prompt, travelContext = null) {
 const EXT_BASE = new URL('.', import.meta.url).href;                 // …/ST-SevenDaysCal/
 const ST_BASE  = new URL('../../../../../', import.meta.url).href;   // ST 站点根（public/ 即 /）
 
-// 悬浮球图标（Solar「pen-new-round-outline」，MIT 免费素材；源 assets/pen.svg）。
-// 内联而非 <img>：单 path 用 fill=currentColor，直接继承按钮字色——主题日/夜换色、
-// 生成态霓虹变色（.sp-btn-generating 改 color）全都自动跟随，无需另写。宽高 1em 跟字号缩放，
-// 替换旧的 <i class="fa-...">，行为一致。仅悬浮球用；魔杖菜单入口仍是字体图标（见 injectExtButton）。
-const PEN_ICON_SVG = '<svg class="sp-pen-icon" viewBox="0 0 24 24" width="1em" height="1em" aria-hidden="true"><path fill="currentColor" fill-rule="evenodd" d="M1.25 12C1.25 6.063 6.063 1.25 12 1.25a.75.75 0 0 1 0 1.5A9.25 9.25 0 1 0 21.25 12a.75.75 0 0 1 1.5 0c0 5.937-4.813 10.75-10.75 10.75S1.25 17.937 1.25 12m15.52-9.724a3.503 3.503 0 0 1 4.954 4.953l-6.648 6.649c-.371.37-.604.604-.863.806a5.3 5.3 0 0 1-.987.61c-.297.141-.61.245-1.107.411l-2.905.968a1.492 1.492 0 0 1-1.887-1.887l.968-2.905c.166-.498.27-.81.411-1.107q.252-.526.61-.987c.202-.26.435-.492.806-.863zm3.893 1.06a2.003 2.003 0 0 0-2.832 0l-.376.377q.032.145.098.338c.143.413.415.957.927 1.469a3.9 3.9 0 0 0 1.807 1.025l.376-.376a2.003 2.003 0 0 0 0-2.832m-1.558 4.391a5.4 5.4 0 0 1-1.686-1.146a5.4 5.4 0 0 1-1.146-1.686L11.218 9.95c-.417.417-.58.582-.72.76a4 4 0 0 0-.437.71c-.098.203-.172.423-.359.982l-.431 1.295l1.032 1.033l1.295-.432c.56-.187.779-.261.983-.358q.378-.18.71-.439c.177-.139.342-.302.759-.718z" clip-rule="evenodd"/></svg>';
-
-
 // 模块介绍：内容标题旁「?」点开的小气泡文案。键对应侧栏 data-view，面向使用者讲清用途与真实操作。
 // 想改文字直接改这里即可（纯展示，不入库、不注入 AI）。
 // 小百科·图标图例：模块介绍气泡内容。lede（这模块干嘛的·一句话）+ 若干「真 FontAwesome 图标 + 名称 + 一句话」，
@@ -1491,36 +1485,16 @@ const loadCachedForCurrentChat = (view, charName) => {
     return loadCachedSchedule(targetView, targetCharName);
 };
 
-// ─── ST theme detection ───────────────────────────────────────────────────────
-// Read ST's --SmartThemeBodyColor (text color on documentElement) to decide
-// dark vs light. If it's bright → panel uses dark (night); if dim → light (day).
-function detectSTTheme() {
-    try {
-        const raw = getComputedStyle(document.documentElement)
-            .getPropertyValue('--SmartThemeBodyColor').trim();
-        if (raw) {
-            // Parse rgb/rgba/hex, get perceived luminance
-            const canvas = document.createElement('canvas');
-            canvas.width = canvas.height = 1;
-            const ctx = canvas.getContext('2d');
-            ctx.fillStyle = raw;
-            ctx.fillRect(0, 0, 1, 1);
-            const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-            // Relative luminance (sRGB)
-            const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-            return lum > 127 ? 'night' : 'day';  // bright text → dark bg (night)
-        }
-    } catch { /* ignore */ }
-    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'day' : 'night';
+function getEffectiveTheme() {
+    return resolveTheme(getSettings().themeMode || 'auto');
 }
 
-// Resolve the effective theme by combining the user's themeMode setting
-// with the detected ST theme. 'auto' follows ST (transparent-theme users get
-// the day/night fallback via explicit modes instead).
-function getEffectiveTheme() {
-    const mode = getSettings().themeMode || 'auto';
-    if (mode === 'day' || mode === 'night') return mode;
-    return detectSTTheme();
+function themeToggleIcon() {
+    return themeIconOf(getSettings().themeMode || 'auto');
+}
+
+function themeToggleTitle() {
+    return themeTitleOf(getSettings().themeMode || 'auto');
 }
 
 let currentTheme   = detectSTTheme();
@@ -1561,8 +1535,6 @@ let settingsOpen   = false;
 let dragState      = null;
 let resizeState    = null;
 let resizeRAF      = null;
-let fabDragged     = false;
-let fabDragState   = null;
 let currentView        = 'user';  // 'user' | 'char'
 let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
@@ -1998,6 +1970,27 @@ let   _injectIdSeq      = 0;
 let viewportSyncBound   = false;
 
 const isMobile = () => window.innerWidth <= 640;
+
+const fabRuntime = createFab({
+    $,
+    $in,
+    document,
+    window,
+    isMobile,
+    theme: () => currentTheme,
+    fabEnabled,
+    markSurface: markTauriMobileSurface,
+    sheet: () => inEl('.sp-sheet'),
+    panelVisible: () => $(`#${MODAL_ID}`).is(':visible'),
+    open: () => openSchedule(),
+    close: () => closePanel(),
+    clearShadows() { _spShadow = null; _spDialogShadow = null; },
+});
+function setFabBusy(on) { fabRuntime.setBusy(on); }
+function setExtBtnState(state) { fabRuntime.setExtBtnState(state); }
+function injectFab() { fabRuntime.inject(); }
+function injectExtButton() { fabRuntime.injectExtButton(); }
+function removeStalePluginHosts() { fabRuntime.removeStaleHosts(); }
 
 // 通用操作菜单只描述动作；具体页面决定何时显示、如何处理动作。
 const ACTION_MENU_CONFIGS = Object.freeze({
@@ -2870,159 +2863,6 @@ function initChatObserver() {
     }).observe(chat, { childList: true, subtree: true });
 }
 
-function injectExtButton() {
-    // No drawer content — panel opened via magic wand or FAB
-    const wandHtml = `
-        <div id="sp_open_wand" class="list-group-item flex-container flexGap5">
-            <div class="fa-solid fa-calendar-days extensionsMenuExtensionButton" title="打开构画"></div>
-            <span>构画</span>
-        </div>`;
-
-    function mountWandBtn() {
-        const c = document.getElementById('sp_wand_container') || document.getElementById('extensionsMenu');
-        if (!c || document.getElementById('sp_open_wand')) return false;
-        c.insertAdjacentHTML('beforeend', wandHtml);
-        document.getElementById('sp_open_wand')?.addEventListener('click', openSchedule);
-        return true;
-    }
-    if (!mountWandBtn()) {
-        const obs = new MutationObserver(() => { if (mountWandBtn()) obs.disconnect(); });
-        obs.observe(document.body, { childList: true, subtree: true });
-    }
-}
-
-// 悬浮球「插件在忙」呼吸灯：引用计数。所有 LLM 请求都经唯一咽喉 postChatCompletion，
-// 那里进 +1 / finally -1，故点/线/面/棱/历/暗历标注/暗历判定/写记忆/间——无论自动手动、
-// 无论并发几路，只要还有一路在飞就呼吸，全部落地才熄。独立 class（sp-fab-busy）不碰点的
-// sp-btn-generating/done，两套并存互不干扰。计数只增减、不直接读 pointState.isGenerating 那些分散旗标，
-// 天然免漏灯/卡灯。
-let _fabBusyCount = 0;
-function setFabBusy(on) {
-    _fabBusyCount = Math.max(0, _fabBusyCount + (on ? 1 : -1));
-    $(`#${FAB_ID} .sp-fab-btn`).toggleClass('sp-fab-busy', _fabBusyCount > 0);
-}
-
-function setExtBtnState(state) {
-    // 魔法棒(#sp_open_wand)生成态变色太不显眼、用户根本看不到，故不再给它挂状态类——生成指示统一交给悬浮球呼吸灯。
-    const $fab = $(`#${FAB_ID} .sp-fab-btn`);
-    $fab.removeClass('sp-btn-generating sp-btn-done');
-    if (state) $fab.addClass(`sp-btn-${state}`);
-    // 点生成中只锁「我/TA」子切换（本次生成绑定当前视角，中途换视角无意义，另有 .sp-view-btn 守卫兜底）；
-    // 侧栏模块 tab(历/线/面/棱/锚) 绝不锁——切模块随时可用（点正文按状态重建，见 .sp-view-btn 处理器 schedule 分支）。
-    $in('.sp-sub-toggle').toggleClass('sp-locked', state === 'generating');
-}
-
-// ─── FAB ─────────────────────────────────────────────────────────────────────
-
-let _fabResizeAbort = null;
-
-function removeStalePluginHosts() {
-    document.querySelectorAll(`#${MODAL_ID}, #${DIALOG_HOST_ID}, #${FAB_ID}`).forEach(el => el.remove());
-    _spShadow = null;
-    _spDialogShadow = null;
-    _fabResizeAbort?.abort();
-    _fabResizeAbort = null;
-    fabDragState = null;
-}
-
-function injectFab() {
-    document.querySelectorAll(`#${FAB_ID}`).forEach(el => el.remove());
-    let savedPos = null;
-    try { savedPos = JSON.parse(localStorage.getItem('sp-fab-pos') || 'null'); } catch { /* 位置数据损坏则忽略，不能让 FAB 注入整个崩掉 */ }
-    const mobile = isMobile();
-    const posStyle = (!mobile && savedPos)
-        ? `left:${savedPos.left}px;top:${savedPos.top}px;right:auto;bottom:auto;`
-        : '';
-    const html = `<div id="${FAB_ID}" style="position:fixed;z-index:2000000;${posStyle}${fabEnabled() ? '' : 'display:none'}">
-        <button class="sp-fab-btn sp-${currentTheme}" title="构画"
-            style="transform:translateZ(0);clip:auto;">
-            ${PEN_ICON_SVG}
-        </button>
-    </div>`;
-    document.documentElement.insertAdjacentHTML('beforeend', html);
-    markTauriMobileSurface(document.getElementById(FAB_ID), 'free-window');
-
-    let wasMobile = isMobile();
-    _fabResizeAbort?.abort();
-    _fabResizeAbort = new AbortController();
-    window.addEventListener('resize', () => {
-        const nowMobile = isMobile();
-        if (nowMobile && !wasMobile) {
-            const fab = document.getElementById(FAB_ID);
-            if (fab) { fab.style.left = ''; fab.style.top = ''; fab.style.right = ''; fab.style.bottom = ''; }
-            const sheet = inEl('.sp-sheet');
-            if (sheet) { sheet.style.left = ''; sheet.style.top = ''; sheet.style.right = '';
-                         sheet.style.transform = ''; sheet.style.width = ''; sheet.style.height = '';
-                         sheet.style.maxHeight = ''; sheet.style.maxWidth = ''; }
-        } else if (!nowMobile && wasMobile) {
-            const fab = document.getElementById(FAB_ID);
-            if (fab) {
-                let sp = null;
-                try { sp = JSON.parse(localStorage.getItem('sp-fab-pos') || 'null'); } catch { /* 位置数据损坏则忽略 */ }
-                if (sp) {
-                    fab.style.left   = Math.min(sp.left, window.innerWidth  - 60) + 'px';
-                    fab.style.top    = Math.min(sp.top,  window.innerHeight - 60) + 'px';
-                    fab.style.right  = 'auto';
-                    fab.style.bottom = 'auto';
-                }
-            }
-        }
-        wasMobile = nowMobile;
-    }, { signal: _fabResizeAbort.signal });
-
-    const fab = document.getElementById(FAB_ID);
-    const fabButton = fab?.querySelector('.sp-fab-btn');
-    if (!fab || !fabButton) return;
-    fabButton.addEventListener('pointerdown', function (e) {
-        if (e.isPrimary === false || e.button !== 0 || fabDragState) return;
-        fabDragged = false;
-        const rect = fab.getBoundingClientRect();
-        fabDragState = {
-            pointerId: e.pointerId,
-            startX: e.clientX,
-            startY: e.clientY,
-            origLeft: rect.left,
-            origTop: rect.top,
-        };
-        fabButton.setPointerCapture?.(e.pointerId);
-    });
-    fabButton.addEventListener('pointermove', onFabPointerMove);
-    fabButton.addEventListener('pointerup', onFabPointerEnd);
-    fabButton.addEventListener('pointercancel', onFabPointerEnd);
-
-    fabButton.addEventListener('click', function () {
-        if (!fabDragged) {
-            $(`#${MODAL_ID}`).is(':visible') ? closePanel() : openSchedule();
-        }
-    });
-}
-
-function onFabPointerMove(ev) {
-    if (!fabDragState || ev.pointerId !== fabDragState.pointerId) return;
-    const ex = ev.clientX;
-    const ey = ev.clientY;
-    if (Math.abs(ex - fabDragState.startX) > 5 || Math.abs(ey - fabDragState.startY) > 5) fabDragged = true;
-    if (!fabDragged) return;
-    ev.preventDefault?.();
-    const f = document.getElementById(FAB_ID);
-    f.style.left   = Math.max(0, Math.min(fabDragState.origLeft + ex - fabDragState.startX, window.innerWidth  - f.offsetWidth))  + 'px';
-    f.style.top    = Math.max(0, Math.min(fabDragState.origTop  + ey - fabDragState.startY, window.innerHeight - f.offsetHeight)) + 'px';
-    f.style.right  = 'auto';
-    f.style.bottom = 'auto';
-}
-function onFabPointerEnd(ev) {
-    if (!fabDragState || ev.pointerId !== fabDragState.pointerId) return;
-    const pointerId = fabDragState.pointerId;
-    if (fabDragged) {
-        const f = document.getElementById(FAB_ID);
-        const r = f.getBoundingClientRect();
-        localStorage.setItem('sp-fab-pos', JSON.stringify({ left: r.left, top: r.top }));
-    }
-    fabDragState = null;
-    const captureTarget = ev.currentTarget;
-    if (captureTarget?.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
-}
-
 function injectModal() {
     document.querySelectorAll(`#${MODAL_ID}, #${DIALOG_HOST_ID}`).forEach(el => el.remove());
     _spShadow = null;
@@ -3530,143 +3370,67 @@ function injectModal() {
         if (event.key === 'Escape') closeActionMenus();
     });
 
-    // Tab switching: sidebar (schedule/outline/lines) + sub-toggle (user/char)
-    $in('.sp-root').on('click', '.sp-view-btn', function () {  // 全窗委托（含 .sp-content-head 内 sub-btn/ta-trigger），等价原宿主级绑定
-        // 点生成不再冻结整个侧栏：切模块(历/线/面/棱/锚)随时可用——点正文按状态重建（下方 schedule 分支），
-        // 生成完成走 stillOnView 守卫写进(可能隐藏的) #sp-body，切走不被覆盖、切回自动补正。
-        // 仅「我/TA」子切换在点生成途中仍挡（点按视角生成，中途换视角无意义）。
-        const view = $(this).data('view');
-        if (!view) return;
-        $in('#sp-module-intro-pop').hide();   // 切模块即收起介绍气泡
-
-        const $btn      = $(this);
-        const isSideTab = $btn.hasClass('sp-side-tab');
-        const isSubBtn  = $btn.hasClass('sp-sub-btn');
-        if (isSideTab && settingsOpen) toggleSettings();
-        if (isSideTab) activityFeature.close();
-
-        // 离开棱时统一走 UI 生命周期出口，避免全屏滚动锁和 Esc listener 跟到其他侧栏。
-        if (isSideTab && theaterMode && view !== 'theater') theaterFeature.leave();
-
-        // 切模块（历/线/面/棱/锚/轴）会藏掉 sub-toggle → 顺手收起可能开着的 TA▾ 抽屉，免得它残留浮在别处。
-        if (isSideTab) closeTaDrawer();
-
-        // TA▾ 触发器：不直接切视角，而是开/关「固定槽抽屉」（换人入口，已与刷新解耦）。
-        // 生成途中锁子切换（沿用 isSubBtn 分支原守卫）。active 态 / 标签由抽屉内真正切到某 char 时再落。
-        if ($btn.hasClass('sp-ta-trigger')) {
-            if (pointState.isGenerating) return;
-            toggleTaDrawer();
-            return;
-        }
-
-        // Update active state within the button's group
-        if (isSideTab) {
-            $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-            $btn.addClass('sp-view-active');
-            _lastMainView = view;   // 记住当前模块视图，供下次打开面板时恢复（同 chat）
-            syncRefreshBar(view);
-        } else if (isSubBtn) {
-            $inAll('.sp-sub-btn').removeClass('sp-view-active');
-            $btn.addClass('sp-view-active');
-        }
-
-        // Sidebar clicks
-        if (isSideTab) {
-            if (view === 'outline') {
-                if (outlineMode) return;
-                outlineMode = true;
-                linesMode = false;
-                spaceMode = false;
-                theaterMode = false;
-                axisState.almanacMode = false;
-                showPanelView($in, 'outline');
-                outlineFeature.open();
-                return;
-            }
-            if (view === 'lines') {
-                if (linesMode) return;
-                linesMode = true;
-                outlineMode = false;
-                spaceMode = false;
-                theaterMode = false;
-                axisState.almanacMode = false;
-                showPanelView($in, 'lines');
-                // 生成在途时切回来：重建 loading，别 fallback 到"生成线"空态误导用户
-                if (linesRuntime.busy) {
-                    linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
-                } else {
+    $in('.sp-root').on('click', '.sp-view-btn', function () {
+        handlePanelViewClick({
+            $in,
+            hideIntro: () => $in('#sp-module-intro-pop').hide(),
+            settingsOpen: () => settingsOpen,
+            toggleSettings,
+            activity: activityFeature,
+            theaterOn: () => theaterMode,
+            get theater() { return theaterFeature; },
+            closeTaDrawer,
+            toggleTaDrawer,
+            pointGenerating: () => pointState.isGenerating,
+            markSideTab(view, $btn) {
+                $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
+                $btn.addClass('sp-view-active');
+                _lastMainView = view;
+                syncRefreshBar(view);
+            },
+            markSubBtn(view, $btn) {
+                $inAll('.sp-sub-btn').removeClass('sp-view-active');
+                $btn.addClass('sp-view-active');
+            },
+            modes: () => ({ outline: outlineMode, lines: linesMode, space: spaceMode, theater: theaterMode, almanac: axisState.almanacMode }),
+            setModes(next) {
+                outlineMode = !!next.outline;
+                linesMode = !!next.lines;
+                spaceMode = !!next.space;
+                theaterMode = !!next.theater;
+                axisState.almanacMode = !!next.almanac;
+            },
+            outline: outlineFeature,
+            space: spaceFeature,
+            paintLines() {
+                if (linesRuntime.busy) linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
+                else {
                     const cached = loadCachedLinesForCurrentChat();
-                    if (cached) linesFeature.renderBody(cached);
-                    else linesFeature.renderBody(renderEmptyLinesState());
+                    linesFeature.renderBody(cached || renderEmptyLinesState());
                 }
-                return;
-            }
-            if (view === 'space') {
-                if (spaceMode) return;
-                spaceMode = true;
-                outlineMode = false;
-                linesMode = false;
-                theaterMode = false;
-                axisState.almanacMode = false;
-                showPanelView($in, 'space');
-                spaceFeature.open();
-                return;
-            }
-            if (view === 'theater') {
-                if (theaterMode) return;
-                theaterMode = true;
-                outlineMode = false;
-                linesMode = false;
-                spaceMode = false;
-                axisState.almanacMode = false;
-                showPanelView($in, 'theater');
+            },
+            paintTheater() {
                 if (theaterFeature.busy) setTheaterBody(loadingHtml('正在折射', 'sp-abort-theater'));
                 else theaterFeature.open();
-                return;
-            }
-            if (view === 'anchor') {
-                enterCoordinateSidebar({
-                    resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
-                    show: () => showPanelView($in, 'anchor'),
-                    feature: coordinateRuntime?.feature,
-                });
-                return;
-            }
-            if (view === 'almanac') {
-                if (axisState.almanacMode) return;
-                axisState.almanacMode = true;
-                outlineMode = false;
-                linesMode = false;
-                spaceMode = false;
-                theaterMode = false;
-                showPanelView($in, 'almanac');
-                renderAlmanacPanel();
-                return;
-            }
-            // view === 'schedule' — leaving outline/lines/space/theater/anchor/almanac, restore body
-            outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
-            coordinateRuntime?.feature?.close?.();
-            showPanelView($in, 'schedule');
-            $inAll('.sp-sub-btn').removeClass('sp-view-active');
-            $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
-            updateTaTriggerLabel();   // 回点视图：TA▾ 标签跟随当前视角（char 显名 / user 回落 TA）
-            // 生成在途/切走再切回：从状态重建正文（镜像 线/面/棱），别露上次残留或僵尸转圈
-            if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
-            else if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
-            else showEmptyGenerate();
-            return;
-        }
-
-        // Sub-toggle clicks：走到这里只剩「我」（TA▾ 触发器已在上面拦截并 return）。
-        if (isSubBtn) {
-            if (pointState.isGenerating) return;   // 点生成途中不切视角：本次生成绑定当前视角，中途换「我/TA」无意义
-            closeTaDrawer();            // 切回「我」顺手收起 TA 抽屉
-            if (view === currentView) return;
-            setView('user');
-            if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
-            else showEmptyGenerate();
-            return;
-        }
+            },
+            paintAlmanac: () => renderAlmanacPanel(),
+            paintSchedule() {
+                $inAll('.sp-sub-btn').removeClass('sp-view-active');
+                $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+                updateTaTriggerLabel();
+                if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
+                else if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
+                else showEmptyGenerate();
+            },
+            enterAnchor: () => enterCoordinateSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'anchor'),
+                feature: coordinateRuntime?.feature,
+            }),
+            get coordinate() { return coordinateRuntime?.feature; },
+            currentView: () => currentView,
+            setView,
+        }, $(this));
     });
 
     $in('#sp-cfg-save').on('click', function () {
@@ -7154,54 +6918,20 @@ function toggleKeyVisibility() {
 function applyTheme(theme) {
     currentTheme = theme;
     const forced = (getSettings().themeMode || 'auto') !== 'auto';
-    const $modal = $(`#${MODAL_ID}`);
-    const $fab   = $(`#${FAB_ID} .sp-fab-btn`);
-    const $toast = $('#sp-toast-wrap');   // 同 $modal 走一套：让 toast 的 --sp-*-legacy 底板令牌随主题就位
-    $modal.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
-    $fab.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
-    $toast.removeClass('sp-night sp-day sp-forced-day sp-forced-night').addClass(`sp-${theme}`);
-    if (forced) {
-        $modal.addClass(`sp-forced-${theme}`);
-        $fab.addClass(`sp-forced-${theme}`);
-        $toast.addClass(`sp-forced-${theme}`);
-    }
-    // Shadow 内 wrapper 同步主题类：.sp-night/.sp-day 色板与 .sp-forced-* 强制覆盖在
-    // shadow 内靠 wrapper 匹配（host 的类不穿边界），不换则 `--sp-*-legacy` 回退丢失、
-    // `.sp-night .sp-xxx` 类后代选择器失配。
-    const wrapper = _spShadow?.querySelector('.sp-root');
-    if (wrapper) {
-        wrapper.classList.remove('sp-night', 'sp-day', 'sp-forced-day', 'sp-forced-night');
-        wrapper.classList.add(`sp-${theme}`);
-        if (forced) wrapper.classList.add(`sp-forced-${theme}`);
-    }
+    paintThemeClasses({
+        theme,
+        forced,
+        nodes: [$(`#${MODAL_ID}`), $(`#${FAB_ID} .sp-fab-btn`), $('#sp-toast-wrap')],
+        wrapper: _spShadow?.querySelector('.sp-root'),
+    });
     syncVectorGlyphTheme(document, theme, forced);
     coordinateRuntime?.feature?.onThemeChanged?.(theme);
 }
 
-// ─── Theme mode toggle (day / night / auto) ─────────────────────────────────
-// Auto follows ST theme; day/night force a fallback so users on transparent
-// ST themes still get a readable panel.
-function themeToggleIcon() {
-    const mode = getSettings().themeMode || 'auto';
-    if (mode === 'day')   return 'fa-sun';
-    if (mode === 'night') return 'fa-moon';
-    return 'fa-circle-half-stroke';   // auto
-}
-
-function themeToggleTitle() {
-    const mode = getSettings().themeMode || 'auto';
-    if (mode === 'day')   return '主题：日间（点击切换到夜间）';
-    if (mode === 'night') return '主题：夜间（点击切换到跟随酒馆）';
-    return '主题：跟随酒馆（点击切换到日间）';
-}
-
 function cycleThemeMode() {
-    const cur  = getSettings().themeMode || 'auto';
-    const next = cur === 'auto' ? 'day' : cur === 'day' ? 'night' : 'auto';
-    getSettings().themeMode = next;
+    getSettings().themeMode = nextThemeMode(getSettings().themeMode || 'auto');
     saveSettingsDebounced();
     applyTheme(getEffectiveTheme());
-    // Update this button's icon + tooltip in place
     const $btn = $in('.sp-theme-toggle-btn');
     $btn.attr('title', themeToggleTitle());
     $btn.find('i').attr('class', `fa-solid ${themeToggleIcon()}`);
