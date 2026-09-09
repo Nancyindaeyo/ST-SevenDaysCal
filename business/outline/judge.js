@@ -1,6 +1,7 @@
 import { outlineBaseline, parseOutline, parseOutlineRelocationAnswer, shouldAdvanceOutline } from './schema.js';
 import { buildOutlineJudgePrompt, buildOutlineRelocationPrompt } from './prompts.js';
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
+import { tickFloorGate } from '../refresh/floor-tick.js';
 
 export function createOutlineJudge({
     repository,
@@ -205,11 +206,17 @@ export function createOutlineJudge({
     const onCharacterMessage = messageId => {
         if (!pluginEnabled?.() || settings?.().outlineJudgeEnabled !== true) return false;
         const chat = context?.()?.chat;
-        if (!Array.isArray(chat) || messageId !== chat.length - 1 || messageId <= lastJudgedMessageId) return false;
-        lastJudgedMessageId = messageId;
-        if (isAutomationSuppressed?.(messageId, automationModule)) return false;
-        if (++messageCounter < interval()) return false;
-        messageCounter = 0;
+        if (!Array.isArray(chat) || messageId !== chat.length - 1) return false;
+        const tick = tickFloorGate({
+            lastFloor: lastJudgedMessageId,
+            counter: messageCounter,
+            messageId,
+            interval: interval(),
+            blocked: isAutomationSuppressed?.(messageId, automationModule) === true,
+        });
+        lastJudgedMessageId = tick.lastFloor;
+        messageCounter = tick.counter;
+        if (tick.status !== 'due') return false;
         void runAdvance();
         return true;
     };
@@ -220,8 +227,10 @@ export function createOutlineJudge({
     };
     const resetCounter = () => { messageCounter = 0; };
     const hydrate = (state = {}) => {
-        messageCounter = Math.max(0, Math.floor(Number(state.messageCounter) || 0));
-        if (Number.isInteger(Number(state.lastJudgedMessageId))) lastJudgedMessageId = Number(state.lastJudgedMessageId);
+        const used = state.counter ?? state.messageCounter;
+        const floor = state.lastFloor ?? state.lastJudgedMessageId;
+        messageCounter = Math.max(0, Math.floor(Number(used) || 0));
+        if (Number.isInteger(Number(floor))) lastJudgedMessageId = Number(floor);
     };
     const canRelocate = () => {
         const target = repository.capture();
@@ -239,6 +248,6 @@ export function createOutlineJudge({
         abort,
         getInterval: interval,
         get busy() { return busy; },
-        state: () => ({ busy, lastJudgedMessageId, messageCounter }),
+        state: () => ({ busy, lastJudgedMessageId, messageCounter, lastFloor: lastJudgedMessageId, counter: messageCounter }),
     });
 }

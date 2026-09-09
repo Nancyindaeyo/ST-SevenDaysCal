@@ -16,3 +16,16 @@ test('near-text prompt asks for recent story corners', () => {
     assert.match(prompt, /铜钟/);
     assert.doesNotMatch(prompt, /取材面要开阔/);
 });
+
+test('auto floor gate skips seen, blocked, and unfinished intervals', async () => {
+    const { createDashedModule } = await import('./dashed.js');
+    const dashed = createDashedModule({
+        getSettings: () => ({ dashedEnabled: true, dashedAutoInterval: 3 }),
+    });
+    assert.equal((await dashed.onAiFloor(1)).reason, 'interval');
+    assert.equal(dashed.state().counter, 1);
+    assert.equal((await dashed.onAiFloor(1)).reason, 'seen');
+    assert.equal((await dashed.onAiFloor(2, { blocked: true })).reason, 'stagger');
+    assert.equal(dashed.state().lastFloor, 2);
+    assert.equal(dashed.state().counter, 1);
+});

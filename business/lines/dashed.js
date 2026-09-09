@@ -1,4 +1,5 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
+import { tickFloorGate } from '../refresh/floor-tick.js';
 
 // 虚线／冷知识线子模块：宿主只注入平台能力与刷新回调。
 export const DASHED_TOPIC_CONFIG = Object.freeze([
@@ -136,11 +137,13 @@ export function createDashedModule(env = {}) {
         return { ...result, ok: saved === true || saved?.ok === true, stale: saved?.stale === true, saveResult: saved && typeof saved === 'object' ? saved : null };
     };
     const refresh = () => { env.refreshPanel?.(); env.refreshInline?.(); };
-    const state = () => ({ busy, error: panelError, autoCount, autoFloor });
+    const state = () => ({ busy, error: panelError, autoCount, autoFloor, counter: autoCount, lastFloor: autoFloor });
     const resetAuto = () => { autoCount = 0; autoFloor = -1; };
-    const hydrateAuto = (state = {}) => {
-        autoCount = Math.max(0, Math.floor(Number(state.autoCount) || 0));
-        autoFloor = Number.isInteger(Number(state.autoFloor)) ? Number(state.autoFloor) : -1;
+    const hydrate = (next = {}) => {
+        const used = next.counter ?? next.autoCount;
+        const floor = next.lastFloor ?? next.autoFloor;
+        autoCount = Math.max(0, Math.floor(Number(used) || 0));
+        autoFloor = Number.isInteger(Number(floor)) ? Number(floor) : -1;
     };
     async function run(options = {}) {
         if (busy) return; const manual = options.manual === true, reroll = manual || options.reroll === true; const diagnostic = createGenerationDiagnosticScope('dashed', { background: !manual }); const selected = resolveDashedTopics(options, { theme: readTheme(), random }); const count = dashedTargetCount(options.count || selected.length || (options.nearText ? 1 : 2)); const chatId = env.chatId(); const ctrl = controller = new AbortController(); busy = true; panelError = ''; refresh();
@@ -158,13 +161,17 @@ export function createDashedModule(env = {}) {
     }
     async function onAiFloor(messageId, { blocked = false, latestStory = '' } = {}) {
         if (env.getSettings().dashedEnabled !== true) return { status: 'skipped' };
-        const mid = Number(messageId);
-        if (!Number.isInteger(mid) || mid <= autoFloor) return { status: 'skipped' };
-        autoFloor = mid;
-        if (blocked) return { status: 'skipped', reason: 'stagger' };
-        if (++autoCount < getDashedAutoInterval(env.getSettings())) return { status: 'skipped', reason: 'interval' };
-        autoCount = 0;
+        const tick = tickFloorGate({
+            lastFloor: autoFloor,
+            counter: autoCount,
+            messageId,
+            interval: getDashedAutoInterval(env.getSettings()),
+            blocked,
+        });
+        autoFloor = tick.lastFloor;
+        autoCount = tick.counter;
+        if (tick.status !== 'due') return { status: 'skipped', reason: tick.reason === 'blocked' ? 'stagger' : tick.reason };
         return run({ auto: true, nearText: true, latestStory });
     }
-    return { run, onAiFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrateAuto, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
+    return { run, onAiFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrate, hydrateAuto: hydrate, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
 }
