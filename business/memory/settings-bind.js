@@ -1,15 +1,11 @@
 import { normalizeTagRules } from '../../utils/tag-names.js';
-import { normalizeDatabaseWorldbookName } from './database.js';
 
-export const MEMORY_SOURCE_FLAGS = Object.freeze(['useQianQianJie', 'useBaiBaiBook', 'useAnima', 'useDatabase']);
-
-export function applyMemorySourceToggle(settings, flag, checked) {
-    if (!settings || !MEMORY_SOURCE_FLAGS.includes(flag)) return settings;
-    settings[flag] = !!checked;
-    if (!checked) return settings;
-    for (const key of MEMORY_SOURCE_FLAGS) {
-        if (key !== flag) settings[key] = false;
-    }
+export function applyBaiBaiBookToggle(settings, checked) {
+    if (!settings) return settings;
+    settings.useBaiBaiBook = !!checked;
+    settings.useAnima = false;
+    settings.useDatabase = false;
+    settings.useQianQianJie = false;
     return settings;
 }
 
@@ -32,32 +28,13 @@ export function bindMemorySettings(env = {}) {
     const toast = env.toast;
     const diag = env.diagnosticMessage;
 
-    const bindSource = (sel, flag) => {
-        $in(sel).on('change', function () {
-            applyMemorySourceToggle(settings(), flag, this.checked);
-            save?.();
-            memory.abortAll('manual-abort');
-            render?.();
-        });
-    };
-    bindSource('#sp-mem-source-qqj', 'useQianQianJie');
-    bindSource('#sp-mem-source-bbb', 'useBaiBaiBook');
-    bindSource('#sp-mem-source-anima', 'useAnima');
-    bindSource('#sp-mem-source-database', 'useDatabase');
-
-    $in('#sp-mem-database-worldbook').on('change', function () {
-        const value = normalizeDatabaseWorldbookName(this.value);
-        settings().databaseWorldbookName = value;
-        this.value = value;
+    $in('#sp-mem-source-bbb').on('change', function () {
+        applyBaiBaiBookToggle(settings(), this.checked);
         save?.();
+        memory.abortAll('manual-abort');
         render?.();
     });
-    $in('#sp-mem-anima-recall').on('change', function () {
-        const value = clampParseInt(this.value, { min: 1, max: 50, fallback: 20 });
-        settings().animaRecallCount = value;
-        this.value = value;
-        save?.();
-    });
+
     $in('#sp-mem-enabled').on('change', function () {
         settings().memoryEnabled = this.checked;
         save?.();
@@ -81,8 +58,6 @@ export function bindMemorySettings(env = {}) {
         this.value = v;
         save?.();
     });
-    // input=即打即存（存 sanitize 值但不回写 value，免光标跳）；change=失焦时规范化回写显示。
-    // 关键：只用 change 会在「输入框还没失焦就点保存/关面板」时丢掉那次编辑。
     const bindTagField = (sel, key) => {
         $in(sel).on('input', function () {
             settings()[key] = sanitizeTagList(this.value);

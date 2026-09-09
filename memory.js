@@ -53,10 +53,7 @@ function builtInMemoryEnabled() {
     const settings = _getSettings();
     return settings.pluginEnabled !== false
         && settings.memoryEnabled !== false
-        && !settings.useBaiBaiBook
-        && !settings.useAnima
-        && !settings.useDatabase
-        && !settings.useQianQianJie;
+        && !settings.useBaiBaiBook;
 }
 
 // 把两路中止信号合成一个交给 fetch：_jobAbortController（切聊天时掐，防结果串写别的聊天）
@@ -607,7 +604,7 @@ export function consumeMigrationNotice() {
 
 // ─── Memory context for injection ────────────────────────────────────────────
 export function getMemoryContext() {
-    if (_getSettings().useBaiBaiBook || _getSettings().useAnima || _getSettings().useDatabase || _getSettings().useQianQianJie) return '';
+    if (_getSettings().useBaiBaiBook) return '';
     const m = meta();
     if (!m) return '';
     const parts = [];

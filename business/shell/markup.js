@@ -244,35 +244,10 @@ export function panelMarkup({
                                 <div class="sp-settings-section-body" id="sp-mem-body">
                                     <label class="sp-cfg-group">记忆源</label>
                                     <label class="sp-mode-opt sp-mem-source-toggle">
-                                        <input type="checkbox" id="sp-mem-source-qqj">
-                                        <span>使用千千结作为记忆源</span>
-                                    </label>
-                                    <div id="sp-mem-qqj-status" class="sp-cfg-hint" style="display:none"></div>
-                                    <label class="sp-mode-opt sp-mem-source-toggle">
                                         <input type="checkbox" id="sp-mem-source-bbb">
                                         <span>使用柏宝书作为记忆源</span>
                                     </label>
                                     <div id="sp-mem-bbb-status" class="sp-cfg-hint" style="display:none"></div>
-                                    <label class="sp-mode-opt sp-mem-source-toggle">
-                                        <input type="checkbox" id="sp-mem-source-anima">
-                                        <span>使用 Anima 作为记忆源</span>
-                                    </label>
-                                    <div id="sp-mem-anima-status" class="sp-cfg-hint" style="display:none"></div>
-                                    <div id="sp-mem-anima-options" class="sp-mode-opt" style="display:none">
-                                        <span>外置记忆召回条数</span>
-                                        <input id="sp-mem-anima-recall" class="sp-input sp-interval-input" type="number" min="1" max="50" step="1" value="20">
-                                    </div>
-                                    <label class="sp-mode-opt sp-mem-source-toggle">
-                                        <input type="checkbox" id="sp-mem-source-database">
-                                        <span>使用数据库作为记忆源</span>
-                                    </label>
-                                    <div id="sp-mem-database-worldbook-options" class="sp-mode-opt" style="display:none">
-                                        <span>数据库纪要所在世界书</span>
-                                        <select id="sp-mem-database-worldbook" class="sp-input">
-                                            <option value="">跟随角色主世界书（默认）</option>
-                                        </select>
-                                    </div>
-                                    <div id="sp-mem-database-status" class="sp-cfg-hint" style="display:none"></div>
 
                                     <div id="sp-mem-internal">
                                     <hr class="sp-mem-divider">

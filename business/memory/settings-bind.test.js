@@ -1,22 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { applyMemorySourceToggle, clampParseInt } from './settings-bind.js';
+import { applyBaiBaiBookToggle, clampParseInt } from './settings-bind.js';
 
-test('turning on one memory source clears the others', () => {
-    const settings = { useQianQianJie: false, useBaiBaiBook: true, useAnima: false, useDatabase: false };
-    applyMemorySourceToggle(settings, 'useDatabase', true);
+test('turning on 柏宝书 clears retired memory sources', () => {
+    const settings = { useQianQianJie: true, useBaiBaiBook: false, useAnima: true, useDatabase: true };
+    applyBaiBaiBookToggle(settings, true);
     assert.deepEqual(settings, {
         useQianQianJie: false,
-        useBaiBaiBook: false,
+        useBaiBaiBook: true,
         useAnima: false,
-        useDatabase: true,
+        useDatabase: false,
     });
 });
 
-test('turning off a memory source leaves the rest alone', () => {
-    const settings = { useQianQianJie: true, useBaiBaiBook: false, useAnima: false, useDatabase: false };
-    applyMemorySourceToggle(settings, 'useQianQianJie', false);
-    assert.equal(settings.useQianQianJie, false);
+test('turning off 柏宝书 leaves internal memory available', () => {
+    const settings = { useQianQianJie: false, useBaiBaiBook: true, useAnima: false, useDatabase: false };
+    applyBaiBaiBookToggle(settings, false);
     assert.equal(settings.useBaiBaiBook, false);
 });
 

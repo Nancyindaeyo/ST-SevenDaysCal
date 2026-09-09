@@ -80,10 +80,10 @@ export const DEFAULT_SETTINGS = {
     memoryL1Group  : 10,   // L0 entries per L1 chapter
     memorySkipShort: 50,   // skip AI floors shorter than N chars
     useBaiBaiBook  : false, // if true, pull history from 柏宝书 getInjectedHistory() and skip built-in memory entirely
-    useAnima       : false, // if true, read summaries from Anima's chat-bound worldbook (anima_summary entries) and skip built-in memory
-    useDatabase    : false, // if true, retrieve raw TavernDB summary entries from the selected/default worldbook
-    useQianQianJie : false, // if true, read QQJ's formal projection through its versioned read-only bridge
-    databaseWorldbookName: '', // empty follows the character primary worldbook; otherwise freeze this exact host book name
+    useAnima       : false, // retired memory source; forced off in getSettings()
+    useDatabase    : false, // retired memory source; forced off in getSettings()
+    useQianQianJie : false, // retired memory source; forced off in getSettings()
+    databaseWorldbookName: '', // leftover key from retired database memory source
     animaRecallCount: 20,
     // Tag sanitizer (used by memory.js:stripTags AND anywhere else that reads
     // AI floor content). Both are comma-separated Unicode tag names; optional surrounding <> are normalized away.
@@ -116,6 +116,9 @@ export function getSettings() {
     if (!Object.prototype.hasOwnProperty.call(s, 'outlineJudgeEnabled')) s.outlineJudgeEnabled = s.outlineInject === true;
     delete s.scheduleAutoDetect;
     delete s.theaterBeautifyPrompt;
+    s.useAnima = false;
+    s.useDatabase = false;
+    s.useQianQianJie = false;
     return s;
 }
 

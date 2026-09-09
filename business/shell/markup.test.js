@@ -35,5 +35,9 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.match(html, /id="sp-plugin-enabled"/);
     assert.match(html, /id="sp-almanac-wrap"/);
     assert.match(html, /id="sp-lines-wrap"/);
+    assert.match(html, /id="sp-mem-source-bbb"/);
+    assert.doesNotMatch(html, /sp-mem-source-qqj/);
+    assert.doesNotMatch(html, /sp-mem-source-anima/);
+    assert.doesNotMatch(html, /sp-mem-source-database/);
     assert.match(html, /时间戳正常/);
 });
