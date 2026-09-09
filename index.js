@@ -38,6 +38,9 @@ import { bindInjectAndJump, bindPointPanel } from './business/point/bind.js';
 import { bindAdultReveal } from './business/utils/adult-reveal.js';
 import { bindActionMenuDismiss, bindManualActionMenus, closeOpenActionMenus } from './business/utils/action-menu.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
+import { bindApiFields, bindDiagnostics, filterModelList } from './runtime/api-fields-bind.js';
+import { bindMemorySettings } from './business/memory/settings-bind.js';
+import { bindTheaterSettings } from './business/theater/settings-bind.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
@@ -91,7 +94,6 @@ import {
 import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
 import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfaceParticipant } from './runtime/chat-surface.js';
 import { createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
-import { normalizeTagRules } from './utils/tag-names.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
 import { axisState } from './business/axis/state.js';
 import {
@@ -2968,13 +2970,16 @@ function injectModal() {
     // 模块介绍气泡：点标题旁的 ? 弹出当前模块简介，点外部/切模块即关。
     // shadow 内点击的 e.target 被重定向为 host，改走 composedPath 判断是否落在 pop/btn 内。
     bindModuleIntro({ $in, $, intros: MODULE_INTROS });
-    for (const id of ['#sp-diagnostics-section', '#sp-diagnostics-ai-input-preview']) {
-        inEl(id)?.addEventListener('toggle', function () {
-            if (this.open) refreshLastDebugPayloadPreview();
-        });
-    }
-    $in('#sp-diagnostics-ai-input-copy').on('click', function () {
-        void copyLastDebugPayload();
+    bindDiagnostics({
+        $in, inEl,
+        refreshPreview: refreshLastDebugPayloadPreview,
+        copyPayload: copyLastDebugPayload,
+        exportTrace: () => shareRecentDiagnosticTrace({
+            copyText: copyPlainText,
+            promptTextarea: options => customDialog.promptTextarea(options),
+            notify: (message, isError) => showToast(message, null, isError),
+        }),
+        exportCurrent: exportCurrentChatDiagnosticPackage,
     });
 
     outlineFeature.bindUi();
@@ -3158,23 +3163,20 @@ function injectModal() {
         }, $(this));
     });
 
-    $in('#sp-cfg-save').on('click', function () {
-        const $msg = $in('#sp-cfg-msg');
-        $msg.text('已自动保存 ✓');
-        clearTimeout(this._autoSaveHintTimer);
-        this._autoSaveHintTimer = setTimeout(() => $msg.text(''), 2000);
-        if (settingsOpen) toggleSettings();
+    bindApiFields({
+        $, $in, $inAll,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        settingsOpen: () => settingsOpen,
+        toggleSettings,
+        toggleKey: toggleKeyVisibility,
+        fetchModels,
+        syncPreset: () => apiPresetUi.syncState(),
+        renderModelList,
+        cachedModels: () => _cachedModels,
+        maskKey,
+        parseExcludeParams,
     });
-    $in('#sp-key-toggle').on('click',    toggleKeyVisibility);
-    $in('#sp-fetch-models').on('click',  fetchModels);
-    $in('#sp-diagnostic-export').on('click', function () {
-        void shareRecentDiagnosticTrace({
-            copyText: copyPlainText,
-            promptTextarea: options => customDialog.promptTextarea(options),
-            notify: (message, isError) => showToast(message, null, isError),
-        });
-    });
-    $in('#sp-current-diagnostic-export').on('click', () => { void exportCurrentChatDiagnosticPackage(); });
     apiPresetUi.bind();
     apiPresetUi.render();
     apiPresetUi.renderUtility();
@@ -3228,35 +3230,33 @@ function injectModal() {
         resetLedgerJudgeCounter: () => paceBook.ledgerJudge.resetCounter(),
         scanAnchorButtons: () => coordinateRuntime?.feature?.scanButtons(),
     });
-    // Inline model list: pick an item → write to input + refresh active highlight
-    $in('#sp-model-list-items').on('click', '.sp-model-list-item', function () {
-        const model = $(this).attr('data-model');
-        $in('#sp-cfg-model').val(model);
-        $in('#sp-cfg-model').trigger('change');
-        apiPresetUi.syncState();
-        $inAll('.sp-model-list-item').removeClass('sp-model-list-item-active');
-        $(this).addClass('sp-model-list-item-active');
-    });
-    // Inline model list: live-filter as user types
-    $in('#sp-model-list-search').on('input', function () {
-        renderModelList(_cachedModels, $(this).val());
-    });
-    $in('#sp-cfg-key')
-        .on('focus', () => { const r = $in('#sp-cfg-key').data('real'); if (r) $in('#sp-cfg-key').val(r); })
-        .on('input', function () { const value = this.value.trim(); $in('#sp-cfg-key').data('real', value); getSettings().apiKey = value; saveSettingsDebounced(); apiPresetUi.syncState(); })
-        .on('blur', function () { const r = $in('#sp-cfg-key').val().trim(); $in('#sp-cfg-key').data('real', r).val(r ? maskKey(r) : ''); getSettings().apiKey = r; saveSettingsDebounced(); apiPresetUi.syncState(); });
-    $in('#sp-cfg-url').on('input change', function () { getSettings().apiUrl = this.value.trim().replace(/\/$/, ''); saveSettingsDebounced(); apiPresetUi.syncState(); });
-    $in('#sp-cfg-model').on('input change', function () { getSettings().apiModel = this.value.trim(); saveSettingsDebounced(); apiPresetUi.syncState(); });
-    $in('#sp-cfg-exclude').on('input change', function () { getSettings().apiExcludeParams = parseExcludeParams(this.value); saveSettingsDebounced(); apiPresetUi.syncState(); });
-    $in('#sp-cfg-timeout').on('input change', function () { const raw = String(this.value ?? '').trim(); const n = Number(raw); apiPresetUi.syncState(); if (!raw || !Number.isInteger(n) || n < 5 || n > 600) return; getSettings().apiTimeoutSec = n; saveSettingsDebounced(); });
-    $in('#sp-cfg-stream').on('change', function () { getSettings().apiStream = this.checked; saveSettingsDebounced(); apiPresetUi.syncState(); });
 
     panelWindow.bindDrag(inEl('.sp-content-head'));
     panelWindow.bindResize($in('#sp-resize-handle'), inEl('#sp-resize-handle'));
     panelWindow.bindOutlineDivider();
     panelWindow.restoreOutlineChatHeight();
-    bindMemoryHandlers();
-    bindTheaterHandlers();
+    bindMemorySettings({
+        $, $in,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        saveNow: stSaveSettings,
+        memory,
+        render: renderMemorySection,
+        toast: showToast,
+        diagnosticMessage,
+        refreshStoryClock: refreshStoryClockInjection,
+        defaultStoryClockPrompt: () => buildStoryClockPrompt({}),
+        refreshStatus: refreshMemoryStatus,
+        setProgressVisible: setMemoryProgressVisible,
+        updateProgress: updateMemoryProgress,
+        confirm: options => spConfirm(options),
+    });
+    bindTheaterSettings({
+        $, $in,
+        settings: getSettings,
+        save: saveSettingsDebounced,
+        theater: theaterFeature,
+    });
     bindStorageHandlers();
 }
 
@@ -4486,7 +4486,7 @@ const qianQianJieMemoryAccess = createQianQianJieMemoryAccess({
     isSelected: () => getSettings().useQianQianJie === true,
 });
 
-// Alternate sources are mutually exclusive (enforced in bindMemoryHandlers); each
+// Alternate sources are mutually exclusive (enforced in bindMemorySettings); each
 // returns its own history or nothing (empty prompt block) — no fallback between them.
 async function _getMemTextRaw(opts = {}) {
     const s = getSettings();
@@ -5609,11 +5609,10 @@ let _cachedModels = [];
 function renderModelList(models, filter = '') {
     _cachedModels = Array.isArray(models) ? models : [];
     $in('#sp-model-list-count').text(`已加载 ${_cachedModels.length} 个模型`);
-    const q = filter.trim().toLowerCase();
-    const shown = q ? _cachedModels.filter(m => m.toLowerCase().includes(q)) : _cachedModels;
+    const shown = filterModelList(_cachedModels, filter);
     const current = ($in('#sp-cfg-model').val() || '').trim();
     if (!shown.length) {
-        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${q ? '无匹配项' : '暂无模型'}</div>`);
+        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${String(filter ?? '').trim() ? '无匹配项' : '暂无模型'}</div>`);
         return;
     }
     // Cap the initial render at 200 items with a "show more" tail for MASSIVE lists;
@@ -5900,222 +5899,6 @@ async function renderTheaterPoolList() {
             $(this).toggle(name.includes(query));
         });
     }
-}
-
-// 棱设置分节的事件（config 字段即改即存；模板 CRUD。缓存治理已移交存储管理面板）
-function bindTheaterHandlers() {
-    theaterFeature?.bindSettings($in('.sp-settings-body'));
-    $in('#sp-theater-count').on('change', function () {
-        const n = Math.max(1, Math.min(3, Math.floor(Number(this.value) || THEATER_COUNT_DEFAULT)));
-        getSettings().theaterCount = n; this.value = String(n); saveSettingsDebounced();
-    });
-    $in('#sp-theater-pool-list').on('change', '.sp-theater-pool-cb', function () {
-        const name = String($(this).data('name') || '');
-        const books = new Set(getSettings().theaterPoolBooks || []);
-        if (this.checked) books.add(name); else books.delete(name);
-        getSettings().theaterPoolBooks = [...books];
-        saveSettingsDebounced();
-        $(this).closest('.sp-wi-exclude-row').toggleClass('sp-wi-exclude-on', this.checked);
-        theaterFeature?.refreshPoolList?.();
-    });
-    $in('#sp-theater-pool-search').on('input', function () {
-        const query = String(this.value || '').trim().toLowerCase();
-        $in('#sp-theater-pool-list .sp-wi-exclude-row').each(function () {
-            const name = String($(this).data('name') || '').toLowerCase();
-            $(this).toggle(!query || name.includes(query));
-        });
-    });
-}
-
-function bindMemoryHandlers() {
-    $in('#sp-mem-source-qqj').on('change', function () {
-        const s = getSettings();
-        s.useQianQianJie = this.checked;
-        if (this.checked) { s.useBaiBaiBook = false; s.useAnima = false; s.useDatabase = false; }
-        saveSettingsDebounced();
-        memory.abortAll('manual-abort');
-        renderMemorySection();
-    });
-    $in('#sp-mem-source-bbb').on('change', function () {
-        const s = getSettings();
-        s.useBaiBaiBook = this.checked;
-        if (this.checked) { s.useAnima = false; s.useDatabase = false; s.useQianQianJie = false; }   // 记忆源互斥
-        saveSettingsDebounced();
-        memory.abortAll('manual-abort');
-        renderMemorySection();
-    });
-    $in('#sp-mem-source-anima').on('change', function () {
-        const s = getSettings();
-        s.useAnima = this.checked;
-        if (this.checked) { s.useBaiBaiBook = false; s.useDatabase = false; s.useQianQianJie = false; }   // 记忆源互斥
-        saveSettingsDebounced();
-        memory.abortAll('manual-abort');
-        renderMemorySection();
-    });
-    $in('#sp-mem-source-database').on('change', function () {
-        const s = getSettings();
-        s.useDatabase = this.checked;
-        if (this.checked) { s.useBaiBaiBook = false; s.useAnima = false; s.useQianQianJie = false; }
-        saveSettingsDebounced();
-        memory.abortAll('manual-abort');
-        renderMemorySection();
-    });
-    $in('#sp-mem-database-worldbook').on('change', function () {
-        const value = normalizeDatabaseWorldbookName(this.value);
-        getSettings().databaseWorldbookName = value;
-        this.value = value;
-        saveSettingsDebounced();
-        renderMemorySection();
-    });
-    $in('#sp-mem-anima-recall').on('change', function () {
-        const value = Math.max(1, Math.min(50, parseInt(this.value, 10) || 20));
-        getSettings().animaRecallCount = value;
-        this.value = value;
-        saveSettingsDebounced();
-    });
-    $in('#sp-mem-enabled').on('change', function () {
-        getSettings().memoryEnabled = this.checked;
-        saveSettingsDebounced();
-        if (!this.checked) memory.abortAll('manual-abort');
-    });
-    $in('#sp-mem-l0').on('change', function () {
-        const v = Math.max(1, Math.min(30, parseInt(this.value, 10) || 5));
-        getSettings().memoryL0Group = v;
-        this.value = v;
-        saveSettingsDebounced();
-    });
-    $in('#sp-mem-l1').on('change', function () {
-        const v = Math.max(2, Math.min(30, parseInt(this.value, 10) || 10));
-        getSettings().memoryL1Group = v;
-        this.value = v;
-        saveSettingsDebounced();
-    });
-    $in('#sp-mem-skipshort').on('change', function () {
-        const v = Math.max(0, Math.min(500, parseInt(this.value, 10) || 50));
-        getSettings().memorySkipShort = v;
-        this.value = v;
-        saveSettingsDebounced();
-    });
-    // Tag sanitizer inputs — normalize Unicode tag names or the fixed [[...]] rule, then save.
-    // Applies to future reads; existing L0 summaries built with old rules keep
-    // their hash and stay valid — new content read after change uses new rules.
-    // input=即打即存（存 sanitize 值但不回写 value，免光标跳）；change=失焦时规范化回写显示。
-    // 关键：只用 change 会在「输入框还没失焦就点保存/关面板」时丢掉那次编辑（表现为“动了 API，标签/提示词被重置”）。
-    function sanitizeTagList(raw) {
-        return normalizeTagRules(raw).join(',');
-    }
-    function bindTagField(sel, key) {
-        // sel 是 #sp-mem-* 选择器串（设置区在 shadow 内）→ 必须 $in 绑定，否则不落存
-        $in(sel).on('input', function () {
-            getSettings()[key] = sanitizeTagList(this.value);
-            saveSettingsDebounced();
-        }).on('change', function () {
-            const v = sanitizeTagList(this.value);
-            getSettings()[key] = v;
-            this.value = v;                 // 失焦才回写，避免打字途中光标跳到末尾
-            saveSettingsDebounced();
-            stSaveSettings();
-        });
-    }
-    bindTagField('#sp-mem-keeptags',  'keepTags');
-    bindTagField('#sp-mem-extratags', 'extraTags');
-    $in('#sp-custom-prompt').on('input', function () {
-        getSettings().customPrompt = this.value;
-        saveSettingsDebounced();
-    }).on('blur', function () {
-        getSettings().customPrompt = this.value;
-        stSaveSettings();   // 失焦即落盘，覆盖"填完没关面板就直接刷新"的场景
-    });
-    // 间·人格覆盖：与 customPrompt 同套持久化（无常驻注入，下次进「间」发消息时经 buildSpaceChatSystemPrompt 现读现生效）。
-    $in('#sp-space-persona').on('input', function () {
-        getSettings().spacePersona = this.value;
-        saveSettingsDebounced();
-    }).on('blur', function () {
-        getSettings().spacePersona = this.value;
-        stSaveSettings();
-    });
-    // 时间戳·强注词二改：与 customPrompt 同套持久化；改后立即重设常驻注入让新词当楼生效。
-    $in('#sp-storyclock-prompt').on('input', function () {
-        getSettings().storyClockPrompt = this.value;
-        getSettings().storyClockPromptVersion = 2;
-        saveSettingsDebounced();
-        try { refreshStoryClockInjection({ announce: true }); } catch {}
-    }).on('blur', function () {
-        getSettings().storyClockPrompt = this.value;
-        getSettings().storyClockPromptVersion = 2;
-        stSaveSettings();
-    });
-    $in('#sp-storyclock-prompt-load').on('click', function () {
-        const fullDefault = buildStoryClockPrompt({});
-        $in('#sp-storyclock-prompt').val(fullDefault);
-        getSettings().storyClockPrompt = fullDefault;
-        getSettings().storyClockPromptVersion = 2;
-        stSaveSettings();
-        try { refreshStoryClockInjection({ announce: true }); } catch {}
-        try { showToast('已把默认强制词载入编辑框，可直接修改'); } catch {}
-    });
-    // 恢复默认＝清空＝回到内置 live 默认（继续跟随插件更新），区别于「载入默认再改」的冻结快照。
-    $in('#sp-storyclock-prompt-reset').on('click', function () {
-        $in('#sp-storyclock-prompt').val('');
-        getSettings().storyClockPrompt = '';
-        getSettings().storyClockPromptVersion = 2;
-        stSaveSettings();
-        try { refreshStoryClockInjection({ announce: true }); } catch {}
-        try { showToast('已恢复内置默认（跟随插件更新）'); } catch {}
-    });
-    $in('#sp-mem-check').on('click', function () {
-        refreshMemoryStatus();
-        showToast('已刷新记忆状态');
-    });
-    $in('#sp-mem-fill').on('click', async function () {
-        if ($(this).prop('disabled')) return;
-        setMemoryProgressVisible(true);
-        $(this).prop('disabled', true);
-        try {
-            await memory.fillMissing(({ current, total, done }) => {
-                updateMemoryProgress(current, total);
-                if (current % 3 === 0 || done) refreshMemoryStatus();
-            });
-            showToast('补齐完成');
-        } catch (err) {
-            showToast('补齐失败：' + diagnosticMessage(err), null, true);
-        } finally {
-            $(this).prop('disabled', false);
-            setMemoryProgressVisible(false);
-            refreshMemoryStatus();
-        }
-    });
-    $in('#sp-mem-rebuild').on('click', async function () {
-        const r = memory.getHealthReport();
-        const cost = r.totalGroups;
-        const ok = await spConfirm({
-            title  : '推翻重构',
-            body   : `将清空全部摘要并按当前分组重新生成，约需 ${cost} 次 L0 API 调用 + 若干次 L1 压缩。`,
-            note   : '重构期间可随时中止；中止会还原到重构前的记忆、不会清空。已有的点 / 线 / 面 不受影响。',
-            confirmText: '开始重构',
-            cancelText : '取消',
-        });
-        if (!ok) return;
-        if ($(this).prop('disabled')) return;
-        setMemoryProgressVisible(true);
-        $(this).prop('disabled', true);
-        let wasAborted = false;
-        try {
-            await memory.rebuildAll(({ current, total, done, aborted }) => {
-                if (aborted) wasAborted = true;
-                updateMemoryProgress(current, total, aborted);
-                if (current % 3 === 0 || done || aborted) refreshMemoryStatus();
-            });
-            showToast(wasAborted ? '已中止，已还原到重构前的记忆' : '重构完成');
-        } catch (err) {
-            showToast('重构失败：' + diagnosticMessage(err), null, true);
-        } finally {
-            $(this).prop('disabled', false);
-            setMemoryProgressVisible(false);
-            refreshMemoryStatus();
-        }
-    });
-    $in('#sp-mem-progress-abort').on('click', () => memory.abortRebuild());
 }
 
 function setMemoryProgressVisible(visible) {
