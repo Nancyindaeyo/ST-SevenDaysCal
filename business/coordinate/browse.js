@@ -26,7 +26,19 @@ export function groupItemsByTag(items, tags) {
     return { groups: tagList.map(tag => buckets.get(tag.id)).filter(group => group.items.length), untagged };
 }
 
-export function theaterGroupKey(item) {
+const firstText = (items, key) => {
+    for (const item of items) {
+        const text = String(item?.[key] || '').trim();
+        if (text) return text;
+    }
+    return '';
+};
+
+export function newestTs(items) {
+    return Math.max(0, ...(items || []).map(item => item.ts || 0));
+}
+
+function theaterGroupKey(item) {
     if (String(item?.kind || '') !== 'theater') return '';
     const batch = String(item.batchId || '').trim();
     if (batch) return `batch:${batch}`;
@@ -37,20 +49,17 @@ export function theaterGroupKey(item) {
 export function theaterGroupTitle(items) {
     const list = Array.isArray(items) ? items : [];
     if (list.length > 1) {
-        const form = String(list.find(item => String(item.formName || '').trim())?.formName || '').trim();
+        const form = firstText(list, 'formName');
         if (form) return form;
     }
-    const note = String(list.find(item => String(item.note || '').trim())?.note || '').trim();
-    if (note) return note;
-    const form = String(list.find(item => String(item.formName || '').trim())?.formName || '').trim();
-    return form || '未命名小剧场';
+    return firstText(list, 'note') || firstText(list, 'formName') || '未命名小剧场';
 }
 
 export function groupItemsByTheater(items) {
-    const list = (Array.isArray(items) ? items : []).filter(item => theaterGroupKey(item));
     const buckets = new Map();
-    for (const item of list) {
+    for (const item of Array.isArray(items) ? items : []) {
         const id = theaterGroupKey(item);
+        if (!id) continue;
         const group = buckets.get(id) || { id, items: [] };
         group.items.push(item);
         buckets.set(id, group);
@@ -60,6 +69,6 @@ export function groupItemsByTheater(items) {
             id: group.id,
             title: theaterGroupTitle(group.items),
             items: group.items,
-        })).sort((a, b) => Math.max(0, ...b.items.map(item => item.ts || 0)) - Math.max(0, ...a.items.map(item => item.ts || 0))),
+        })).sort((a, b) => newestTs(b.items) - newestTs(a.items)),
     };
 }

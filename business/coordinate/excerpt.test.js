@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace, QUOTE_MAX } from './excerpt-schema.js';
 import { createExcerptRepository } from './excerpt-repository.js';
-import { groupItemsByTag, groupItemsByTheater, matchQuery, hayOf, coordinateBrowseMode } from './browse.js';
+import { groupItemsByTag, groupItemsByTheater, theaterGroupTitle, matchQuery, hayOf, coordinateBrowseMode } from './browse.js';
 import { filterSearchList, joinPickedText, readShadowSelection, splitPickUnits, useTapPick } from './excerpt-ui.js';
 import { snapshotSearchText } from './capture.js';
 
@@ -73,6 +73,13 @@ test('groupItemsByTheater groups one small theater batch together', () => {
     assert.equal(coordinateBrowseMode('theater'), 'theater');
     assert.equal(coordinateBrowseMode('tag'), 'tag');
     assert.equal(coordinateBrowseMode('nope'), 'char');
+});
+
+test('theaterGroupTitle prefers form for a batch and note for a single piece', () => {
+    assert.equal(theaterGroupTitle([{ formName: '问卷', note: '第一面' }]), '第一面');
+    assert.equal(theaterGroupTitle([{ formName: '问卷', note: 'a' }, { formName: '问卷', note: 'b' }]), '问卷');
+    assert.equal(theaterGroupTitle([{ formName: '问卷' }]), '问卷');
+    assert.equal(theaterGroupTitle([]), '未命名小剧场');
 });
 
 test('filterSearchList hides unmatched cards without rebuilding', () => {

@@ -1,3 +1,5 @@
+import { matchQuery, hayOf } from './browse.js';
+
 export const EXCERPTS_NAME = 'sp-anchor-excerpts.json';
 export const EXCERPT_SCHEMA_VERSION = 1;
 export const QUOTE_MAX = 2000;
@@ -41,12 +43,7 @@ export function normalizeExcerpts(value) {
 }
 
 export function matchExcerpt(item, query) {
-    const hay = [item?.quote, item?.note, item?.charName, item?.chatName, ...(item?.tagNames || [])]
-        .map(value => String(value || ''))
-        .join('\n');
-    const raw = String(query || '').trim().toLowerCase();
-    if (!raw) return true;
-    return raw.split(/\s+/).filter(Boolean).every(word => hay.toLowerCase().includes(word));
+    return matchQuery(hayOf([item?.quote, item?.note, item?.charName, item?.chatName, ...(item?.tagNames || [])]), query);
 }
 
 export function excerptBytes(item) {

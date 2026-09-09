@@ -1,5 +1,5 @@
 import { isCurrentRevision } from './identity.js';
-import { hayOf, groupItemsByTag, groupItemsByTheater, coordinateBrowseMode } from './browse.js';
+import { hayOf, groupItemsByTag, groupItemsByTheater, coordinateBrowseMode, newestTs } from './browse.js';
 import { wrapPickableText } from './excerpt-ui.js';
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
@@ -30,6 +30,21 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         for (const bucket of buckets || []) for (const item of bucket.items || []) items.push(item);
         return items;
     };
+    const byNewest = (a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0);
+    const TAGMGR_BTN = '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>';
+    async function loadCatalog() {
+        const s = current();
+        const tags = await repository.getTags();
+        return { s, tags, map: new Map(tags.map(tag => [tag.id, tag])), items: flattenItems(await repository.listByChat?.() || []) };
+    }
+    async function browseHome(s, cards, empty, miss) {
+        setBody(`${await snapHead(s, TAGMGR_BTN)}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || empty}</div>${searchEmpty(miss)}</div>`);
+    }
+    const itemsCard = (id, title, items, map, { extraHay = [], ...opts } = {}) => groupCard(id, title, items.length, newestTs(items), hayOf([title, ...extraHay, ...items.map(item => itemHay(item, map))]), opts);
+    function groupDetail({ s, browse, title, list, map, empty }) {
+        const cards = list.map(item => itemCard(item, map, { showChat: true })).join('');
+        setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-browse="${esc(browse)}">‹</button><span class="sp-anchor-head-title">${escapeHtml(title)}</span><span class="sp-anchor-head-count">${list.length} 条</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-item-list" data-filter-list>${cards || empty}</div>${searchEmpty('没有匹配的快照')}</div>`);
+    }
     const shelfBar = async (shelf) => {
         let snapN = ''; let clipN = '';
         try { const n = await repository.countItems?.(); if (n) snapN = ` <span class="sp-anchor-shelf-n">${n}</span>`; } catch { /* 计数失败不挡渲染 */ }
@@ -67,49 +82,34 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         for (const bucket of all) { const items = visible(bucket.items || [], s.filter); if (!items.length) continue; const key = bucket.charName || '(未知角色)'; const group = groups.get(key) || { name: key, chatCount: 0, count: 0, latestTs: 0, hay: [] }; group.chatCount++; group.count += items.length; group.latestTs = Math.max(group.latestTs, ...items.map(item => item.ts || 0)); group.hay.push(key, ...items.map(item => itemHay(item, map))); groups.set(key, group); }
         const list = [...groups.values()].sort((a, b) => b.latestTs - a.latestTs);
         const cards = list.map(group => `<button type="button" class="sp-anchor-char-card" data-char="${esc(group.name)}" data-search="${esc(hayOf(group.hay))}"><span class="sp-anchor-chat-icon">${svg('sp-anchor-chat-svg')}</span><span class="sp-anchor-chat-main"><span class="sp-anchor-chat-name">${escapeHtml(group.name)}</span><span class="sp-anchor-chat-sub">${group.count} 条快照</span></span><span class="sp-anchor-chat-meta"><span class="sp-anchor-chat-count">${group.count}</span><span class="sp-anchor-chat-ts">${formatTimestamp(group.latestTs)}</span></span></button>`).join('');
-        setBody(`${await snapHead(s, '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>')}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">没有含此分组的收藏</div>'}</div>${searchEmpty('没有匹配的角色')}</div>`);
+        return browseHome(s, cards, '<div class="sp-anchor-filter-empty">没有含此分组的收藏</div>', '没有匹配的角色');
     }
     async function tagHome() {
-        const s = current();
-        const tags = await repository.getTags();
-        const map = new Map(tags.map(tag => [tag.id, tag]));
-        const items = flattenItems(await repository.listByChat?.() || []);
+        const { s, tags, map, items } = await loadCatalog();
         const { groups, untagged } = groupItemsByTag(items, tags);
-        const groupCards = groups.map(group => groupCard(group.tag.id, group.tag.name, group.items.length, Math.max(0, ...group.items.map(item => item.ts || 0)), hayOf([group.tag.name, ...group.items.map(item => itemHay(item, map))]), { color: group.tag.color || 'slate' })).join('');
-        const noneCard = untagged.length ? groupCard('__none__', '未分组', untagged.length, Math.max(0, ...untagged.map(item => item.ts || 0)), hayOf(['未分组', ...untagged.map(item => itemHay(item, map))])) : '';
-        const cards = groupCards + noneCard;
-        setBody(`${await snapHead(s, '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>')}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">还没有分组。收藏时打上标签，或点右上角「分组」新建。</div>'}</div>${searchEmpty('没有匹配的分组')}</div>`);
+        const cards = groups.map(group => itemsCard(group.tag.id, group.tag.name, group.items, map, { color: group.tag.color || 'slate' })).join('')
+            + (untagged.length ? itemsCard('__none__', '未分组', untagged, map) : '');
+        await browseHome(s, cards, '<div class="sp-anchor-filter-empty">还没有分组。收藏时打上标签，或点右上角「分组」新建。</div>', '没有匹配的分组');
         return map;
     }
     async function theaterHome() {
-        const s = current();
-        const tags = await repository.getTags();
-        const map = new Map(tags.map(tag => [tag.id, tag]));
-        const items = flattenItems(await repository.listByChat?.() || []);
-        const { groups } = groupItemsByTheater(items);
-        const cards = groups.map(group => groupCard(group.id, group.title, group.items.length, Math.max(0, ...group.items.map(item => item.ts || 0)), hayOf([group.title, '棱', '小剧场', ...group.items.map(item => itemHay(item, map))]), { sub: '条小剧场' })).join('');
-        setBody(`${await snapHead(s, '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>')}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">还没有收藏过小剧场。在棱里点「收藏」，每一场会单独成一组。</div>'}</div>${searchEmpty('没有匹配的小剧场')}</div>`);
+        const { s, map, items } = await loadCatalog();
+        const cards = groupItemsByTheater(items).groups.map(group => itemsCard(group.id, group.title, group.items, map, { extraHay: ['棱', '小剧场'], sub: '条小剧场' })).join('');
+        await browseHome(s, cards, '<div class="sp-anchor-filter-empty">还没有收藏过小剧场。在棱里点「收藏」，每一场会单独成一组。</div>', '没有匹配的小剧场');
         return map;
     }
     async function theaterGroup() {
-        const s = current();
-        const tags = await repository.getTags();
-        const map = new Map(tags.map(tag => [tag.id, tag]));
-        const items = flattenItems(await repository.listByChat?.() || []);
+        const { s, map, items } = await loadCatalog();
         const packed = groupItemsByTheater(items).groups.find(entry => entry.id === s.groupId);
-        const list = (packed?.items || []).slice().sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
-        setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-browse="theater">‹</button><span class="sp-anchor-head-title">${escapeHtml(packed?.title || '小剧场')}</span><span class="sp-anchor-head-count">${list.length} 条</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-item-list" data-filter-list>${list.map(item => itemCard(item, map, { showChat: true })).join('') || '<div class="sp-anchor-filter-empty">这一场还是空的</div>'}</div>${searchEmpty('没有匹配的快照')}</div>`);
+        groupDetail({ s, browse: 'theater', title: packed?.title || '小剧场', list: (packed?.items || []).slice().sort(byNewest), map, empty: '<div class="sp-anchor-filter-empty">这一场还是空的</div>' });
     }
     async function group() {
         const s = current();
         if (s.browse === 'theater') return theaterGroup();
-        const tags = await repository.getTags();
-        const map = new Map(tags.map(tag => [tag.id, tag]));
-        const items = flattenItems(await repository.listByChat?.() || []);
+        const { tags, map, items } = await loadCatalog();
         const { groups, untagged } = groupItemsByTag(items, tags);
         const packed = s.groupId === '__none__' ? { name: '未分组', list: untagged } : { name: map.get(s.groupId)?.name || '分组', list: groups.find(entry => entry.tag.id === s.groupId)?.items || [] };
-        const list = packed.list.slice().sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
-        setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-browse="tag">‹</button><span class="sp-anchor-head-title">${escapeHtml(packed.name)}</span><span class="sp-anchor-head-count">${list.length} 条</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-item-list" data-filter-list>${list.map(item => itemCard(item, map, { showChat: true })).join('') || '<div class="sp-anchor-filter-empty">这一组还是空的</div>'}</div>${searchEmpty('没有匹配的快照')}</div>`);
+        groupDetail({ s, browse: 'tag', title: packed.name, list: packed.list.slice().sort(byNewest), map, empty: '<div class="sp-anchor-filter-empty">这一组还是空的</div>' });
     }
     async function tags() {
         const list = await repository.getTags(); const state = current();
@@ -127,7 +127,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         setBody(`<div class="sp-anchor-head sp-anchor-tagmgr-head"><button type="button" class="sp-anchor-back" data-to="chars"><i class="fa-solid fa-chevron-left"></i></button><span class="sp-anchor-head-title">管理分组</span><span class="sp-anchor-head-count">${list.length} 个</span></div><div class="sp-anchor-scroll"><p class="sp-anchor-clip-hint">分组用来把快照和摘抄归堆。在快照里打标签，摘抄会跟着走；点「按分组」就能按堆翻。</p><div class="sp-anchor-tagmgr-new"><input type="text" class="sp-tagmgr-new-name sp-input" placeholder="新建分组名…" maxlength="20"><div class="sp-tagmgr-swatches sp-tagmgr-new-swatches">${swatches(state.tagNewColor || 'rose')}</div><button type="button" class="sp-tagmgr-new-add sp-mini-btn"><i class="fa-solid fa-plus"></i> 新建</button></div><div class="sp-anchor-tagmgr-list">${rows}</div></div>`);
     }
     async function chats(charName) {
-        const all = (await repository.listByChat?.() || []).filter(bucket => !charName || (bucket.charName || '(未知角色)') === charName); const tags = await repository.getTags(); const map = new Map(tags.map(tag => [tag.id, tag])); const s = current(); const buckets = all.map(bucket => { const items = visible(bucket.items || [], s.filter); return { ...bucket, items, count: items.length, latestTs: Math.max(0, ...items.map(item => item.ts || 0)) }; }).filter(bucket => bucket.items.length);
+        const all = (await repository.listByChat?.() || []).filter(bucket => !charName || (bucket.charName || '(未知角色)') === charName); const tags = await repository.getTags(); const map = new Map(tags.map(tag => [tag.id, tag])); const s = current(); const buckets = all.map(bucket => { const items = visible(bucket.items || [], s.filter); return { ...bucket, items, count: items.length, latestTs: newestTs(items) }; }).filter(bucket => bucket.items.length);
         const cards = buckets.map(bucket => `<button type="button" class="sp-anchor-chat-card" data-chatid="${esc(bucket.chatId ?? '')}" data-search="${esc(hayOf([bucket.chatName, bucket.charName, ...bucket.items.map(item => itemHay(item, map))]))}"><span class="sp-anchor-chat-icon">${svg('sp-anchor-chat-svg')}</span><span class="sp-anchor-chat-main"><span class="sp-anchor-chat-name">${escapeHtml(bucket.chatName || '(未命名聊天)')}</span><span class="sp-anchor-chat-sub">${escapeHtml(bucket.charName || '')}</span></span><span class="sp-anchor-chat-meta"><span class="sp-anchor-chat-count">${bucket.count}</span><span class="sp-anchor-chat-ts">${formatTimestamp(bucket.latestTs)}</span></span></button>`).join('');
         setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-to="chars">‹</button><span class="sp-anchor-head-title">${escapeHtml(charName || '(未知角色)')}</span><span class="sp-anchor-head-count">${buckets.length} 个聊天</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}${filterBar(tags, s.filter)}<div class="sp-anchor-chat-list" data-filter-list>${cards || '<div class="sp-anchor-filter-empty">没有含此分组的收藏</div>'}</div>${searchEmpty('没有匹配的聊天')}</div>`);
     }
@@ -138,7 +138,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         const buckets = await repository.listByChat?.() || [];
         if (s.charName && (s.chatId == null || s.chatId === '')) {
             const owned = buckets.filter(bucket => (bucket.charName || '(未知角色)') === s.charName);
-            const list = visible(owned.flatMap(bucket => bucket.items || []), s.filter).sort((a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0));
+            const list = visible(owned.flatMap(bucket => bucket.items || []), s.filter).sort(byNewest);
             setBody(`<div class="sp-anchor-head"><button type="button" class="sp-anchor-back" data-to="chars">‹</button><span class="sp-anchor-head-title">${escapeHtml(s.charName)}</span><span class="sp-anchor-head-count">${list.length} 条</span></div><div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}${filterBar(tags, s.filter)}<div class="sp-anchor-item-list" data-filter-list>${list.map(item => itemCard(item, map, { showChat: true })).join('') || '<div class="sp-anchor-filter-empty">没有含此分组的收藏</div>'}</div>${searchEmpty('没有匹配的快照')}</div>`);
             return;
         }
@@ -197,7 +197,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         if (s.level === 'tags') return tags();
         return chars();
     }
-    return { render, chars, chats, items, full, tags, excerpts, group, filterBar };
+    return { render, chars, chats, items, full, tags, excerpts, group };
 }
 
 export function createFullscreenController({ body, sheet, documentRef = globalThis.document } = {}) {

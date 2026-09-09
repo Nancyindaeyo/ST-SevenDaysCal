@@ -1,3 +1,5 @@
+import { matchQuery } from './browse.js';
+
 const SKIP_PICK = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'INPUT', 'BUTTON', 'SELECT', 'OPTION']);
 const SHOW_TEXT = globalThis.NodeFilter?.SHOW_TEXT ?? 4;
 const FILTER_REJECT = globalThis.NodeFilter?.FILTER_REJECT ?? 2;
@@ -159,15 +161,13 @@ export function bindSnapSelection({ host, onChange, tapPick = useTapPick } = {})
 export function filterSearchList(root, query) {
     const list = root?.querySelector?.('[data-filter-list]');
     if (!list) return 0;
-    const raw = String(query || '').trim().toLowerCase();
-    const words = raw.split(/\s+/).filter(Boolean);
+    const raw = String(query || '').trim();
     let shown = 0;
     list.querySelectorAll('[data-search]').forEach(el => {
         const extra = typeof el.querySelectorAll === 'function'
             ? [...el.querySelectorAll('.sp-anchor-item-note-input')].map(input => input.value).join('\n')
             : '';
-        const hay = `${el.getAttribute('data-search') || ''}\n${extra}`.toLowerCase();
-        const ok = !words.length || words.every(word => hay.includes(word));
+        const ok = matchQuery(`${el.getAttribute('data-search') || ''}\n${extra}`, query);
         el.hidden = !ok;
         if (ok) shown++;
     });
