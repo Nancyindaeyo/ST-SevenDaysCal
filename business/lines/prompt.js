@@ -13,7 +13,7 @@ function trackedLinesForPrompt(previousRaw, vectorContext = {}) {
     if (!previousRaw) return '（无）';
     const tracked = parseLines(previousRaw);
     if (!tracked.length) return stripInternalLineLines(previousRaw);
-    return serializeLines(tracked.map(line => ({ ...line, pin: false })), { includeCue: false, includeAdult: false });
+    return serializeLines(tracked.map(line => ({ ...line, pin: false })), { includeCue: false, includeAdult: false, includeId: false });
 }
 function vectorPromptContext(vectorContext = {}) {
     const pinnedBackground = (vectorContext.pinnedBackground || []).map(line => `- ${line.name}：当前 ${line.desc || '暂无描述'}；后续 ${line.next || '暂无安排'}（本地已保留）`).join('\n') || '（无）';

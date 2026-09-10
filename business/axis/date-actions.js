@@ -16,14 +16,23 @@ export function createAxisDateActions(env = {}) {
         const calendar = env.calendar?.();
         const ownerIdentity = { chatId: env.chatId?.(), floor: env.floor?.(), swipe: env.swipe?.() };
         const today = env.today?.();
-        const target = env.monthDayFromDoy?.((env.dayOfYear?.(today?.month, today?.day, calendar) || 0) + Number(delta || 0), calendar);
+        const extras = {};
+        const year = Number(today?.year);
+        let target = null;
+        if (Number.isInteger(year) && year >= 1 && typeof env.addCalendarDays === 'function') {
+            target = env.addCalendarDays({ year, month: today.month, day: today.day }, Number(delta || 0), calendar);
+            if (target?.year != null) extras.year = target.year;
+        }
+        if (!target) target = env.monthDayFromDoy?.((env.dayOfYear?.(today?.month, today?.day, calendar) || 0) + Number(delta || 0), calendar);
         if (!target) { env.toast?.('日期保存失败，请重试', null, true); return { ok: false, reason: 'invalid-target' }; }
+        if (today?.eraLabel) extras.eraLabel = today.eraLabel;
+        if (today?.time) extras.time = today.time;
         const weekday = env.weekday?.(today.month, today.day, null, calendar);
         if (storyClock && !Number.isInteger(weekday)) { env.toast?.('当前没有可用故事星期，请先校准', null, true); return { ok: false, reason: 'weekday' }; }
-        const stored = saveAnchor(key, target.month, target.day, storyClock ? 'calibration' : 'explicit', storyClock ? { refMonth: target.month, refDay: target.day, weekday, floor: ownerIdentity.floor, sourceFloor: ownerIdentity.floor, swipe: ownerIdentity.swipe } : {});
+        const stored = saveAnchor(key, target.month, target.day, storyClock ? 'calibration' : 'explicit', storyClock ? { ...extras, refMonth: target.month, refDay: target.day, weekday, floor: ownerIdentity.floor, sourceFloor: ownerIdentity.floor, swipe: ownerIdentity.swipe } : extras);
         if (!stored.ok) { env.toast?.('日期保存失败，请重试', null, true); return stored; }
         env.aftermath?.();
-        return { ok: true, date: target };
+        return { ok: true, date: { ...target, ...extras } };
     };
     const saveManual = async (month, day, { storyClock = false, weekday = null } = {}) => {
         const key = env.charKey?.(); if (!key) { env.toast?.('当前没有角色卡，无法钉日期', null, true); return { ok: false, reason: 'missing-character' }; }

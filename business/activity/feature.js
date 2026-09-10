@@ -3,8 +3,11 @@ import {
     canUndoActivity,
     isAlignEntry,
     normalizeActivityEntry,
+    remainingUndoItems,
     sourceLabel,
+    undoItemKey,
 } from './schema.js';
+import { restoreLineItem, restorePointItem } from './revert.js';
 import { createActivityStore } from './store.js';
 import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderPaceDetail } from './ui.js';
 import { isPaceExpandable, canJumpActivityItem } from './jump.js';
@@ -112,14 +115,41 @@ export function createActivityFeature(env = {}) {
         return entry;
     };
 
-    const revertIfCurrent = async entry => {
-        const current = capture(Object.keys(entry.snapshot));
-        if (entry.after && !sameSnapshot(current, entry.after)) return { status: 'diverged' };
-        await restore(entry.snapshot);
-        store.update(chatId(), entry.id, { undone: true, stale: false });
+    const revertIfCurrent = async (entry, onlyItem = null) => {
+        const names = Object.keys(entry.snapshot || {});
+        const current = capture(names);
+        if (onlyItem && (entry.undoneRefs || []).includes(undoItemKey(onlyItem))) return { status: 'skipped' };
+        if (!onlyItem && (!entry.after || sameSnapshot(current, entry.after))) {
+            await restore(entry.snapshot);
+            store.update(chatId(), entry.id, { undone: true, stale: false, undoneRefs: (entry.items || []).map(undoItemKey) });
+            env.onRestored?.(entry);
+            paint();
+            return { status: 'updated', mode: 'full' };
+        }
+        const targets = (onlyItem ? [onlyItem] : remainingUndoItems(entry)).filter(item => item.module === 'point' || item.module === 'lines');
+        let nextPoint = current.point;
+        let nextLines = current.lines;
+        const restored = [];
+        for (const item of targets) {
+            if (item.module === 'point' && entry.snapshot.point != null) {
+                const result = restorePointItem(nextPoint, entry.snapshot.point, entry.after?.point, item);
+                if (result.changed) { nextPoint = result.raw; restored.push(item); }
+            } else if (item.module === 'lines' && entry.snapshot.lines != null) {
+                const result = restoreLineItem(nextLines, entry.snapshot.lines, entry.after?.lines, item);
+                if (result.changed) { nextLines = result.raw; restored.push(item); }
+            }
+        }
+        if (!restored.length) return { status: 'diverged' };
+        const writes = [];
+        if (nextPoint !== current.point) writes.push(env.writePoint?.(nextPoint));
+        if (nextLines !== current.lines) writes.push(env.writeLines?.(nextLines));
+        await Promise.all(writes);
+        const undoneRefs = [...new Set([...(entry.undoneRefs || []), ...restored.map(undoItemKey)])];
+        const leftover = remainingUndoItems({ ...entry, undoneRefs });
+        store.update(chatId(), entry.id, { undone: leftover.length === 0, stale: false, undoneRefs });
         env.onRestored?.(entry);
         paint();
-        return { status: 'updated' };
+        return { status: 'updated', mode: leftover.length ? 'partial' : 'items', restored: restored.length };
     };
 
     const latestUndoableAlign = floorId => list().find(item => {
@@ -135,15 +165,16 @@ export function createActivityFeature(env = {}) {
         return revertIfCurrent(entry);
     };
 
-    const undo = async id => {
+    const undo = async (id, item = null) => {
         const entries = list();
-        const entry = entries.find(item => item.id === String(id));
+        const entry = entries.find(row => row.id === String(id));
         if (!entry || !canUndoActivity(entry, entries)) return { status: 'skipped' };
-        const result = await revertIfCurrent(entry);
+        const result = await revertIfCurrent(entry, item);
         if (result.status === 'diverged') {
-            env.toast?.('之后又改过了，没法原样撤回', true);
+            env.toast?.(item ? '这条后来又改过了，没法原样撤回' : '之后又改过了，没法原样撤回', true);
             return { status: 'failed', reason: 'diverged' };
         }
+        if (result.mode === 'partial') env.toast?.(`已撤回未再改过的 ${result.restored} 条`);
         return result;
     };
 
@@ -244,6 +275,17 @@ export function createActivityFeature(env = {}) {
         });
         click('.sp-activity-close-btn', () => setOpen(false));
         clickId('.sp-activity-undo', undo);
+        click('.sp-activity-undo-item', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const $btn = env.$(this);
+            void undo($btn.attr('data-id'), {
+                module: String($btn.attr('data-module') || ''),
+                title: String($btn.attr('data-title') || ''),
+                action: String($btn.attr('data-action') || ''),
+                ref: String($btn.attr('data-ref') || ''),
+            });
+        });
         clickId('.sp-activity-quote', quoteToSpace);
         click('.sp-activity-realign, .sp-activity-retry', () => { void realign({ cause: 'retry' }); });
         click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });

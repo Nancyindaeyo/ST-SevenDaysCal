@@ -20,7 +20,7 @@ export function formatStoryClockHeadParts({ anchor, anchorWeekday, clockMeta = n
     const today = (dateText, weekday = '', title = '') => `<span class="sp-dash-sum-today"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(dateText)}${weekday ? ` ${escapeHtml(weekday)}` : ''}</span>`;
     const dateText = value => formatCalendarDate(value, calendar, monthName);
     const fallbackWeekday = anchorWeekday || '星期未记录';
-    const fallback = { todayHtml: today(dateText(anchor), fallbackWeekday), timeHtml: '' };
+    const fallback = { todayHtml: today(dateText(anchor), fallbackWeekday), timeHtml: anchor?.time ? `<span class="sp-dash-sum-time">${escapeHtml(anchor.time)}</span>` : '' };
     if (clockMeta?.valid && clockMeta.month != null && clockMeta.day != null) {
         const weekday = clockMeta.weekdayText || fallbackWeekday;
         const timeHtml = clockMeta.time ? `<span class="sp-dash-sum-time">${escapeHtml(clockMeta.time)}</span>` : '';

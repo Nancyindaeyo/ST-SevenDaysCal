@@ -95,7 +95,11 @@ export function createLedgerJudgeController(options = {}) {
                 if (change.现状) patch.现状 = change.现状;
                 if (change.动作 === '滚周期' && entry.周期长度 > 0 && entry.到期锚?.历日期) {
                     const base = entry.到期锚.历日期;
-                    patch.到期锚 = { 历日期: env.monthDayFromDoy?.(env.dayOfYear?.(base.month, base.day, cal) + entry.周期长度, cal) };
+                    const year = Number(base.year);
+                    const next = Number.isInteger(year) && year >= 1
+                        ? env.addCalendarDays?.({ year, month: Number(base.month), day: Number(base.day) }, entry.周期长度, cal)
+                        : null;
+                    patch.到期锚 = { 历日期: next || env.monthDayFromDoy?.(env.dayOfYear?.(base.month, base.day, cal) + entry.周期长度, cal) };
                 } else if (change.到期 && change.动作 !== '滚周期') patch.到期锚 = { 历日期: change.到期 };
                 applied.push({ id: entry.id, patch, close: change.动作 === '了结',事由: entry.事由 });
             }

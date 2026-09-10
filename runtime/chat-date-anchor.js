@@ -3,6 +3,15 @@ export const DATE_ANCHOR_STORE_KEY = 'date-anchor-user';
 import { validateCalendarDescriptor as formalCalendarValidator } from '../business/calendar/validator.js';
 const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
 
+export function normalizeAnchorTime(value) {
+    const match = /^(\d{1,2}):(\d{2})(?::\d{2})?$/.exec(String(value || '').trim());
+    if (!match) return null;
+    const hour = Number(match[1]);
+    const minute = Number(match[2]);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour > 23 || minute > 59) return null;
+    return `${hour}:${match[2]}`;
+}
+
 export function makeChatAnchor(chatId, month, day, source = 'explicit') {
     if (!String(chatId || '').trim() || !Number.isInteger(+month) || !Number.isInteger(+day)) return null;
     return { schemaVersion: DATE_ANCHOR_SCHEMA, chatId: String(chatId), month: +month, day: +day, source: source === 'auto' || source === 'detected' || source === 'calibration' ? source : 'explicit' };
@@ -16,7 +25,8 @@ export function normalizeChatAnchor(value, chatId) {
         : null;
     const year = Number.isInteger(+a.year) && +a.year >= 1 && +a.year <= 9999 ? +a.year : null;
     const eraLabel = typeof a.eraLabel === 'string' && a.eraLabel.trim() ? a.eraLabel.trim() : null;
-    return { month: +a.month, day: +a.day, ...(year != null ? { year } : {}), ...(eraLabel ? { eraLabel } : {}), source: a.source || value.source || 'unknown', ...(calibration ? { calibration } : {}) };
+    const time = normalizeAnchorTime(a.time);
+    return { month: +a.month, day: +a.day, ...(year != null ? { year } : {}), ...(eraLabel ? { eraLabel } : {}), ...(time ? { time } : {}), source: a.source || value.source || 'unknown', ...(calibration ? { calibration } : {}) };
 }
 export function unresolvedLegacyAnchor(identity = null) { return { status: 'unresolved', reason: 'legacy-global-anchor-needs-explicit-claim', identity }; }
 
@@ -38,6 +48,8 @@ export function createChatAnchorRepository({ chatId, read, write, writeConfirmed
         if (!a) return null;
         if (Number.isInteger(+options.year) && +options.year >= 1 && +options.year <= 9999) a.year = +options.year;
         if (typeof options.eraLabel === 'string' && options.eraLabel.trim()) a.eraLabel = options.eraLabel.trim();
+        const time = normalizeAnchorTime(options.time);
+        if (time) a.time = time;
         const calibration = options.calibration || (source === 'calibration' ? options : null);
         if (calibration && Number.isInteger(+calibration.weekday)) a.calibration = { refMonth: calibration.refMonth != null && Number.isInteger(+calibration.refMonth) ? +calibration.refMonth : +month, refDay: calibration.refDay != null && Number.isInteger(+calibration.refDay) ? +calibration.refDay : +day, weekday: calibration.weekday, floor: calibration.floor != null && Number.isInteger(+calibration.floor) ? +calibration.floor : null, sourceFloor: calibration.sourceFloor != null && Number.isInteger(+calibration.sourceFloor) ? +calibration.sourceFloor : null, swipe: calibration.swipe == null ? null : String(calibration.swipe) };
         return { anchor: a, record: { schemaVersion: DATE_ANCHOR_SCHEMA, state: 'set', chatId: id(), anchor: a } };

@@ -1,6 +1,7 @@
 import { parseCalendar } from '../point/parse.js';
 import { parseLines } from '../lines/schema.js';
 import { parseOutline } from '../outline/schema.js';
+import { findBookIndex } from '../identity.js';
 import { normalizeActivityItem } from './schema.js';
 
 function pointTitles(raw) {
@@ -22,9 +23,18 @@ function outlineKey(beat) {
 
 export function itemsFromPatches(pointResult, linesResult) {
     const items = [];
-    for (const item of pointResult?.applied || []) items.push(normalizeActivityItem({ module: 'point', title: item.title, action: item.action }));
-    for (const item of linesResult?.applied || []) items.push(normalizeActivityItem({ module: 'lines', title: item.title, action: item.action }));
+    for (const item of pointResult?.applied || []) items.push(normalizeActivityItem({ module: 'point', title: item.title, action: item.action, ref: item.ref }));
+    for (const item of linesResult?.applied || []) items.push(normalizeActivityItem({ module: 'lines', title: item.title, action: item.action, ref: item.ref }));
     return items.filter(item => item.title);
+}
+
+function findUnused(items, used, query) {
+    const masked = items.map((item, index) => (used.has(index) ? { ...item, id: '', title: '', name: '' } : item));
+    return findBookIndex(masked, query);
+}
+
+function pointItem(event, action) {
+    return normalizeActivityItem({ module: 'point', title: String(event.title || '').trim(), action, ref: event.id });
 }
 
 export function diffPointRaw(before, after) {
@@ -33,22 +43,22 @@ export function diffPointRaw(before, after) {
     const items = [];
     const used = new Set();
     for (const event of oldEvents) {
-        const title = String(event.title || '').trim();
-        if (!title) continue;
-        const match = newEvents.find((candidate, index) => !used.has(index) && String(candidate.title || '').trim() === title);
-        if (!match) {
-            items.push(normalizeActivityItem({ module: 'point', title, action: 'complete' }));
+        const index = findUnused(newEvents, used, { id: event.id, name: event.title, nameOf: 'title' });
+        if (index < 0 || used.has(index)) {
+            const title = String(event.title || '').trim();
+            if (title) items.push(pointItem(event, 'complete'));
             continue;
         }
-        used.add(newEvents.indexOf(match));
+        used.add(index);
+        const match = newEvents[index];
         if (String(event.desc || '') !== String(match.desc || '') || String(event.time || '') !== String(match.time || '')) {
-            items.push(normalizeActivityItem({ module: 'point', title, action: 'edit' }));
+            items.push(pointItem(match.id ? { ...event, id: match.id } : event, 'edit'));
         }
     }
     for (const [index, event] of newEvents.entries()) {
         if (used.has(index)) continue;
         const title = String(event.title || '').trim();
-        if (title) items.push(normalizeActivityItem({ module: 'point', title, action: 'add' }));
+        if (title) items.push(pointItem(event, 'add'));
     }
     return items;
 }
@@ -59,27 +69,26 @@ export function diffLinesRaw(before, after) {
     const items = [];
     const used = new Set();
     for (const line of oldLines) {
-        const name = lineKey(line);
-        if (!name) continue;
-        const index = newLines.findIndex((candidate, i) => !used.has(i) && lineKey(candidate) === name);
-        if (index < 0) {
-            items.push(normalizeActivityItem({ module: 'lines', title: name, action: 'complete' }));
+        const index = findUnused(newLines, used, { id: line.id, name: line.name, nameOf: 'name' });
+        if (index < 0 || used.has(index)) {
+            if (lineKey(line)) items.push(normalizeActivityItem({ module: 'lines', title: lineKey(line), action: 'complete', ref: line.id }));
             continue;
         }
         used.add(index);
         const next = newLines[index];
+        const ref = next.id || line.id;
         if (line.stage !== next.stage && /收束|完结|落幕/.test(String(next.stage || ''))) {
-            items.push(normalizeActivityItem({ module: 'lines', title: name, action: 'complete' }));
+            items.push(normalizeActivityItem({ module: 'lines', title: lineKey(next) || lineKey(line), action: 'complete', ref }));
         } else if (!!line.stall !== !!next.stall && next.stall) {
-            items.push(normalizeActivityItem({ module: 'lines', title: name, action: 'stall' }));
+            items.push(normalizeActivityItem({ module: 'lines', title: lineKey(next) || lineKey(line), action: 'stall', ref }));
         } else if (String(line.desc || '') !== String(next.desc || '') || String(line.next || '') !== String(next.next || '') || line.stage !== next.stage) {
-            items.push(normalizeActivityItem({ module: 'lines', title: name, action: line.stage !== next.stage ? 'advance' : 'edit' }));
+            items.push(normalizeActivityItem({ module: 'lines', title: lineKey(next) || lineKey(line), action: line.stage !== next.stage ? 'advance' : 'edit', ref }));
         }
     }
     for (const [index, line] of newLines.entries()) {
         if (used.has(index)) continue;
         const name = lineKey(line);
-        if (name) items.push(normalizeActivityItem({ module: 'lines', title: name, action: 'add' }));
+        if (name) items.push(normalizeActivityItem({ module: 'lines', title: name, action: 'add', ref: line.id }));
     }
     return items;
 }

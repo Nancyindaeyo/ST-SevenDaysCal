@@ -1,4 +1,4 @@
-import { normalizeLine, parseLineRow, parseLines, serializeLines } from './schema.js';
+import { normalizeLine, parseLineRow, parseLines, serializeLines, sameLine } from './schema.js';
 import { normalizeEditableText } from '../utils/text-edit.js';
 
 export function editLineDescription(raw, index, value) {
@@ -32,15 +32,20 @@ export function togglePin(raw, index) {
 }
 export function mergePinned(oldRaw, aiRaw, options = {}) {
     const old = parseLines(oldRaw), fresh = parseLines(aiRaw);
-    const queues = new Map();
-    for (const line of fresh) if (line.name) { const queue = queues.get(line.name) || []; queue.push(line); queues.set(line.name, queue); }
+    const used = new Set();
+    const take = pinned => {
+        const byId = pinned.id ? fresh.findIndex((item, i) => !used.has(i) && String(item.id || '') === String(pinned.id)) : -1;
+        if (byId >= 0) return byId;
+        // 同名未锁线已经在 bind 里对上了；锁定项不能把第一条同名未锁线抢走，对不上就整条补回。
+        return fresh.findIndex((item, i) => !used.has(i) && item.pin === true && sameLine(item, pinned));
+    };
     for (const pinned of old.filter(line => line.pin)) {
-        const queue = queues.get(pinned.name);
-        const pinnedIndex = queue?.findIndex(item => item?.pin === true) ?? -1;
-        const same = pinnedIndex >= 0 ? queue.splice(pinnedIndex, 1)[0] : undefined;
-        if (same) {
+        const index = take(pinned);
+        if (index >= 0) {
+            const same = fresh[index];
+            used.add(index);
             if (options.preferPinnedSource) Object.assign(same, pinned);
-            else { same.pin = true; same.adult = pinned.adult === true || same.adult === true; same.cue = pinned.cue ?? null; }
+            else { same.pin = true; same.adult = pinned.adult === true || same.adult === true; same.cue = pinned.cue ?? null; if (pinned.id) same.id = pinned.id; }
         } else fresh.push({ ...pinned });
     }
     return { ok: true, raw: serializeLines(fresh), model: fresh };

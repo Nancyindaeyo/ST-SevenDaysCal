@@ -14,19 +14,11 @@ export function ledgerDaysSince(entry, today = deps.today()) {
 export function ledgerDueInfo(entry, today = deps.today()) {
     const d = entry?.到期锚?.历日期;
     if (!d || !Number.isFinite(+d.month) || !Number.isFinite(+d.day)) return null;
-    // 一次性事项没有年份/周期时无法判断它属于哪一轮，保持 unknown，禁止猜未来或过期；
-    // 周期事项则按历法差值计算下一次正向发生日。
-    if (entry?.类型 !== '周期' && entry?.周期长度 == null && (!Number.isFinite(+d.year) || !Number.isFinite(+today?.year))) return null;
-    if (entry?.类型 !== '周期' && Number.isFinite(+d.year) && Number.isFinite(+today?.year)) {
-        if (typeof deps.daysUntilFull !== 'function') return null;
-        const delta = deps.daysUntilFull(today, d);
-        if (!Number.isFinite(delta)) return null;
-        return delta === 0 ? { 天数: 0, 过期: false } : (delta > 0 ? { 天数: delta, 过期: false } : { 天数: Math.abs(delta), 过期: true });
-    }
-    const to = deps.daysUntil(d.month, d.day, today);
-    const since = deps.daysUntil(today.month, today.day, d);
-    if (to === 0) return { 天数: 0, 过期: false };
-    return to <= since ? { 天数: to, 过期: false } : { 天数: since, 过期: true };
+    // 一次性与周期：两边都有年才用完整序差；没有年保持 unknown，不用年环猜过期。
+    if (!Number.isFinite(+d.year) || !Number.isFinite(+today?.year) || typeof deps.daysUntilFull !== 'function') return null;
+    const delta = deps.daysUntilFull(today, d);
+    if (!Number.isFinite(delta)) return null;
+    return delta === 0 ? { 天数: 0, 过期: false } : (delta > 0 ? { 天数: delta, 过期: false } : { 天数: Math.abs(delta), 过期: true });
 }
 
 export function listJudgeableLedger({ includePending = false } = {}) {

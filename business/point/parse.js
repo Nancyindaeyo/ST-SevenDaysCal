@@ -2,6 +2,7 @@
 // 从 index.js 机械搬移。全部为 <calendar_widget> 点日程结构的文本↔对象互转与读写辅助，
 // 无 DOM / store / 历法(axis) 依赖。渲染层（renderSchedule 等）见 ./render.js，生成 prompt 见 ./prompt.js。
 import { calendarDate, formatCalendarDate, isGregorian, parseCalendarDate, validateCalendarDate } from '../calendar/date.js';
+import { ensureBookId, sameBookItem } from '../identity.js';
 import { stripRecordWrappers } from '../utils/record-wrappers.js';
 import { normalizePointAdultMode, parsePointAdultProof, pointTicketPlan, verifyPointAdultContent, verifyPointAdultProof } from './adult.js';
 
@@ -15,7 +16,7 @@ const pointAnchorKind = value => {
     const text = cleanPointLine(value);
     if (pointDayHeading(text) || /^(?:Future|未来)\s*[:：]/i.test(text)) return 'context';
     if (/^Event\s*[:：]/i.test(text)) return 'event';
-    return /^(?:StartDate|Ticket|AdultProof|Adult)\s*[:：]/i.test(text) ? 'field' : null;
+    return /^(?:StartDate|Ticket|AdultProof|Adult|Id)\s*[:：]/i.test(text) ? 'field' : null;
 };
 const completePointStructure = kinds => kinds.includes('context') || kinds.includes('event');
 const normalizePointType = value => {
@@ -48,7 +49,8 @@ export function parsePointEventRecord(text) {
     const adult = lines.some(line => /^Adult\s*[:：]\s*true\s*$/i.test(line));
     const ticketId = lines.find(line => /^Ticket\s*[:：]/i.test(line))?.match(/^Ticket\s*[:：]\s*(POINT-TICKET-\d+)\s*$/i)?.[1]?.toUpperCase() || undefined;
     const proof = lines.find(line => /^AdultProof\s*[:：]/i.test(line));
-    const parts = pointFieldValue(lines.filter(line => !/^(?:Adult|Ticket|AdultProof)\s*[:：]/i.test(line)).join('\n'), 'Event').split(/[|｜]/).map(s => s.trim());
+    const id = lines.find(line => /^Id\s*[:：]/i.test(line))?.match(/^Id\s*[:：]\s*(\S+)\s*$/i)?.[1];
+    const parts = pointFieldValue(lines.filter(line => !/^(?:Adult|Ticket|AdultProof|Id)\s*[:：]/i.test(line)).join('\n'), 'Event').split(/[|｜]/).map(s => s.trim());
     if (parts.length < 4 || !parts[1]) return null;
     const tail = parts.slice(5);
     const hasPin = tail.length > 0 && /^(?:true|false|是|否)$/i.test(tail[tail.length - 1]);
@@ -57,6 +59,7 @@ export function parsePointEventRecord(text) {
         location: parts[4] || '', npcAction: tail.slice(0, hasPin ? -1 : undefined).join('|'),
         pin: hasPin && /^(?:true|是)$/i.test(tail[tail.length - 1]),
         adult,
+        ...(id ? { id } : {}),
         ...(proof ? { adultProof: parsePointAdultProof(proof) } : {}),
         ...(ticketId ? { ticketId } : {}),
     };
@@ -131,7 +134,7 @@ export function replacePointEventBlock(raw, idx0, newEventText) {
     const block = blocks[idx0];
     if (!block) return null;
     const indent = (lines[block.start].match(/^\s*/) || [''])[0];
-    const originalMetadata = lines.slice(block.start + 1, block.end).filter(line => /^\s*Adult\s*:\s*true\s*$/i.test(line));
+    const originalMetadata = lines.slice(block.start + 1, block.end).filter(line => /^\s*(?:Adult\s*:\s*true|Id\s*:\s*\S+)\s*$/i.test(line));
     const originalEvent = parsePointEventRecord(lines[block.start]);
     const replacement = String(newEventText || '').split('\n').map((line, i) => {
         if (i || !/^\s*Event\s*:/i.test(line) || !originalEvent?.pin) return i ? line : indent + line.trim();
@@ -224,6 +227,7 @@ export function parseCalendar(raw, calendar = null) {
         }
         if (eventBuffer && /^Adult\s*[:：]\s*true\s*$/i.test(t)) { eventMeta.adult = true; continue; }
         if (eventBuffer && /^Adult\s*[:：]\s*false\s*$/i.test(t)) { eventMeta.adult = false; continue; }
+        if (eventBuffer && /^Id\s*[:：]\s*(\S+)\s*$/i.test(t)) { eventMeta.id = t.match(/^Id\s*[:：]\s*(\S+)\s*$/i)[1]; continue; }
         if (eventBuffer && /^Ticket\s*[:：]\s*(POINT-TICKET-\d+)\s*$/i.test(t)) { eventMeta.ticketId = t.match(/^Ticket\s*[:：]\s*(POINT-TICKET-\d+)\s*$/i)[1].toUpperCase(); proofEligible = true; continue; }
         if (eventBuffer && /^AdultProof\s*[:：]/i.test(t)) { if (proofEligible) eventMeta.adultProof = parsePointAdultProof(t.replace(/^AdultProof\s*：/i, 'AdultProof:')); proofEligible = false; continue; }
         if (eventBuffer) eventBuffer += ` ${t}`;
@@ -331,26 +335,31 @@ export function stripPointAdultMetadata(raw) {
 }
 
 // ─── 点·锁定（F5，机制对齐「线」）──────────────────────────────────────────────
-// 点是 AI 每轮从零重写的 raw 文本、事件无 id，故照抄线：身份认 title（如线认 name），
+// 身份优先认本地 Id: 元数据行；没有 id 时仍认 title（如线认 name）。
 // pin 直接写进 raw（Event 行第 7 段），重算时 mergePinnedPoints(oldRaw, aiRaw) 从旧 raw
-// 读锁定项、按 title 回并到新 raw——与 mergePinnedLines 完全对称。历因是稳定结构化存储
-//（条目不被整段重写）用真 id 存 pin，天然不同，故不在此列。
+// 读锁定项、按 id/title 回并到新 raw。历因是稳定结构化存储用真 id 存 pin，天然不同。
 export function samePoint(a, b) {
-    if (!a || !b) return false;
-    const ta = String(a.title || '').trim();
-    const tb = String(b.title || '').trim();
-    return !!ta && ta === tb;
+    return sameBookItem(a, b, 'title');
 }
 
 // Event 行序列化：type|title|desc|time|location|npcAction|pin。pin 是第 7 段（AI 只出前 6
 // 段→解析为 false；仅本函数在用户手动锁定 / 回并后写出 true），与线 linesToRaw 写 pin 同理。
 export function pointEventToRawLine(ev) {
     const line = `Event: ${ev.type || 'main'}|${ev.title || ''}|${ev.desc || ''}|${ev.time || ''}|${ev.location || ''}|${ev.npcAction || ''}|${ev.pin ? 'true' : 'false'}`;
-    return ev.adult ? `${line}\nAdult: true` : line;
+    const id = String(ev.id || '').trim();
+    const withId = id ? `${line}\nId: ${id}` : line;
+    return ev.adult ? `${withId}\nAdult: true` : withId;
 }
 
 // {days, future, startDate} → 规范 <calendar_widget> 文本（锁定回并 / 手动切换后重序列化用）。
+function ensurePointEventIds(days, future) {
+    const seen = new Set();
+    for (const day of days || []) for (const event of day.events || []) ensureBookId(event, 'POINT', seen);
+    for (const event of future?.events || []) ensureBookId(event, 'POINT', seen);
+}
+
 export function serializeCalendar(days, future, startDate, calendar = null, startDateToken = null) {
+    ensurePointEventIds(days, future);
     const out = ['<calendar_widget>'];
     if (startDate instanceof Date && !isNaN(startDate)) {
         const y  = startDate.getFullYear();
@@ -411,6 +420,7 @@ export function mergePinnedPoints(oldRaw, aiRaw, calendar = null) {
         if (hitIndex >= 0) {
             all[hitIndex].pin = true;
             all[hitIndex].adult = Boolean(p.ev.adult || all[hitIndex].adult);
+            if (p.ev.id) all[hitIndex].id = p.ev.id;
             used.add(hitIndex);
             continue;
         }   // AI 保留 → 采纳推进，重标 pin；同名多锁点按“逐个消耗匹配”保留，不再反复命中同一条

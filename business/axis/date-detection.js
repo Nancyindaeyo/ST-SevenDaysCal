@@ -2,12 +2,12 @@ import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError
 
 export const DATE_JUDGE_HISTORY_LIMIT = 3;
 export const DATE_JUDGE_PROMPT = `请暂停角色扮演，作为剧情分析助手，只做一件事：判断以上最近的对话里，故事此刻发生在哪一天。
-只回答「当前剧情日期」，格式为 M月D日（例如 3月15日）；年份不重要、无需回答。
+只回答「当前剧情日期」。正文已写明年则用 YYYY年M月D日（例如 2024年3月15日）；没有年则只写 M月D日（例如 3月15日）。不要猜年。
 若最近对话中并无明确日期线索、无法确定具体月日，就只回答「未知」。
 不要解释，不要输出任何多余文字。`;
 export function buildDateJudgePrompt(calendarText = '') { return calendarText ? `请暂停角色扮演，作为剧情分析助手，只做一件事：判断以上最近的对话里，故事此刻发生在哪一天。
 本世界观使用自定义历法（非公历）——${calendarText}
-只回答「当前剧情日期」，格式为「第M月D日」（M=第几个月的序号，D=该月第几日，例如第3月15日），或直接用上面列出的月名；年份不重要、无需回答。
+只回答「当前剧情日期」，格式为「第M月D日」（M=第几个月的序号，D=该月第几日，例如第3月15日），或直接用上面列出的月名。正文已写明年则带上年份；没有年不要猜。
 若最近对话中并无明确日期线索、无法确定具体月日，就只回答「未知」。
 不要解释，不要输出任何多余文字。` : DATE_JUDGE_PROMPT; }
 export function storyWeekdayDisplaySignature(clock) {
@@ -29,9 +29,9 @@ export function createDateDetectionController(options = {}) {
         const calibration = options.getCalibration?.(charKey);
         if (mode === 'sdc' && calibration && ownerIdentity && Number.isInteger(calibration.floor) && calibration.floor === ownerIdentity.floor) return { status: 'calibration-held', date: md };
         const prev = options.getAnchor?.(charKey);
-        if (prev && prev.month === md.month && prev.day === md.day && prev.year === md.year && prev.eraLabel === md.eraLabel) return { status: 'unchanged', date: md };
+        if (prev && prev.month === md.month && prev.day === md.day && prev.year === md.year && prev.eraLabel === md.eraLabel && prev.time === md.time) return { status: 'unchanged', date: md };
         if (ownerIdentity && !ownerCurrent(ownerIdentity)) return { status: 'cancelled' };
-        const stored = options.setAnchor?.(charKey, md.month, md.day, 'detected', { ...(mode === 'api' && calibration ? { calibration } : {}), year: md.year, eraLabel: md.eraLabel });
+        const stored = options.setAnchor?.(charKey, md.month, md.day, 'detected', { ...(mode === 'api' && calibration ? { calibration } : {}), year: md.year, eraLabel: md.eraLabel, time: md.time });
         if (!stored?.ok) { if (notify) options.toast?.('剧情日期自动保存失败，请重试', null, true); return { status: 'failed', reason: stored?.reason }; }
         if (ownerIdentity && !ownerCurrent(ownerIdentity)) return { status: 'cancelled' };
         if (notify && options.settings?.().notifyMode === 'full') {
@@ -49,8 +49,8 @@ export function createDateDetectionController(options = {}) {
         if (!ownerCurrent(ownerIdentity)) return { status: 'cancelled' };
         const calibration = options.getCalibration?.(charKey);
         const prev = options.getAnchor?.(charKey);
-        if (prev && prev.month === md.month && prev.day === md.day && prev.year === md.year && prev.eraLabel === md.eraLabel) return { status: 'unchanged', date: md };
-        const anchorOptions = { ...(calibration ? { calibration } : {}), year: md.year, eraLabel: md.eraLabel };
+        if (prev && prev.month === md.month && prev.day === md.day && prev.year === md.year && prev.eraLabel === md.eraLabel && prev.time === md.time) return { status: 'unchanged', date: md };
+        const anchorOptions = { ...(calibration ? { calibration } : {}), year: md.year, eraLabel: md.eraLabel, time: md.time };
         const stored = await (options.setAnchorConfirmed || options.setAnchor)?.(charKey, md.month, md.day, 'detected', anchorOptions, { ownerGuard: () => ownerCurrent(ownerIdentity) });
         if (!(stored === true || stored?.ok === true)) return { status: 'failed', reason: stored?.reason || 'write-failed', saveResult: stored || null };
         if (stored?.stale || !ownerCurrent(ownerIdentity)) return { status: 'committed-stale', date: md, saveResult: stored };

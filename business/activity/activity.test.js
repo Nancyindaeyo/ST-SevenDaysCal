@@ -80,6 +80,55 @@ test('feature records and refuses undo after later edits', async () => {
     assert.equal(feature.list()[0].undone, true);
 });
 
+test('undo restores untouched items after a later hand edit', async () => {
+    const widget = (aDesc, bDesc) => `<calendar_widget>
+StartDate: 2024-03-01
+Day: 1|晴|12℃
+Event: main|体检|${aDesc}|上午|医院||false
+Id: POINT-a
+Event: main|会议|${bDesc}|下午|公司||false
+Id: POINT-b
+</calendar_widget>`;
+    let point = widget('对齐后体检', '对齐后会议');
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => { point = raw; },
+        toast() {},
+    });
+    const entry = feature.record({
+        source: 'align',
+        items: [
+            { module: 'point', title: '体检', action: 'edit', ref: 'POINT-a' },
+            { module: 'point', title: '会议', action: 'edit', ref: 'POINT-b' },
+        ],
+        snapshot: { point: widget('原体检', '原会议') },
+        after: { point: widget('对齐后体检', '对齐后会议') },
+    });
+    point = widget('对齐后体检', '后来手改会议');
+    const ok = await feature.undo(entry.id);
+    assert.equal(ok.status, 'updated');
+    assert.equal(ok.mode, 'partial');
+    assert.match(point, /原体检/);
+    assert.match(point, /后来手改会议/);
+    assert.doesNotMatch(point, /对齐后体检/);
+    assert.equal(feature.list()[0].undone, false);
+    assert.deepEqual(feature.list()[0].undoneRefs, ['POINT-a']);
+});
+
+test('activity cards expose per-item undo', () => {
+    const html = renderActivityList([{
+        id: '1', ts: Date.now(), source: 'align', undone: false,
+        items: [{ module: 'point', title: '体检', action: 'complete', ref: 'POINT-a' }],
+        snapshot: { point: 'x' },
+        after: { point: 'y' },
+    }]);
+    assert.match(html, /sp-activity-undo-item/);
+    assert.match(html, /data-ref="POINT-a"/);
+});
+
 test('same snapshot helper and list html include undo', () => {
     assert.equal(sameSnapshot({ point: 'a' }, { point: 'a' }), true);
     assert.equal(sameSnapshot({ point: 'a' }, { point: 'b' }), false);

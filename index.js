@@ -216,7 +216,7 @@ import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parseP
 import { shiftPointCalendar } from './business/point/shift.js';
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
 import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } from './business/bootstrap/ui.js';
-import { isGregorian as isGregorianCalendar } from './business/calendar/date.js';
+import { isGregorian as isGregorianCalendar, addCalendarDays } from './business/calendar/date.js';
 import { buildPrompt } from './business/point/prompt.js';
 import { bindPointRender, renderSchedule, scheduleDayCtx, scheduleDayLabel, TYPE_META } from './business/point/render.js';
 import { togglePointPinRaw, deletePointEventRaw, editPointDescription, editPointFields } from './business/point/mutations.js';
@@ -491,6 +491,7 @@ const axisDateActions = createAxisDateActions({
     today: almTodayAnchor,
     dayOfYear: almDayOfYear,
     monthDayFromDoy: almMonthDayFromDoy,
+    addCalendarDays,
     monthCount: calMonthCount,
     monthDays: calMonthDays,
     pending: () => chatAnchorRepository.pending(),
@@ -734,6 +735,7 @@ const ledgerJudgeController = createLedgerJudgeController({
     close: id => ledger.closeEntry(id),
     dayOfYear: almDayOfYear,
     monthDayFromDoy: almMonthDayFromDoy,
+    addCalendarDays,
     bridge: bridgeAbortSignal,
     setFabBusy,
     settings: getSettings,
@@ -900,8 +902,9 @@ const axisGenerationController = createAxisGenerationController({
 });
 const axisTransactionController = createAxisTransactionController({
     chatId: () => getContext().chatId, items: loadAlmanac, conflicts: calendarConflicts, charKey: () => charStableKey(getContext()), anchor: key => getSettings().dateAnchor?.[key],
-    monthCount: cal => calMonthCount(cal), monthDays: (cal, month) => calMonthDays(cal, month), choose: options => customDialog.choose(options), writeBatch: entries => store.writeBatch(entries), setAnchor: (key, month, day) => setDateAnchor(key, month, day),
-    syncAlmanac: syncLatestAlmanacBlock, syncSchedule: syncLatestScheduleBlock, pluginEnabled, readCal: () => readStore(getCalDescKey()), readItems: () => readStore(getAlmanacKey())?.items,
+    monthCount: cal => calMonthCount(cal), monthDays: (cal, month) => calMonthDays(cal, month), choose: options => customDialog.choose(options),
+    writeConfirmed: writeStoreConfirmed, getCalDescKey, getAlmanacKey, setAnchor: (key, month, day) => setDateAnchor(key, month, day),
+    syncAlmanac: syncLatestAlmanacBlock, syncSchedule: syncLatestScheduleBlock, pluginEnabled, readCal: () => readStore(getCalDescKey()), readAlmanac: () => readStore(getAlmanacKey()), readItems: () => readStore(getAlmanacKey())?.items,
     bindings: calendarTemplateBindings, bindingKey: calendarBindingKey, cards: currentCharacterCards, templates: loadCalendarTemplates, clone: cloneCalDesc, saveCal: saveCalDesc, saveSettings: saveSettingsDebounced,
     render: () => { if (axisState.almanacMode) renderAlmanacPanel(); }, notifyMode: () => getSettings().notifyMode, toast: showToast,
     captureParticipantIdentity, sameParticipantIdentity,
@@ -3579,8 +3582,8 @@ function shiftPointsToToday() {
             writeStore(key, { ...saved, raw: result.raw, ts: Date.now() });
             if (view === 'user') {
                 const items = [
-                    ...result.completed.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'complete' })),
-                    ...result.lockedMoved.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'postpone' })),
+                    ...result.completed.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'complete', ref: event.id })),
+                    ...result.lockedMoved.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'postpone', ref: event.id })),
                 ];
                 activityFeature.record({
                     source: 'shift',
@@ -3953,7 +3956,7 @@ function getDateAnchor(charKey) {
                 if (!Number.isInteger(calibrationFloor) || current.floor !== calibrationFloor) return null;
             }
         }
-        return local.month >= 1 && local.month <= calMonthCount(cal) && local.day >= 1 && local.day <= calMonthDays(cal, local.month) ? { month: local.month, day: local.day, ...(local.year != null ? { year: local.year } : {}), ...(local.eraLabel ? { eraLabel: local.eraLabel } : {}) } : null;
+        return local.month >= 1 && local.month <= calMonthCount(cal) && local.day >= 1 && local.day <= calMonthDays(cal, local.month) ? { month: local.month, day: local.day, ...(local.year != null ? { year: local.year } : {}), ...(local.eraLabel ? { eraLabel: local.eraLabel } : {}), ...(local.time ? { time: local.time } : {}) } : null;
     }
     return null;
 }

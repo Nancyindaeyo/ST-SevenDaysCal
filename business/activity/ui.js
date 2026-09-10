@@ -5,6 +5,7 @@ import {
     isAlignEntry,
     moduleLabel,
     sourceLabel,
+    undoItemKey,
 } from './schema.js';
 import { canJumpActivityItem, latestPaceEntry } from './jump.js';
 
@@ -72,9 +73,17 @@ function jumpButton(item) {
     return `<button type="button" class="sp-activity-jump" data-module="${escape(item.module)}" data-title="${escape(item.title || '')}"${ref} title="去这条" aria-label="去这条"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></button>`;
 }
 
-function itemListHtml(entry) {
+function undoItemButton(entry, item, entries) {
+    if (item.module !== 'point' && item.module !== 'lines') return '';
+    if ((entry.undoneRefs || []).includes(undoItemKey(item))) return '<span class="sp-activity-item-undone">已撤</span>';
+    if (entry.undone || !canUndoActivity(entry, entries)) return '';
+    const ref = item.ref ? ` data-ref="${escape(item.ref)}"` : '';
+    return `<button type="button" class="sp-activity-undo-item" data-id="${escape(entry.id)}" data-module="${escape(item.module)}" data-title="${escape(item.title || '')}" data-action="${escape(item.action || '')}"${ref} title="撤回这条" aria-label="撤回这条">撤</button>`;
+}
+
+function itemListHtml(entry, { undo = false, entries = [] } = {}) {
     const items = (entry.items || []).map(item => (
-        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em>${jumpButton(item)}</li>`
+        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em>${jumpButton(item)}${undo ? undoItemButton(entry, item, entries) : ''}</li>`
     )).join('');
     if (items) return `<ul class="sp-activity-items">${items}</ul>`;
     if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || '对齐失败')}</p>`;
@@ -106,6 +115,8 @@ function roundStatus(entry) {
     if (entry.outcome === 'unchanged') return '没有变化';
     if (entry.stale) return '这楼重 roll 了';
     const count = (entry.items || []).length;
+    const undone = (entry.undoneRefs || []).length;
+    if (undone && count) return `改了 ${count} 条，已撤回 ${undone} 条`;
     return count ? `改了 ${count} 条` : '已对齐';
 }
 
@@ -159,7 +170,7 @@ export function renderActivityList(entries = []) {
             </div>
             ${stale}
             ${note}
-            ${itemListHtml(entry)}
+            ${itemListHtml(entry, { undo: true, entries })}
         </li>`;
     }).join('')}</ol>`;
 }

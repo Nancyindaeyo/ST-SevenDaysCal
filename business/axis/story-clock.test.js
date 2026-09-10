@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { _cnToNumber, extractDayFromTime } from '../../utils/cn-date.js';
-import { applyStoryClockToMessage, bindStoryClock, completeStoryClock, parseStoryClock, previousCompleteStoryClock, storyClockNarrativeBody, storyWeekdayRef } from './story-clock.js';
+import { applyStoryClockToMessage, bindStoryClock, completeStoryClock, parseStoryClock, previousCompleteStoryClock, storyClockDate, storyClockNarrativeBody, storyWeekdayRef } from './story-clock.js';
 
 function monthDayFromKey(key) {
     const m = String(key || '').match(/^(\d+)-(\d+)-(\d+)$/);
@@ -46,6 +46,10 @@ test('applyStoryClockToMessage wraps body and parses a complete stamp', () => {
     assert.equal(applied.clock.endMeta.day, 4);
     assert.equal(applied.clock.startMeta.time, '15:30');
     assert.equal(applied.clock.endMeta.time, '16:00');
+    const date = storyClockDate({ chat: [{ is_user: false, mes: applied.text }] }, () => null);
+    assert.equal(date.month, 10);
+    assert.equal(date.day, 4);
+    assert.equal(date.time, '16:00');
 });
 
 test('applyStoryClockToMessage rejects incomplete weekday or time', () => {

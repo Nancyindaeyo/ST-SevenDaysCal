@@ -112,7 +112,7 @@ test('release schema extracts and normalizes complete records from outer respons
     ]) {
         const result = validateLinesResponse(response);
         assert.equal(result.ok, true);
-        assert.equal(result.raw, '<storylines_widget>\nLine: 主线|起线|今天|player|false|false\nDesc: 当前状态\nNext: 下一步信号\n</storylines_widget>');
+        assert.match(result.raw, /^<storylines_widget>\nLine: 主线\|起线\|今天\|player\|false\|false\nDesc: 当前状态\nNext: 下一步信号\nId: LINE-\S+\n<\/storylines_widget>$/);
         assert.doesNotMatch(result.raw, /正文状态栏|以上是生成结果|```/);
     }
 
@@ -274,6 +274,12 @@ test('Ticket is transient and absent from serialized storage/model', () => {
     assert.doesNotMatch(serializeLines(checked.model), /Ticket:|ticketId/);
     const bound = bindVectorTickets({ generatedLines: checked.model, freshTickets: [{ ...drawTickets(1, { seed: 'transient' })[0], ticketId: 'TICKET-1' }] });
     assert.doesNotMatch(JSON.stringify(bound), /ticketId/);
+});
+test('line prompt does not teach local Id metadata', () => {
+    const stored = serializeLines([{ name: '调查', stage: '延展', when: '今天', agency: 'world', desc: 'd', next: 'n' }]);
+    assert.match(stored, /Id: LINE-/);
+    const prompt = buildLinesPrompt('用户', '角色', 'user', stored, 'auto', {});
+    assert.doesNotMatch(prompt, /Id: LINE-/);
 });
 test('adult line modes keep off unchanged and reserve explicit adult candidates', () => {
     const off = buildLinesPrompt('用户', '角色', 'user', '', 'auto', {}, 'off');

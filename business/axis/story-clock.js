@@ -341,7 +341,15 @@ export function storyWeekdayRef(context = deps.context?.(), calendar = deps.load
     }
     return null;
 }
-export function storyClockDate(context, parseDate, limit = 100) { const clock = latestStoryClock(context, limit); return clock ? (clock.endMeta?.date || clock.startMeta?.date || parseDate(clock.end) || parseDate(clock.start)) : null; }
+export function storyClockDate(context, parseDate, limit = 100) {
+    const clock = latestStoryClock(context, limit);
+    if (!clock) return null;
+    const meta = clock.endMeta?.valid ? clock.endMeta : (clock.startMeta?.valid ? clock.startMeta : null);
+    const date = meta?.date || parseDate?.(clock.end) || parseDate?.(clock.start);
+    if (!date) return null;
+    const time = meta?.time || null;
+    return time ? { ...date, time } : date;
+}
 export function createStoryClockController(options = {}) {
     const refresh = () => {
         const context = options.context?.();

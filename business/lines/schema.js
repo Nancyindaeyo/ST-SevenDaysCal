@@ -1,5 +1,6 @@
 import { serializeVectorCue } from './vectors/codec.js';
 import { stripRecordWrappers } from '../utils/record-wrappers.js';
+import { ensureBookId, sameBookItem } from '../identity.js';
 export const TERMINAL_LINE_STAGES = new Set(['收束', '淡出']);
 export const LINE_STAGES = new Set(['起线', '延展', '成形', '收束', '淡出']);
 function bool(value) { return /^(?:true|1|yes|y|是|对|开启|停滞|暂停|锁定)$/i.test(String(value ?? '').trim()); }
@@ -58,25 +59,36 @@ export function parseLineRow(value) {
     }
     return { fieldCount: fields.length, name: fields[0], stage: fields[1], when: fields[2], agency: fields[3], stall: fields[4], pin: fields[5], format: 'unknown' };
 }
-export function normalizeLine(record = {}) { return { name: String(record.name ?? '').trim(), stage: normalizeLineStage(record.stage), when: String(record.when ?? '').trim(), agency: String(record.agency ?? '').trim().toLowerCase() === 'player' ? 'player' : 'world', stall: record.stall === true || bool(record.stall), pin: record.pin === true || bool(record.pin), adult: record.adult === true, desc: String(record.desc ?? '').trim(), next: String(record.next ?? '').trim(), cue: serializeVectorCue(record.cue) }; }
+export function normalizeLine(record = {}) { return { id: String(record.id ?? '').trim(), name: String(record.name ?? '').trim(), stage: normalizeLineStage(record.stage), when: String(record.when ?? '').trim(), agency: String(record.agency ?? '').trim().toLowerCase() === 'player' ? 'player' : 'world', stall: record.stall === true || bool(record.stall), pin: record.pin === true || bool(record.pin), adult: record.adult === true, desc: String(record.desc ?? '').trim(), next: String(record.next ?? '').trim(), cue: serializeVectorCue(record.cue) }; }
+export function sameLine(a, b) { return sameBookItem(a, b, 'name'); }
 const lineAnchorKind = value => {
     const text = cleanLabel(value);
     if (/^Line\s*[:：]/i.test(text)) return 'line';
     if (/^Desc\s*[:：]/i.test(text)) return 'desc';
     if (/^Next\s*[:：]/i.test(text)) return 'next';
-    return /^(?:Ticket|Cue|Adult|Pin|说明|备注|Reason|Analysis)\s*[:：]/i.test(text) ? 'field' : null;
+    return /^(?:Ticket|Cue|Adult|Pin|Id|说明|备注|Reason|Analysis)\s*[:：]/i.test(text) ? 'field' : null;
 };
 const completeLineStructure = kinds => ['line', 'desc', 'next'].every(kind => kinds.includes(kind));
 function parseLegacyInner(content) {
     const lines = []; let current = null;
     for (const source of stripRecordWrappers(content, lineAnchorKind, completeLineStructure).split(/\r?\n/)) { const text = cleanLabel(source); if (!text) continue;
         if (/^Line\s*[:：]/i.test(text)) { if (current) lines.push(normalizeLine(current)); const parsed = parseLineRow(text); if (parsed.fieldCount < 6) { current = null; continue; } current = { name: parsed.name, stage: normalizeLineStage(parsed.stage), when: parsed.when, agency: normalizeAgency(parsed.agency), stall: bool(parsed.stall), pin: bool(parsed.pin), desc: '', next: '' }; }
-        else if (current && /^Desc\s*[:：]/i.test(text)) current.desc = fieldValue(text, 'Desc'); else if (current && /^Next\s*[:：]/i.test(text)) current.next = fieldValue(text, 'Next'); else if (current && /^Cue\s*[:：]/i.test(text)) current.cue = fieldValue(text, 'Cue'); else if (current && /^Adult\s*[:：]/i.test(text)) current.adult = bool(fieldValue(text, 'Adult'));
+        else if (current && /^Desc\s*[:：]/i.test(text)) current.desc = fieldValue(text, 'Desc'); else if (current && /^Next\s*[:：]/i.test(text)) current.next = fieldValue(text, 'Next'); else if (current && /^Cue\s*[:：]/i.test(text)) current.cue = fieldValue(text, 'Cue'); else if (current && /^Adult\s*[:：]/i.test(text)) current.adult = bool(fieldValue(text, 'Adult')); else if (current && /^Id\s*[:：]/i.test(text)) current.id = fieldValue(text, 'Id');
     }
     if (current) lines.push(normalizeLine(current)); return lines;
 }
 export function parseLines(raw, { legacy = true } = {}) { if (typeof raw !== 'string' || !raw.trim()) return []; const match = raw.match(/<storylines_widget[^>]*>([\s\S]*?)<\/storylines_widget>/i); return match ? parseLegacyInner(match[1]) : (legacy ? parseLegacyInner(raw) : []); }
-export function serializeLines(model, { includeCue = true, includeAdult = true } = {}) { const blocks = (Array.isArray(model) ? model : []).map(item => { const l = normalizeLine(item); const row = [`Line: ${l.name}`, l.stage, l.when, l.agency, l.stall ? 'true' : 'false', l.pin ? 'true' : 'false'].join('|'); return [row, l.desc ? `Desc: ${l.desc}` : '', l.next ? `Next: ${l.next}` : '', includeCue && l.cue ? `Cue: ${l.cue}` : '', includeAdult && l.adult ? 'Adult: true' : ''].filter(Boolean).join('\n'); }); return `<storylines_widget>\n${blocks.join('\n\n')}\n</storylines_widget>`; }
+export function serializeLines(model, { includeCue = true, includeAdult = true, includeId = true, assignIds = includeId } = {}) {
+    const seen = new Set();
+    const blocks = (Array.isArray(model) ? model : []).map(item => {
+        const l = normalizeLine(item);
+        if (assignIds) ensureBookId(l, 'LINE', seen);
+        else if (l.id) seen.add(l.id);
+        const row = [`Line: ${l.name}`, l.stage, l.when, l.agency, l.stall ? 'true' : 'false', l.pin ? 'true' : 'false'].join('|');
+        return [row, l.desc ? `Desc: ${l.desc}` : '', l.next ? `Next: ${l.next}` : '', includeId && l.id ? `Id: ${l.id}` : '', includeCue && l.cue ? `Cue: ${l.cue}` : '', includeAdult && l.adult ? 'Adult: true' : ''].filter(Boolean).join('\n');
+    });
+    return `<storylines_widget>\n${blocks.join('\n\n')}\n</storylines_widget>`;
+}
 function tolerantBlocks(inner) {
     const blocks = []; let block = null;
     const flush = () => { if (block) blocks.push(block); block = null; };
@@ -88,7 +100,7 @@ function tolerantBlocks(inner) {
         if (/^Desc\s*[:：]/i.test(text)) { block.desc = fieldValue(text, 'Desc'); block.lastText = 'desc'; continue; }
         if (/^Next\s*[:：]/i.test(text)) { block.next = fieldValue(text, 'Next'); block.lastText = 'next'; continue; }
         if (/^Adult\s*[:：]/i.test(text)) { block.adultSeen = true; block.lastText = null; continue; }
-        if (/^(?:Cue|Pin|说明|备注|Reason|Analysis)\s*[:：]/i.test(text)) { block.lastText = null; continue; }
+        if (/^(?:Cue|Pin|Id|说明|备注|Reason|Analysis)\s*[:：]/i.test(text)) { block.lastText = null; continue; }
         if (block.lastText) block[block.lastText] = `${block[block.lastText]} ${text}`.trim();
     }
     flush(); return blocks;

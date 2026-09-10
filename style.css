@@ -405,6 +405,32 @@ q::after {
     background: color-mix(in oklab, var(--sp-primary) 10%, transparent);
 }
 .sp-activity-jump i { font-size: 11px; }
+.sp-activity-undo-item {
+    min-width: 28px;
+    height: 28px;
+    padding: 0 8px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sp-subtle);
+    cursor: pointer;
+    flex: 0 0 auto;
+    font-size: 11px;
+    line-height: 1;
+}
+.sp-activity-undo-item:hover {
+    border-color: var(--sp-primary);
+    color: var(--sp-primary);
+    background: color-mix(in oklab, var(--sp-primary) 10%, transparent);
+}
+.sp-activity-item-undone {
+    color: var(--sp-subtle);
+    font-size: 11px;
+    flex: 0 0 auto;
+}
 @keyframes sp-activity-jump-flash {
     0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--sp-primary) 55%, transparent); }
     100% { box-shadow: 0 0 0 10px transparent; }

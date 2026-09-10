@@ -1,5 +1,6 @@
 import { parseCalendar, serializeCalendar } from '../point/parse.js';
 import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from '../lines/schema.js';
+import { findBookIndex } from '../identity.js';
 
 const PATCH_BLOCK = /<reconcile_patch\b[^>]*>([\s\S]*?)<\/reconcile_patch>/i;
 
@@ -47,9 +48,7 @@ export function uniqueNamedHit(items, want, getName) {
     return fuzzy.length === 1 ? fuzzy[0].i : -1;
 }
 
-function findPointEvent(parsed, title) {
-    const want = String(title || '').trim();
-    if (!want) return null;
+function findPointEvent(parsed, title, id = '') {
     const hits = [];
     const days = parsed.allDays || parsed.days || [];
     for (let d = 0; d < days.length; d++) {
@@ -61,8 +60,12 @@ function findPointEvent(parsed, title) {
     for (let e = 0; e < futureEvents.length; e++) {
         hits.push({ dayIndex: 'future', eventIndex: e, event: futureEvents[e], future: true });
     }
-    const index = uniqueNamedHit(hits, want, hit => hit.event?.title);
+    const index = findBookIndex(hits.map(hit => hit.event), { id, name: title, nameOf: 'title' });
     return index >= 0 ? hits[index] : null;
+}
+
+function pointApplied(event, action) {
+    return { module: 'point', title: event.title, action, ...(event.id ? { ref: event.id } : {}) };
 }
 
 export function applyPointPatches(raw, patches, { feedback = '', calendar = null } = {}) {
@@ -100,10 +103,10 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
                 }
             }
             changed = true;
-            applied.push({ module: 'point', title, action: 'add' });
+            applied.push(pointApplied(event, 'add'));
             continue;
         }
-        const hit = findPointEvent(parsed, patch.title);
+        const hit = findPointEvent(parsed, patch.title, patch.ref);
         if (!hit) continue;
         if (hit.event.pin && !namedInFeedback(hit.event.title, feedback)) {
             skippedLocks.push(hit.event.title);
@@ -113,7 +116,7 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
         if (patch.op === 'complete') {
             bucket.splice(hit.eventIndex, 1);
             changed = true;
-            applied.push({ module: 'point', title: hit.event.title, action: 'complete' });
+            applied.push(pointApplied(hit.event, 'complete'));
             continue;
         }
         if (patch.op === 'postpone') {
@@ -129,20 +132,20 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
             }
             if (patch.fields[2]) event.time = patch.fields[2];
             changed = true;
-            applied.push({ module: 'point', title: event.title, action: 'postpone' });
+            applied.push(pointApplied(event, 'postpone'));
             continue;
         }
         if (patch.op === 'edit') {
             if (patch.fields[1]) hit.event.desc = patch.fields[1];
             if (patch.fields[2]) hit.event.time = patch.fields[2];
             changed = true;
-            applied.push({ module: 'point', title: hit.event.title, action: 'edit' });
+            applied.push(pointApplied(hit.event, 'edit'));
             continue;
         }
         if (patch.op === 'stall') {
             hit.event.desc = hit.event.desc ? `${hit.event.desc}（暂缓）` : '暂缓';
             changed = true;
-            applied.push({ module: 'point', title: hit.event.title, action: 'stall' });
+            applied.push(pointApplied(hit.event, 'stall'));
         }
     }
     return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken), changed, skippedLocks, applied };
@@ -155,9 +158,7 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
     const applied = [];
     let changed = false;
     for (const patch of patches.filter(item => item.target === 'line')) {
-        const want = String(patch.name || '').trim();
-        if (!want) continue;
-        const index = uniqueNamedHit(model, want, line => line.name);
+        const index = findBookIndex(model, { id: patch.ref, name: patch.name, nameOf: 'name' });
         if (index < 0) continue;
         const line = model[index];
         if (line.pin && !namedInFeedback(line.name, feedback)) {
@@ -167,20 +168,20 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
         if (patch.op === 'complete') {
             line.stage = '收束';
             changed = true;
-            applied.push({ module: 'lines', title: line.name, action: 'complete' });
+            applied.push({ module: 'lines', title: line.name, action: 'complete', ...(line.id ? { ref: line.id } : {}) });
             continue;
         }
         if (patch.op === 'stall') {
             line.stall = true;
             changed = true;
-            applied.push({ module: 'lines', title: line.name, action: 'stall' });
+            applied.push({ module: 'lines', title: line.name, action: 'stall', ...(line.id ? { ref: line.id } : {}) });
             continue;
         }
         if (patch.op === 'edit') {
             if (patch.fields[1]) line.desc = patch.fields[1];
             if (patch.fields[2]) line.next = patch.fields[2];
             changed = true;
-            applied.push({ module: 'lines', title: line.name, action: 'edit' });
+            applied.push({ module: 'lines', title: line.name, action: 'edit', ...(line.id ? { ref: line.id } : {}) });
         }
     }
     return { raw: serializeLines(model), changed, skippedLocks, applied, terminal: model.filter(line => TERMINAL_LINE_STAGES.has(line.stage)).map(line => line.name) };

@@ -18,7 +18,7 @@ import { parseCalendar } from '../point/parse.js';
 import * as memory from '../../memory.js';
 import {
     DEFAULT_CAL, loadCalDesc, calYearLen, almDayOfYear, almClampInt, almItemCoversDoy,
-    almValidMonthDay, almDateFromChat,
+    almValidMonthDay, almDateFromChat, monthDayFromDayKey,
 } from './data.js';
 import { storyWeekdayRef, latestStoryClock } from './story-clock.js';
 import { automaticWeekdayCanReplaceCalibration } from './weekday-coordinator.js';
@@ -72,7 +72,7 @@ function almTodayAnchorEvidence() {
                 const { startDate } = parseCalendar(saved.raw, loadCalDesc());
                 if (startDate instanceof Date && !isNaN(startDate)) {
                     const md = almValidMonthDay({ month: startDate.getMonth() + 1, day: startDate.getDate() });
-                    if (md) return { ...md, year: startDate.getFullYear() };
+                    if (md) return { month: md.month, day: md.day };
                 }
             }
         } catch { /* 往下走 */ }

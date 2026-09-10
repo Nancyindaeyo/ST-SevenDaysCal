@@ -112,6 +112,15 @@ export function canUndoActivity(entry, entries = []) {
     return isLatestAlignAttempt(entry, entries) && entry.outcome !== 'failed' && entry.outcome !== 'unchanged';
 }
 
+export function undoItemKey(item = {}) {
+    return String(item.ref || `${item.module || ''}:${item.title || ''}:${item.action || ''}`);
+}
+
+export function remainingUndoItems(entry) {
+    const done = new Set(entry?.undoneRefs || []);
+    return (entry?.items || []).filter(item => item.module === 'point' || item.module === 'lines').filter(item => !done.has(undoItemKey(item)));
+}
+
 export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.random } = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const items = (Array.isArray(source.items) ? source.items : []).map(normalizeActivityItem).filter(item => item.module || item.title);
@@ -127,6 +136,7 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         snapshot: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.snapshot),
         after: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.after),
         undone: source.undone === true,
+        undoneRefs: Array.isArray(source.undoneRefs) ? source.undoneRefs.map(value => String(value || '')).filter(Boolean).slice(0, 40) : [],
         stale: source.stale === true,
         note: String(source.note || '').trim().slice(0, 280),
         floorId: Number.isInteger(Number(source.floorId)) ? Number(source.floorId) : null,

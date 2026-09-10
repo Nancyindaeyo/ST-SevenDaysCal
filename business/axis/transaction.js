@@ -34,8 +34,38 @@ export function createAxisTransactionController(env = {}) {
         const latestAnchor = key ? env.anchor?.(key) : null;
         const anchorUnchanged = JSON.stringify(latestAnchor ?? null) === JSON.stringify(raw ?? null);
         if (!boundaryCurrent()) return { ok: false, cancelled: true };
-        const ts = Date.now(); if (!env.writeBatch?.([{ kind: 'caldesc', view: 'user', charName: '', value: { ...cal, ts } }, { kind: 'almanac', view: 'user', charName: '', value: { items: nextItems, ts } }])) return { ok: false, error: '当前聊天无法写入历法' };
-        if (!boundaryCurrent()) return { ok: false, cancelled: true };
+        const ts = Date.now();
+        const calKey = env.getCalDescKey?.();
+        const almKey = env.getAlmanacKey?.();
+        const prevCal = env.readCal?.() ?? null;
+        const prevAlmanac = env.readAlmanac?.() ?? null;
+        const nextCal = { ...cal, ts };
+        const nextAlmanac = { items: nextItems, ts };
+        const persist = async (key, value) => {
+            if (!key || typeof env.writeConfirmed !== 'function') return { ok: false, reason: 'missing-writer' };
+            try {
+                const saved = await env.writeConfirmed(key, value, { ownerGuard: boundaryCurrent });
+                return saved === true ? { ok: true } : saved;
+            } catch (error) {
+                return error?.saveResult || { ok: false, reason: error?.message || 'write-failed' };
+            }
+        };
+        const calSaved = await persist(calKey, nextCal);
+        if (!(calSaved?.ok === true)) return { ok: false, error: '当前聊天无法写入历法' };
+        if (!boundaryCurrent()) {
+            await persist(calKey, prevCal);
+            return { ok: false, cancelled: true };
+        }
+        const almSaved = await persist(almKey, nextAlmanac);
+        if (!(almSaved?.ok === true)) {
+            await persist(calKey, prevCal);
+            return { ok: false, error: '当前聊天无法写入历法' };
+        }
+        if (!boundaryCurrent()) {
+            await persist(almKey, prevAlmanac);
+            await persist(calKey, prevCal);
+            return { ok: false, cancelled: true };
+        }
         if (anchorConflict && key && latestAnchor && anchorUnchanged) { const fixedMonth = Math.min(Math.max(Number(latestAnchor.month) || 1, 1), env.monthCount(cal)); const fixedDay = Math.min(Math.max(Number(latestAnchor.day) || 1, 1), env.monthDays(cal, fixedMonth)); const result = action === 'delete' ? env.setAnchor?.(key, null) : env.setAnchor?.(key, fixedMonth, fixedDay); if (!result?.ok) return { ok: false, error: '当前聊天无法写入日期锚点' }; }
         if (!boundaryCurrent()) return { ok: false, cancelled: true };
         axisState._almanacCalMonth = null; axisState._almanacCalDay = null; axisState._almTodayEditing = false; env.syncAlmanac?.(); env.syncSchedule?.(); return { ok: true, cal };
