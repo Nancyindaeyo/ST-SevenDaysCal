@@ -16,4 +16,6 @@ test('align prompt asks to refill today when Day 1 still has empty slots', () =>
     const full = buildRefreshAddon({ align: true, todayGap: 0 });
     assert.match(full, /今天名额已满或没有当天格子/);
     assert.match(full, /证据不够就不要新建/);
+    assert.match(vacant, /线的 complete 是收束，不是当场删除/);
+    assert.match(vacant, /必须同时 line: add/);
 });

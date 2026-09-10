@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
+import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
@@ -36,6 +36,30 @@ test('store prepends per chat and caps', () => {
     store.prepend('a', { id: '3', source: 'refresh', items: [{ module: 'outline', title: 'C', action: 'node' }] });
     assert.deepEqual(store.list('a').map(item => item.id), ['3', '2']);
     assert.equal(store.list('b').length, 0);
+});
+
+test('activity log keeps three recent cards; line complete is 收束 not delete', () => {
+    assert.equal(ACTIVITY_CAP, 3);
+    assert.equal(actionLabel('complete', 'point'), '完成并删除');
+    assert.equal(actionLabel('complete', 'lines'), '收束');
+    const memory = new Map();
+    const store = createActivityStore({
+        keyForChat: id => `k:${id}`,
+        storage: {
+            getItem: key => memory.get(key) || null,
+            setItem: (key, value) => memory.set(key, value),
+        },
+    });
+    for (let i = 1; i <= 5; i++) store.prepend('a', { id: String(i), source: 'align', items: [{ module: 'lines', title: `线${i}`, action: 'complete' }] });
+    assert.deepEqual(store.list('a').map(item => item.id), ['5', '4', '3']);
+    memory.set('k:old', JSON.stringify(Array.from({ length: 8 }, (_, i) => ({ id: `old${i}`, source: 'align' }))));
+    store.clearMemory('old');
+    assert.equal(store.list('old').length, 3);
+    const html = renderActivityList([{
+        id: 'x', source: 'align', items: [{ module: 'lines', title: '旧线', action: 'complete' }],
+    }]);
+    assert.match(html, /收束/);
+    assert.doesNotMatch(html, /完成并删除/);
 });
 
 test('point complete appears in patch items and diffs', () => {

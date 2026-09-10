@@ -62,6 +62,22 @@ Event: main|会议|开会|下午|公司||false
     assert.equal((applied.raw.match(/Event:/g) || []).length >= 2, true);
 });
 
+test('line complete settles in place and add can replace it in the same patch', () => {
+    const raw = `<storylines_widget>
+Line: 旧线|延展|今天|world|false|false
+Desc: 旧描述
+Next: 旧下一步
+</storylines_widget>`;
+    const applied = applyLinePatches(raw, [
+        { target: 'line', op: 'complete', name: '旧线', fields: ['旧线'] },
+        { target: 'line', op: 'add', name: '新线', fields: ['新线', '起线', '今天', 'world', '新状态', '下一步'] },
+    ]);
+    assert.equal(applied.changed, true);
+    assert.match(applied.raw, /旧线\|收束/);
+    assert.match(applied.raw, /新线\|起线/);
+    assert.deepEqual(applied.applied.map(item => item.action), ['complete', 'add']);
+});
+
 test('ambiguous line names are not patched', () => {
     const raw = `<storylines_widget>
 Line: 调查笔记|延展|今天|world|false|false

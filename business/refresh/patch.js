@@ -1,5 +1,6 @@
 import { parseCalendar, serializeCalendar } from '../point/parse.js';
-import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from '../lines/schema.js';
+import { parseLines, serializeLines, TERMINAL_LINE_STAGES, isTerminalLineStage, normalizeLine, normalizeLineStage } from '../lines/schema.js';
+import { AUTO_LINE_CAPACITY } from '../lines/capacity.js';
 import { findBookIndex } from '../identity.js';
 
 const PATCH_BLOCK = /<reconcile_patch\b[^>]*>([\s\S]*?)<\/reconcile_patch>/i;
@@ -18,7 +19,7 @@ export function parseReconcilePatches(raw) {
             patches.push({ target: 'point', op: point[1].toLowerCase(), title: fields[0] || '', fields });
             continue;
         }
-        const linePatch = /^line\s*[:：]\s*(complete|stall|edit)\s*\|(.+)$/i.exec(text);
+        const linePatch = /^line\s*[:：]\s*(complete|stall|edit|add)\s*\|(.+)$/i.exec(text);
         if (linePatch) {
             const fields = linePatch[2].split('|').map(part => part.trim());
             patches.push({ target: 'line', op: linePatch[1].toLowerCase(), name: fields[0] || '', fields });
@@ -157,7 +158,35 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
     const skippedLocks = [];
     const applied = [];
     let changed = false;
-    for (const patch of patches.filter(item => item.target === 'line')) {
+    const linePatches = patches.filter(item => item.target === 'line');
+    const ordered = [
+        ...linePatches.filter(item => item.op === 'complete'),
+        ...linePatches.filter(item => item.op !== 'complete' && item.op !== 'add'),
+        ...linePatches.filter(item => item.op === 'add'),
+    ];
+    for (const patch of ordered) {
+        if (patch.op === 'add') {
+            const name = String(patch.fields[0] || patch.name || '').trim();
+            if (!name || model.some(line => String(line.name || '').trim() === name)) continue;
+            const stage = normalizeLineStage(patch.fields[1] || '起线');
+            if (isTerminalLineStage(stage)) continue;
+            const active = model.filter(line => line.pin !== true && !TERMINAL_LINE_STAGES.has(line.stage)).length;
+            if (active >= AUTO_LINE_CAPACITY) continue;
+            const line = normalizeLine({
+                name,
+                stage,
+                when: patch.fields[2] || '今天',
+                agency: patch.fields[3],
+                desc: patch.fields[4] || '',
+                next: patch.fields[5] || '',
+                stall: false,
+                pin: false,
+            });
+            model.push(line);
+            changed = true;
+            applied.push({ module: 'lines', title: line.name, action: 'add', ...(line.id ? { ref: line.id } : {}) });
+            continue;
+        }
         const index = findBookIndex(model, { id: patch.ref, name: patch.name, nameOf: 'name' });
         if (index < 0) continue;
         const line = model[index];

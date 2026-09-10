@@ -78,7 +78,7 @@ export function quoteTextForSpace(entry) {
     if (entry?.note) lines.push(entry.note);
     for (const item of entry?.items || []) {
         const who = itemWho(item);
-        const act = actionLabel(item.action);
+        const act = actionLabel(item.action, item.module);
         lines.push(act ? `${who}（${act}）` : who);
     }
     return lines.filter(Boolean).join('\n');
@@ -100,7 +100,7 @@ function undoItemButton(entry, item, entries) {
 
 function itemListHtml(entry, { undo = false, entries = [] } = {}) {
     const items = (entry.items || []).map(item => (
-        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em>${jumpButton(item)}${undo ? undoItemButton(entry, item, entries) : ''}</li>`
+        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action, item.module))}</em>${jumpButton(item)}${undo ? undoItemButton(entry, item, entries) : ''}</li>`
     )).join('');
     if (items) return `<ul class="sp-activity-items">${items}</ul>`;
     if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || '对齐失败')}</p>`;

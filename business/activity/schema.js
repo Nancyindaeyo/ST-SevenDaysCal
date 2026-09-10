@@ -1,4 +1,4 @@
-export const ACTIVITY_CAP = 30;
+export const ACTIVITY_CAP = 3;
 export const ALIGN_ROUND_CAP = 3;
 
 export const ACTIVITY_SOURCES = Object.freeze({
@@ -151,7 +151,8 @@ export function sourceLabel(source) {
     return ACTIVITY_SOURCES[source] || '改动';
 }
 
-export function actionLabel(action) {
+export function actionLabel(action, module = '') {
+    if (action === 'complete' && module === 'lines') return '收束';
     return ACTIVITY_ACTIONS[action] || action || '改动';
 }
 

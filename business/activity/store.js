@@ -45,12 +45,12 @@ export function createActivityStore({ storage, keyForChat, cap = ACTIVITY_CAP } 
     const bucket = chatId => String(chatId ?? '');
     const read = chatId => {
         const id = bucket(chatId);
-        if (memory.has(id)) return memory.get(id).map(entry => normalizeActivityEntry(entry));
+        if (memory.has(id)) return memory.get(id).map(entry => normalizeActivityEntry(entry)).slice(0, cap);
         const key = keyForChat?.(chatId);
         if (!key) return [];
         try {
             const parsed = JSON.parse(storage?.getItem?.(key) || '[]');
-            return (Array.isArray(parsed) ? parsed : []).map(entry => normalizeActivityEntry(entry));
+            return (Array.isArray(parsed) ? parsed : []).map(entry => normalizeActivityEntry(entry)).slice(0, cap);
         } catch {
             return [];
         }
