@@ -235,7 +235,7 @@ test('ticket protocol rejects missing duplicate unknown and old-line IDs without
 });
 test('release prompt defines global agency, neutral progression, ideal format, and local 6x3 cues without old quotas', () => {
     const prompt = buildLinesPrompt('用户', '角色', 'user', '', 'auto', { freshTickets: [{ selections: [{ label: '时机', prompt: '近日' }] }] });
-    for (const phrase of ['全局平行事件线', '不是固定叙事中心', '既有配角、群体、势力、机构', 'agency=player 仅表示下一步必须等待', 'agency=world 表示', '不要因为事件将来可能影响 用户 就标 player', '未锁非终态自动线不得超过 8 条', '不设主动方或单轮出生配额', '自由判断下一变化应当激化、维持、缓和、转向、解决或淡出', '分歧、关系张力、彼此试探或立场摩擦不等于必须扩大伤害', '不得突然扩大伤害或制造不可逆后果', '阶段只描述生命周期位置', '成形＝影响变得明确，而非要求事态极端化', '收束＝解决、和解、形成新平衡或事务落定', '淡出＝不再值得持续追踪', '理想机器结构']) assert.match(prompt, new RegExp(phrase));
+    for (const phrase of ['全局平行事件线', '不是固定叙事中心', '既有配角、群体、势力、机构', 'agency=player 仅表示下一步必须等待', 'agency=world 表示', '不要因为事件将来可能影响 用户 就标 player', '未锁非终态自动线不得超过 8 条', '不设主动方或单轮出生配额', '必须新建至少一条非终态新线顶上', '自由判断下一变化应当激化、维持、缓和、转向、解决或淡出', '分歧、关系张力、彼此试探或立场摩擦不等于必须扩大伤害', '不得突然扩大伤害或制造不可逆后果', '阶段只描述生命周期位置', '成形＝影响变得明确，而非要求事态极端化', '收束＝解决、和解、形成新平衡或事务落定', '淡出＝不再值得持续追踪', '理想机器结构']) assert.match(prompt, new RegExp(phrase));
     assert.match(prompt, /stage 只使用起线、延展、成形、收束、淡出/);
     for (const obsolete of ['叙事主体为用户', '默认最多出生 1 条', '单轮新生最多 4 条', '每有 1 条旧未锁活线']) assert.doesNotMatch(prompt, new RegExp(obsolete));
     assert.match(prompt, /Line: 名称\|阶段\|时间锚点\|agency\|stall\|pin/);
@@ -264,6 +264,10 @@ test('release prompt allows evidence-based offscreen progress across intents and
     }
     assert.match(prompts[0], /首次生成或刷新可按证据输出 1–8 条自动线/);
     assert.match(prompts[1], /逐条原名、完整返回每条旧未锁活线/);
+    assert.match(prompts[1], /每有一条旧未锁活线进入收束或淡出/);
+    assert.match(prompts[1], /必须新建至少一条非终态新线顶上/);
+    assert.doesNotMatch(prompts[0], /必须新建至少一条非终态新线顶上/);
+    assert.doesNotMatch(prompts[2], /必须新建至少一条非终态新线顶上/);
     assert.match(prompts[1], /旧活线/);
     assert.match(prompts[2], /刷新不要求返回旧自动线/);
     assert.match(prompts[2], /上一版自动线主题·仅名称避重/);
@@ -657,6 +661,11 @@ test('evolution audit preserves identities and applies only the eight-line activ
     const newborn = id => ({ name: `新${id}`, stage: '起线', ticketId: `TICKET-${id}` });
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [continued, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).reason, 'evolution-old-line-missing');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }], freshTickets: [], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '淡出' }], freshTickets: [], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
+    assert.equal(auditLineEvolution({ previousLines: [{ name: '甲', stage: '延展' }, { name: '乙', stage: '延展' }], generatedLines: [{ name: '甲', stage: '收束' }, { name: '乙', stage: '淡出' }, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
+    assert.equal(auditLineEvolution({ previousLines: [{ name: '甲', stage: '延展' }, { name: '乙', stage: '延展' }], generatedLines: [{ name: '甲', stage: '收束' }, { name: '乙', stage: '淡出' }, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [continued, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true, '没有单轮出生配额');
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [continued, { name: '锁线', stage: '淡出' }], freshTickets: [], intent: 'advance' }).ok, true, '模型意外回显锁定终态时应容忍并由本地锁定值覆盖');
@@ -684,6 +693,7 @@ test('production controller signs and binds eight tickets, accepts terminal turn
     for (const scenario of [
         { name: 'terminal-only', savedRaw: makeOld(1, '收束'), response: widget(Array.from({ length: 8 }, (_, index) => newBlock(index + 1))), expectedStatus: 'updated', expectedActive: 8, expectedTotal: 8 },
         { name: 'terminal-turnover', savedRaw: makeOld(8), response: widget([...Array.from({ length: 8 }, (_, index) => oldBlock(index + 1, '收束')), ...Array.from({ length: 8 }, (_, index) => newBlock(index + 1))]), expectedStatus: 'updated', expectedActive: 8, expectedTotal: 16 },
+        { name: 'terminal-unreplaced', savedRaw: makeOld(1), response: widget([oldBlock(1, '收束')]), expectedStatus: 'failed', expectedReason: 'evolution-terminal-unreplaced' },
         { name: 'ninth-rejected', savedRaw: '', response: widget(Array.from({ length: 9 }, (_, index) => newBlock(index + 1))), expectedStatus: 'failed', expectedReason: 'evolution-auto-capacity-overflow' },
     ]) {
         let saved = { raw: scenario.savedRaw, ts: 1 }; let drawn = 0; let captured = null; let commits = 0;

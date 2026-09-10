@@ -1,7 +1,7 @@
 import { isTerminalLineStage } from './schema.js';
 
 export const AUTO_LINE_CAPACITY = 8;
-// 每轮签发完整自动池容量的票据，允许旧线集中进入终态后由新线补满空位。
+// 每轮签发完整自动池容量的票据。推进时旧线进入终态必须由新线顶上；票据给足补位，不强制凑满 8 条。
 export const AUTO_LINE_SEED_CAPACITY = AUTO_LINE_CAPACITY;
 
 // 在完整校验、票据绑定和锁线合并之后收敛自动池；不接触尚未验证的 AI 输出。

@@ -48,6 +48,7 @@ export function auditLineEvolution({ previousLines = [], generatedLines = [], fr
             const expected = oldActive.filter(line => line.name === old.name).length;
             if ((consumedActive.get(old.name) || 0) !== expected) return { ok: false, reason: 'evolution-old-line-missing' };
         }
+        if (newborn < terminalExits) return { ok: false, reason: 'evolution-terminal-unreplaced' };
     }
     if (activeAutoCount > AUTO_LINE_CAPACITY) return { ok: false, reason: 'evolution-auto-capacity-overflow' };
     const ticketIds = new Set((Array.isArray(freshTickets) ? freshTickets : []).map(ticket => ticket?.ticketId).filter(Boolean));
