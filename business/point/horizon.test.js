@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendHorizonDays, horizonExistingSummary, planAdvanceSteps, pointHorizonGap } from './horizon.js';
+import { appendHorizonDays, horizonExistingSummary, planAdvanceSteps, pointDayEventGap, pointHorizonGap } from './horizon.js';
 
 const widget = (start, days) => `<calendar_widget>
 StartDate: ${start}
@@ -16,6 +16,20 @@ test('窗口不足 3 天才有 gap；空账不当补齐', () => {
     assert.equal(pointHorizonGap(oneDay), 2);
     assert.equal(pointHorizonGap(''), 0);
     assert.match(horizonExistingSummary(oneDay), /Day 1：体检/);
+});
+
+test('今天事项不足 3 条才有当天名额；空账不当补当天', () => {
+    assert.equal(pointDayEventGap(oneDay), 2);
+    assert.equal(pointDayEventGap(''), 0);
+    const emptyToday = widget('2024-05-01', `Day: 1|晴|18℃
+Day: 2|阴|16℃
+Event: main|报到|去宿舍|上午|基地||false`);
+    assert.equal(pointDayEventGap(emptyToday), 3);
+    const fullToday = widget('2024-05-01', `Day: 1|晴|18℃
+Event: main|一|描述|早|地||false
+Event: main|二|描述|午|地||false
+Event: main|三|描述|晚|地||false`);
+    assert.equal(pointDayEventGap(fullToday), 0);
 });
 
 test('补齐只追加后面的天，保留已有格子和未来', () => {

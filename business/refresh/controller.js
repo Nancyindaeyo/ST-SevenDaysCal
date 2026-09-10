@@ -1,6 +1,7 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
 import { itemsFromPatches } from '../activity/diff.js';
 import { alignSourceOf, floorUnchangedNote } from '../activity/schema.js';
+import { pointDayEventGap } from '../point/horizon.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
 import { normalizeRefreshSelection } from './bar.js';
@@ -116,6 +117,7 @@ export function createRefreshController(env = {}) {
                 reason: options.reason,
                 feedback: options.feedback,
                 promptAddon: options.promptAddon,
+                todayGap: pointRaw ? pointDayEventGap(pointRaw, 0, env.calendar?.()) : 0,
             });
             const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'ledger-reconcile', diagnosticSink: diagnostic.sink, fullMemory: false });
             if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: 'chat-changed' };

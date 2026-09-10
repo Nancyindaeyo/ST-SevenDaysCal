@@ -1,6 +1,16 @@
 import { parseCalendar, serializeCalendar } from './parse.js';
 
 export const POINT_HORIZON_DAYS = 3;
+export const POINT_DAY_EVENT_TARGET = 3;
+
+export function pointDayEventGap(raw, dayIndex = 0, calendar = null, target = POINT_DAY_EVENT_TARGET) {
+    if (!String(raw || '').trim()) return 0;
+    const parsed = parseCalendar(String(raw || ''), calendar);
+    const days = parsed.allDays || parsed.days || [];
+    const day = days[dayIndex];
+    if (!day) return 0;
+    return Math.max(0, Number(target) - (day.events || []).length);
+}
 
 export function pointDayCount(raw, calendar = null) {
     const parsed = parseCalendar(String(raw || ''), calendar);

@@ -1,7 +1,10 @@
-export function buildRefreshAddon({ reason = '', feedback = '', align = false } = {}) {
+export function buildRefreshAddon({ reason = '', feedback = '', align = false, todayGap = 0 } = {}) {
     const parts = [];
     if (align) {
-        parts.push('【本次是纠偏补丁，不是整表洗牌】只改与最新正文冲突的未锁条目：已发生则从今天拿掉；推迟则挪走或暂缓；换路径则改描述留标题。证据不够就不要新建。没偏则原样保留。锁定标题默认不动，除非用户反馈点名。');
+        const fill = Number(todayGap) > 0
+            ? `今天（Day 1）还空 ${Number(todayGap)} 个名额。只要最新正文看得出当天还有未记账的安排、余波或下一段，就必须用 point: add|Day 1|... 补上；不得把已经不在账上的旧标题再加回来。正文确实没有当天下一段时，note 写「今天已空，正文没有下一段」，不要硬编。后面两天不要为凑数补。`
+            : '今天名额已满或没有当天格子。证据不够就不要新建。没偏则原样保留。';
+        parts.push(`【本次是纠偏补丁，不是整表洗牌】只改与最新正文冲突的未锁条目：已发生则从今天拿掉；推迟则挪走或暂缓；换路径则改描述留标题。${fill}锁定标题默认不动，除非用户反馈点名。`);
     } else {
         parts.push('【本次按用户要求重做勾选模块】未锁条目可以推倒重来；锁定标题仍须保留。');
     }
@@ -12,7 +15,7 @@ export function buildRefreshAddon({ reason = '', feedback = '', align = false } 
     return parts.join('\n\n');
 }
 
-export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '', promptAddon = '' } = {}) {
+export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '', promptAddon = '', todayGap = 0 } = {}) {
     const extra = String(promptAddon || '').trim();
     return `请暂停角色扮演，作为账本校对助手，根据【最新 AI 楼正文】给点（日程）和线（平行事件）打纠偏补丁。
 不要重写整张表。锁定条目（pin=true / 锁定）默认不动，除非用户反馈点名。
@@ -28,7 +31,7 @@ ${String(pointRaw || '').trim() || '（空）'}
 【当前线】
 ${String(linesRaw || '').trim() || '（空）'}
 
-${buildRefreshAddon({ reason, feedback, align: true })}${extra ? `\n\n${extra}` : ''}
+${buildRefreshAddon({ reason, feedback, align: true, todayGap })}${extra ? `\n\n${extra}` : ''}
 
 只输出：
 <reconcile_patch>

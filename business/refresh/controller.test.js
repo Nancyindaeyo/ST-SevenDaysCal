@@ -64,6 +64,20 @@ test('chat change aborts align before it writes', async () => {
     assert.equal(host.writes.length, 0);
 });
 
+test('align prompt tells the model to refill today when Day 1 is short', async () => {
+    let prompt = '';
+    const host = env({
+        callApi: async (_ctx, text) => {
+            prompt = text;
+            return 'note: 补上体育馆协调\npoint: add|Day 1|main|场地协调|去体育馆协调场地|下午|体育馆|柳莲二计算降雨';
+        },
+    });
+    const result = await createRefreshController(host).align({ selected: ['point'] });
+    assert.equal(result.status, 'updated');
+    assert.match(prompt, /今天（Day 1）还空 2 个名额/);
+    assert.match(host.writes[0].raw, /场地协调/);
+});
+
 test('auto align omits lines when lines are off', async () => {
     const host = env({
         linesEnabled: () => false,

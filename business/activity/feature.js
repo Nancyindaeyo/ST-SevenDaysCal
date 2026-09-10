@@ -214,7 +214,7 @@ export function createActivityFeature(env = {}) {
 
     const defaultReason = cause => cause === 'reroll'
         ? '这楼重 roll 了，请按最新 AI 楼重新校对未锁的点和线。'
-        : '请按最新 AI 楼重新校对未锁的点和线。';
+        : '请按最新 AI 楼重新校对未锁的点和线。今天若空了或不足 3 条，有正文依据就补到今天。';
 
     const realign = async ({ cause = 'retry', reason, floorId } = {}) => {
         const floor = Number.isInteger(Number(floorId)) ? Number(floorId) : watched.floorId;
