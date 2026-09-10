@@ -14,7 +14,16 @@ test('point parser removes arbitrary structural wrappers without weakening field
 <event-record>Event: main|温室巡检|叶片温度 < 25|上午|玻璃温室|记录 <storyline>湿度 > 60</storyline>|true
 Ticket: POINT-TICKET-1
 AdultProof: NONE</event-record>
-</days-packet><future-packet>Future:</future-packet>
+</days-packet>
+Day: 2|阴|18℃
+Event: main|二号巡检|确认备用通路|午|走廊|记录状态
+Ticket: POINT-TICKET-3
+AdultProof: NONE
+Day: 3|雨|16℃
+Event: main|三号巡检|整理工具并收工|晚|库房|通知维护员
+Ticket: POINT-TICKET-4
+AdultProof: NONE
+<future-packet>Future:</future-packet>
 <event-record>Event: hidden|复查水泵|确认备用泵状态|明日|泵房|通知维护员
 <强调>Ticket: POINT-TICKET-9</强调>
 Ticket: POINT-TICKET-2
@@ -32,6 +41,33 @@ AdultProof: NONE</event-record>
     const checked = validateGeneratedCalendar(raw, null, { generated: true, adultMode: 'mixed', pinned: [] });
     assert.equal(checked.ok, true);
     assert.equal(checked.strictEvents, true);
+});
+
+test('generated calendar rejects an empty Day 1 instead of saving a two-day window', () => {
+    const event = 'Event: main|事项|描述足够过门槛|10:00|地点|线头动态足够过门槛';
+    const emptyFirst = `<calendar_widget>
+StartDate: 2024-05-01
+Day: 1|晴|18~23℃
+Day: 2|多云转阴|16~21℃
+${event}
+Day: 3|小雨|14~18℃
+${event}
+Future:
+${event}
+</calendar_widget>`;
+    const parsed = parseCalendar(emptyFirst);
+    assert.equal(parsed.allDays.length, 3);
+    assert.equal(parsed.days.length, 2);
+    assert.equal(parsed.days[0].dayNumber, 2);
+    const generated = validateGeneratedCalendar(emptyFirst, null, { generated: true, adultMode: 'off' });
+    assert.equal(generated.ok, false);
+    assert.equal(generated.reason, 'day-empty');
+    assert.equal(validateGeneratedCalendar(emptyFirst, null, { generated: false }).ok, true);
+    const missingFirst = emptyFirst.replace('Day: 1|晴|18~23℃\n', '');
+    assert.equal(validateGeneratedCalendar(missingFirst, null, { generated: true, adultMode: 'off' }).reason, 'day-missing');
+    const complete = emptyFirst.replace('Day: 1|晴|18~23℃\nDay: 2', `Day: 1|晴|18~23℃\n${event}\nDay: 2`);
+    assert.equal(validateGeneratedCalendar(complete, null, { generated: true, adultMode: 'off' }).ok, true);
+    assert.equal(parseCalendar(complete).days.length, 3);
 });
 
 test('point replacement reuses formal pin parsing for pipe-bearing locked adult events', () => {
@@ -105,6 +141,8 @@ test('point prompt fixes 14 display slots and adult mode emits continuous Ticket
     assert.equal((mixed.match(/^AdultProof: 按上方对应 Ticket 的 SFW／NSFW 合同填写$/gm) || []).length, 14);
     assert.doesNotMatch(mixed, /^Ticket: POINT-TICKET-\d+$/m);
     for (const prompt of [off, mixed]) {
+        assert.match(prompt, /Day 1、Day 2、Day 3 都必须出现且各自至少有一条完整 Event/);
+        assert.match(prompt, /日头后面不能空着就写下一天/);
         assert.match(prompt, /目标总展示数量为 14 条[\s\S]*Day 1、Day 2、Day 3 各 3 条，Future 5 条/);
         assert.match(prompt, /已锁定事件也占对应栏目的名额/);
         assert.match(prompt, /每个 Event 建议独占一行并用竖线分隔字段/);

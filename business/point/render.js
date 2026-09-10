@@ -84,7 +84,10 @@ function renderEvent(ev, dayKey = null, evIdx = null, weather = '', temp = '', d
 }
 
 export function renderSchedule(raw, userName, perspective = 'user', calendar = null) {
-    const { days, future, startDate } = parseCalendar(raw, calendar);
+    const parsed = parseCalendar(raw, calendar);
+    const days = parsed.allDays?.length ? parsed.allDays : parsed.days;
+    const populatedDays = (parsed.days || []).length;
+    const { future, startDate } = parsed;
     const hasFuture = future && future.events.length > 0;
 
     const totalTabs = days.length + (hasFuture ? 1 : 0);
@@ -148,14 +151,14 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
             const dateText = formatPointDate(month, dd, ctx.cal);
             dateLabel = dateText ? `${dateText} · ${wd == null ? '星期未记录' : ALM_WEEKDAYS[wd]}` : '日期未知';
         }
-        return `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${weatherChipHtml(day.weather, day.temp)}${day.events.map((ev, ei) => renderEvent(ev, di, ei, day.weather, day.temp, dateLabel)).join('')}</div>`;
+        return `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${weatherChipHtml(day.weather, day.temp)}${day.events.length ? day.events.map((ev, ei) => renderEvent(ev, di, ei, day.weather, day.temp, dateLabel)).join('') : '<div class="sp-event-empty">这天没有安排</div>'}</div>`;
     });
     if (hasFuture) panels.push(
         `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', '未来')).join('')}</div>`
     );
 
-    const debug = days.length < 3 ? `
-        <details class="sp-debug"><summary>⚠ 仅解析到 ${days.length} 天</summary>
+    const debug = populatedDays < 3 ? `
+        <details class="sp-debug"><summary>⚠ 仅解析到 ${populatedDays} 天</summary>
         <pre class="sp-debug-raw">${escapeHtml(raw)}</pre></details>` : '';
 
     return `${header}${alignHtml}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>

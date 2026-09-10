@@ -8,7 +8,10 @@ export function createPointInlineRenderer(env) {
         if (env.settings().scheduleInlineEnabled === false) return '';
         const raw = rawArg != null ? rawArg : env.readRaw(); if (!raw) return '';
         const calendar = calendarOverride === undefined ? env.loadCalendar() : calendarOverride;
-        const { days, future, startDate } = env.parseCalendar(raw, calendar); const hasFuture = future && future.events.length > 0;
+        const parsed = env.parseCalendar(raw, calendar);
+        const days = parsed.allDays?.length ? parsed.allDays : parsed.days;
+        const { future, startDate } = parsed;
+        const hasFuture = future && future.events.length > 0;
         if (!days.length && !hasFuture) return '';
         let total = 0; const rel = ['今天', '明天', '后天'];
         const cell = (label, date, weather, count, cls, key) => `<div class="sp-sch-scell${cls}" data-day="${env.escapeAttr(String(key))}"><span class="sp-sch-scell-rel">${env.escapeHtml(label)}</span><span class="sp-sch-scell-line">${date ? `<span class="sp-sch-scell-md">${env.escapeHtml(date)}</span>` : ''}${weather ? `<span class="sp-sch-scell-wx">${weather}</span>` : ''}<span class="sp-sch-scell-n">${count}</span></span></div>`;
@@ -19,7 +22,9 @@ export function createPointInlineRenderer(env) {
     }
     function buildScheduleDay(dayKey, rawArg = null, readOnly = false, calendarOverride = null, weekdayRefOverride = undefined) {
         const calendar = calendarOverride === undefined ? env.loadCalendar() : calendarOverride;
-        const { days, future, startDate } = env.parseCalendar(rawArg != null ? rawArg : env.readRaw(), calendar);
+        const parsed = env.parseCalendar(rawArg != null ? rawArg : env.readRaw(), calendar);
+        const days = parsed.allDays?.length ? parsed.allDays : parsed.days;
+        const { future, startDate } = parsed;
         let events = [], headLabel = '', dateLabel = '', weather = '', temp = '';
         if (dayKey === 'future') { events = future?.events || []; headLabel = dateLabel = '未来'; }
         else {

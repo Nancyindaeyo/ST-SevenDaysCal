@@ -237,7 +237,7 @@ export function parseCalendar(raw, calendar = null) {
     return { days: days.filter(d => d.events.length > 0), allDays: days, future, startDate, startDateToken: dateMatch?.[1] || null };
 }
 
-// 生成响应写入前的结构闸门：数量是建议，结构与核心事件才是硬门槛。
+// 生成响应写入前的结构闸门：条数是建议，Day 1–3 各自至少一条完整事件才是硬门槛。
 // 这是原始模型响应的业务闸门；没有完整事件时，锁定回并也不能替模型凭空补内容。
 export function validateGeneratedCalendar(raw, calendar = null, options = {}) {
     const text = String(raw || '');
@@ -258,7 +258,13 @@ export function validateGeneratedCalendar(raw, calendar = null, options = {}) {
     const dayMissing = [1, 2, 3].find(n => !counts.get(n));
     const dayDuplicate = [1, 2, 3].find(n => counts.get(n) > 1);
     const dayEmpty = coreDays.find(day => [1, 2, 3].includes(day.dayNumber) && !day.events.length);
-    const reason = !hasClosing ? 'missing-closing-tag' : !widget ? 'missing-widget' : !strictEvents ? 'invalid-event-fields' : null;
+    let reason = !hasClosing ? 'missing-closing-tag' : !widget ? 'missing-widget' : !strictEvents ? 'invalid-event-fields' : null;
+    if (!reason && options.generated) {
+        if (dayMissing) reason = 'day-missing';
+        else if (dayDuplicate) reason = 'day-duplicate';
+        else if (dayEmpty) reason = 'day-empty';
+        else if (!dayMarkers) reason = 'incomplete-days';
+    }
     if (!reason && options.generated) {
         if (normalizePointAdultMode(options.adultMode) !== 'off') {
             const pinnedTitles = new Map();
