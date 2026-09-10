@@ -33,6 +33,7 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.match(html, /id="sp-body"/);
     assert.match(html, /id="sp-settings-overlay"/);
     assert.match(html, /id="sp-plugin-enabled"/);
+    assert.match(html, /id="sp-ledger-reconcile-reroll"/);
     assert.match(html, /id="sp-almanac-wrap"/);
     assert.match(html, /id="sp-lines-wrap"/);
     assert.match(html, /id="sp-mem-source-bbb"/);

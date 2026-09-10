@@ -45,6 +45,14 @@ test('strip only paints live automations', () => {
     assert.doesNotMatch(html, /补日期/);
 });
 
+test('failed align chip is due and activity chips can be buttons', () => {
+    const failed = collectPaceRows({ alignOn: true, alignFailed: true, alignUsed: 0, alignInterval: 3 });
+    assert.equal(failed.find(row => row.id === 'align').text, '失败');
+    assert.equal(failed.find(row => row.id === 'align').due, true);
+    const html = paceStripHtml(failed.filter(row => row.id === 'align'), { interactive: ['align'] });
+    assert.match(html, /<button type="button" class="sp-pace-chip is-due" data-pace="align"/);
+});
+
 test('pace state survives a reload-shaped hydrate', async () => {
     const { clampPaceToLatest, normalizePaceState, snapshotPaceState } = await import('./pace-persist.js');
     const { createRefreshController } = await import('./controller.js');

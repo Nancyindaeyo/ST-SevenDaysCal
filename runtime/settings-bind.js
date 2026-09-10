@@ -210,6 +210,7 @@ export function bindSettingsPanel(env = {}) {
             env.rememberPace?.();
         },
     });
+    bindCheck($in, '#sp-ledger-reconcile-reroll', 'ledgerReconcileReroll', { settings, persist: save });
     bindCheck($in, '#sp-ledger-inject', 'ledgerInject', {
         settings, persist: save, after: () => {
             env.refreshLedgerInjection?.();

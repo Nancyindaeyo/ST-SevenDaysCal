@@ -1,5 +1,6 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
 import { itemsFromPatches } from '../activity/diff.js';
+import { alignSourceOf, floorUnchangedNote } from '../activity/schema.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
 import { normalizeRefreshSelection } from './bar.js';
@@ -68,20 +69,39 @@ export function createRefreshController(env = {}) {
         const ownerChatId = String(ctx.chatId ?? '');
         const latest = latestAiFloor(ctx.chat);
         const latestStory = env.cleanText?.(latest?.text || '') || String(latest?.text || '');
-        if (!String(latestStory).trim()) {
-            endGeneration(token);
-            return { status: 'failed', error: new Error('没有可读的最新 AI 楼正文') };
-        }
         const cfg = env.loadConfig?.() || {};
-        if (!cfg.url || !cfg.key) {
-            endGeneration(token);
-            return { status: 'failed', error: makeDiagnosticError('config-missing') };
-        }
+        const activityBase = () => ({
+            source: alignSourceOf(options),
+            cause: options.cause || (options.auto ? 'auto' : 'manual'),
+            floorId: latest?.index,
+            swipeId: ctx.chat?.[latest?.index]?.swipe_id,
+            signature: env.floorSignature?.(latest?.index),
+        });
+        const recordFailed = error => {
+            env.onActivity?.({
+                ...activityBase(),
+                outcome: 'failed',
+                error: diagnosticMessage(error),
+                note: diagnosticMessage(error),
+            });
+        };
         if (options.signal) {
             if (options.signal.aborted) token.controller.abort(options.signal.reason ?? 'external-abort');
             else options.signal.addEventListener('abort', () => token.controller.abort(options.signal.reason ?? 'external-abort'), { once: true });
         }
-        const diagnostic = createGenerationDiagnosticScope('ledger-reconcile', { background: options.auto === true });
+        const diagnostic = createGenerationDiagnosticScope('ledger-reconcile', { background: options.auto === true || options.cause === 'reroll' || options.cause === 'retry' });
+        if (!String(latestStory).trim()) {
+            const error = new Error('没有可读的最新 AI 楼正文');
+            recordFailed(error);
+            endGeneration(token);
+            return { status: 'failed', error };
+        }
+        if (!cfg.url || !cfg.key) {
+            const error = makeDiagnosticError('config-missing');
+            recordFailed(error);
+            endGeneration(token);
+            return { status: 'failed', error };
+        }
         try {
             const pointRaw = selected.includes('point') ? String(env.readPointRaw?.() || '') : '';
             const linesRaw = selected.includes('lines') ? String(env.readLinesRaw?.() || '') : '';
@@ -116,22 +136,20 @@ export function createRefreshController(env = {}) {
             env.onPatched?.({ point: point.changed, lines: lines.changed });
             const after = snapshotSelected(selected);
             const items = itemsFromPatches(point, lines);
-            if (point.changed || lines.changed) {
-                env.onActivity?.({
-                    source: options.auto ? 'align-auto' : 'align',
-                    items,
-                    snapshot: before,
-                    after,
-                    note: parsed.note,
-                    floorId: latest?.index,
-                    swipeId: ctx.chat?.[latest?.index]?.swipe_id,
-                    signature: env.floorSignature?.(latest?.index),
-                });
-            }
-            return { status: 'updated', summary, items, unchanged: parsed.unchanged && !point.changed && !lines.changed, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };
+            const patched = point.changed || lines.changed;
+            env.onActivity?.({
+                ...activityBase(),
+                outcome: patched ? 'patched' : 'unchanged',
+                items,
+                snapshot: patched ? before : null,
+                after: patched ? after : null,
+                note: patched ? parsed.note : [floorUnchangedNote(latest?.index), parsed.note].filter(Boolean).join('。'),
+            });
+            return { status: 'updated', summary, items, unchanged: !patched, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };
         } catch (error) {
             if (error?.name === 'AbortError') return { status: 'cancelled' };
             diagnostic.rejected?.(error, { phase: 'request' });
+            recordFailed(error);
             return { status: 'failed', error };
         } finally { endGeneration(token); }
     }
@@ -170,22 +188,45 @@ export function createRefreshController(env = {}) {
         if (!Array.isArray(chat) || messageId !== chat.length - 1) return { status: 'skipped' };
         const message = chat[messageId];
         if (!message || message.is_user || message.is_system) return { status: 'skipped' };
-        if (messageId <= lastFloor) return { status: 'skipped' };
+        if (messageId <= lastFloor) return { status: 'skipped', reason: 'seen' };
         lastFloor = messageId;
         if (env.isSuppressed?.(messageId)) return { status: 'skipped', reason: 'time-travel' };
         const interval = Math.max(1, Math.floor(Number(env.interval?.()) || 3));
         if (++counter < interval) return { status: 'skipped', reason: 'interval' };
         counter = 0;
+        lastReconcileFloor = messageId;
         const selected = ['point', ...(linesOn() ? ['lines'] : [])];
-        const result = await align({ auto: true, selected });
-        if (result?.status === 'updated' || result?.status === 'failed') lastReconcileFloor = messageId;
+        const result = await align({ auto: true, selected, cause: 'auto' });
         if (result?.status === 'failed') env.toastAlways?.(`点/线对齐失败：${diagnosticMessage(result.error)}`, true);
         return result;
     }
 
+    let lastRerollKey = '';
+    async function onRerollAlign(messageId) {
+        if (!env.enabled?.()) return { status: 'skipped' };
+        if (env.pluginEnabled?.() === false) return { status: 'skipped' };
+        if (env.rerollEnabled?.() === false) return { status: 'skipped', reason: 'off' };
+        const ctx = env.context?.() || {};
+        const chat = ctx.chat;
+        if (!Array.isArray(chat) || messageId !== chat.length - 1) return { status: 'skipped' };
+        if (lastReconcileFloor !== Number(messageId)) return { status: 'skipped', reason: 'not-align-floor' };
+        if (env.isSuppressed?.(messageId)) return { status: 'skipped', reason: 'time-travel' };
+        const key = `${messageId}:${env.floorSignature?.(messageId) || ''}`;
+        if (lastRerollKey === key) return { status: 'skipped', reason: 'already' };
+        lastRerollKey = key;
+        if (typeof env.rerollAlign === 'function') return env.rerollAlign({ messageId });
+        const selected = ['point', ...(linesOn() ? ['lines'] : [])];
+        return align({
+            auto: true,
+            selected,
+            cause: 'reroll',
+            reason: '这楼重 roll 了，请按最新 AI 楼重新校对未锁的点和线。',
+        });
+    }
+
     return {
-        align, regenerate, onAiFloor, abort, stagger,
-        resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; stagger.reset(); },
+        align, regenerate, onAiFloor, onRerollAlign, abort, stagger,
+        resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; lastRerollKey = ''; stagger.reset(); },
         hydrate(state = {}) {
             counter = Math.max(0, Math.floor(Number(state.counter) || 0));
             lastFloor = Number.isInteger(Number(state.lastFloor)) ? Number(state.lastFloor) : -1;

@@ -50,9 +50,10 @@ export function createChatFloorHandlers(h) {
             h.syncLatestAlmanacBlock?.();
             h.syncLatestScheduleBlock?.();
             const mid = Number(messageId);
-            await h.refresh?.onAiFloor?.(mid);
+            const tick = await h.refresh?.onAiFloor?.(mid);
             h.beat?.onAiFloor?.(mid);
             h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
+            if (tick?.reason === 'seen') await h.refresh?.onRerollAlign?.(mid);
             await h.lines?.onCharacterRendered?.({ messageId: mid, type, autoSuppressed: h.isAutomationSuppressed?.(mid, modules.LINES) });
             h.rememberPace?.();
         },
@@ -68,6 +69,11 @@ export function createChatFloorHandlers(h) {
             h.syncLatestAlmanacBlock?.();
             h.syncLatestScheduleBlock?.();
             await h.lines?.onSwiped?.({ mesId, info });
+            if (!info?.pendingGeneration) {
+                const mid = Number(mesId);
+                h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
+                await h.refresh?.onRerollAlign?.(mid);
+            }
         },
         edited: (mesId) => {
             h.lines?.onEdited?.({ mesId });
@@ -78,6 +84,7 @@ export function createChatFloorHandlers(h) {
         genStart: (genType, _opts, dryRun) => {
             h.refreshStoryClockInjection?.();
             h.lines?.onGenerationStarted?.({ genType, dryRun });
+            if (!dryRun && (genType === 'regenerate' || genType === 'swipe')) h.refresh?.abort?.('reroll');
         },
         streamTok: () => { h.lines?.onToken?.(); },
         genEnd: () => {

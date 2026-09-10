@@ -1592,7 +1592,12 @@ const activityFeature = createActivityFeature({
     onPaint: () => paintPaceSoon(),
     missingLatestStamp,
     fillLatestStamp: () => fillLatestStoryClock(),
-    realign: opts => refreshController.align({ auto: false, selected: ['point', 'lines'], reason: String(opts?.reason || '') }),
+    realign: opts => refreshController.align({
+        auto: opts?.cause === 'reroll' || opts?.cause === 'retry' || opts?.cause === 'auto',
+        selected: ['point', 'lines'],
+        reason: String(opts?.reason || ''),
+        cause: opts?.cause || 'manual',
+    }),
     sendToSpace: async item => {
         if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
         spaceFeature.guide?.leave?.();
@@ -1605,6 +1610,10 @@ const activityFeature = createActivityFeature({
     openLines: () => {
         activityFeature.close();
         return openPluginViewWithPrefill('lines');
+    },
+    openPoint: () => {
+        activityFeature.close();
+        return openPluginViewWithPrefill('schedule');
     },
 });
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
@@ -1825,6 +1834,8 @@ const refreshController = createRefreshController({
     cleanText,
     pluginEnabled,
     enabled: () => getSettings().ledgerReconcileEnabled === true,
+    rerollEnabled: () => getSettings().ledgerReconcileReroll !== false,
+    rerollAlign: opts => activityFeature.realign({ cause: 'reroll', floorId: opts?.messageId }),
     interval: getLedgerReconcileInterval,
     linesEnabled: () => getSettings().linesEnabled !== false,
     isSuppressed: messageId => isAutomationSuppressed(messageId, AUTOMATION_MODULES.POINT) || isAutomationSuppressed(messageId, AUTOMATION_MODULES.LINES),
@@ -2661,6 +2672,7 @@ function readPaceSnapshot() {
         alignOn: settings.ledgerReconcileEnabled === true,
         alignUsed: gates.align.counter,
         alignInterval: getLedgerReconcileInterval(),
+        alignFailed: activityFeature.latestAlignAttempt?.()?.outcome === 'failed',
         linesOn: settings.linesEnabled !== false,
         linesMode: getLinesMode(),
         pendingAdvance: gates.pendingAdvance,
@@ -2695,8 +2707,14 @@ function paintPace() {
     const empty = pluginEnabled() ? '后台节奏都关着' : '插件关着';
     const $fold = $in('#sp-pace-fold');
     if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
-    const $activityPace = $in('#sp-activity-pace');
-    if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip' }));
+    const $host = $in('#sp-activity-pace-strip-host');
+    if ($host.length) {
+        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align'] }));
+        activityFeature.syncPaceOpen?.();
+    } else {
+        const $activityPace = $in('#sp-activity-pace');
+        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align'] }));
+    }
     const $settings = $in('#sp-pace-settings');
     if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
     for (const row of rows) {

@@ -1,4 +1,14 @@
-import { actionLabel, entryTouchesLines, moduleLabel, sourceLabel } from './schema.js';
+import {
+    actionLabel,
+    alignRounds,
+    canUndoActivity,
+    causeLabel,
+    entryTouchesLines,
+    entryTouchesPoint,
+    isAlignEntry,
+    moduleLabel,
+    sourceLabel,
+} from './schema.js';
 
 function escape(value) {
     return String(value ?? '')
@@ -20,9 +30,12 @@ export function activityOverlayHtml() {
             <span class="sp-settings-title"><i class="fa-solid fa-clock-rotate-left"></i> 最近改动</span>
             <button type="button" class="sp-icon-btn sp-activity-close-btn" title="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
-        <div id="sp-activity-pace" class="sp-activity-pace"></div>
+        <div id="sp-activity-pace" class="sp-activity-pace">
+            <div id="sp-activity-pace-strip-host"></div>
+            <div id="sp-activity-pace-detail" class="sp-activity-pace-detail" hidden></div>
+        </div>
         <div id="sp-activity-restyle" class="sp-activity-restyle" hidden>
-            <p>这楼重 roll 了。推进只看前一楼和这楼的时间戳是不是同一天；重 roll 后会按新正文重放这楼的推进。点/线要对齐到新正文，点下面这颗。</p>
+            <p>这楼重 roll 了。推进会按新时间戳自己处理。对齐楼会按新正文自动再对齐；没补上或失败时，点下面这颗，或卡片上的重试。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-realign">按新正文再对齐一次</button>
         </div>
         <div id="sp-activity-stamp" class="sp-activity-restyle" hidden>
@@ -55,37 +68,80 @@ export function quoteTextForSpace(entry) {
     return lines.filter(Boolean).join('\n');
 }
 
+function itemListHtml(entry) {
+    const items = (entry.items || []).map(item => (
+        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em></li>`
+    )).join('');
+    if (items) return `<ul class="sp-activity-items">${items}</ul>`;
+    if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || '对齐失败')}</p>`;
+    if (entry.outcome === 'unchanged') return '<p class="sp-cfg-hint">API 跑过了，点和线都不用改</p>';
+    return '<p class="sp-cfg-hint">没有条目变化</p>';
+}
+
+function cardButtons(entry, entries, { compact = false } = {}) {
+    const button = (cls, label) => `<button type="button" class="sp-btn ${cls}" data-id="${escape(entry.id)}">${label}</button>`;
+    const undo = entry.undone
+        ? '<span class="sp-activity-undone">已撤回</span>'
+        : canUndoActivity(entry, entries)
+            ? button('sp-activity-undo', '撤回')
+            : '';
+    const retry = isAlignEntry(entry) ? button('sp-activity-retry', '重试') : '';
+    const quote = !compact && (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
+    const jumpPoint = entryTouchesPoint(entry) ? button('sp-activity-open-point', '去点里看') : '';
+    const jumpLines = entryTouchesLines(entry) ? button('sp-activity-open-lines', '去线里看') : '';
+    return `${undo}${retry}${quote}${jumpPoint}${jumpLines}`;
+}
+
+function cardMeta(entry) {
+    const extra = causeLabel(entry.cause);
+    return extra ? `<span class="sp-activity-cause">${escape(extra)}</span>` : '';
+}
+
+export function renderAlignRounds(entries = []) {
+    const rounds = alignRounds(entries);
+    if (!rounds.length) {
+        return `<div class="sp-align-rounds is-empty"><p>还没有对齐记录。倒计时到了会跑，结果出现在这里。</p></div>`;
+    }
+    return `<div class="sp-align-rounds">
+        <p class="sp-align-rounds-title">最近 ${rounds.length} 次对齐</p>
+        <ol class="sp-align-round-list">${rounds.map(entry => {
+            const stale = entry.stale && !entry.undone ? '<p class="sp-activity-stale">这楼重 roll 了</p>' : '';
+            const note = entry.note ? `<p class="sp-activity-note">${escape(entry.note)}</p>` : '';
+            return `<li class="sp-align-round${entry.undone ? ' is-undone' : ''}${entry.outcome === 'failed' ? ' is-failed' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}" data-id="${escape(entry.id)}">
+                <div class="sp-activity-card-head">
+                    <b>${escape(sourceLabel(entry.source))}</b>
+                    ${cardMeta(entry)}
+                    <time>${escape(timeLabel(entry.ts))}</time>
+                    ${cardButtons(entry, entries, { compact: true })}
+                </div>
+                ${stale}
+                ${note}
+                ${itemListHtml(entry)}
+            </li>`;
+        }).join('')}</ol>
+    </div>`;
+}
+
 export function renderActivityList(entries = []) {
     if (!entries.length) {
-        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">自动对齐、线推进、面判定、间引导和手动刷新成功后会记在这里，方便反悔。对齐的理由也写在卡片上，可以拿到间里聊。</p></div>`;
+        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">自动对齐、线推进、面判定、间引导和手动刷新成功后会记在这里，方便反悔。对齐的理由也写在卡片上，可以拿到间里聊。失败和无变化也会记一笔，方便确认 API 跑过了。</p></div>`;
     }
     return `<ol class="sp-activity-list">${entries.map(entry => {
-        const items = (entry.items || []).map(item => (
-            `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em></li>`
-        )).join('');
-        const button = (cls, label) => `<button type="button" class="sp-btn ${cls}" data-id="${escape(entry.id)}">${label}</button>`;
-        const undo = entry.undone
-            ? '<span class="sp-activity-undone">已撤回</span>'
-            : entry.snapshot
-                ? button('sp-activity-undo', '撤回')
-                : '';
-        const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
-        const jump = entryTouchesLines(entry) ? button('sp-activity-open-lines', '去线里看') : '';
         const stale = entry.stale && !entry.undone
             ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';
         const note = entry.note ? `<p class="sp-activity-note">${escape(entry.note)}</p>` : '';
-        return `<li class="sp-activity-card${entry.undone ? ' is-undone' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}" data-id="${escape(entry.id)}">
+        const failed = entry.outcome === 'failed' && !entry.undone;
+        return `<li class="sp-activity-card${entry.undone ? ' is-undone' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}${failed ? ' is-failed' : ''}${entry.outcome === 'unchanged' ? ' is-quiet' : ''}" data-id="${escape(entry.id)}">
             <div class="sp-activity-card-head">
                 <b>${escape(sourceLabel(entry.source))}</b>
+                ${cardMeta(entry)}
                 <time>${escape(timeLabel(entry.ts))}</time>
-                ${undo}
-                ${quote}
-                ${jump}
+                ${cardButtons(entry, entries)}
             </div>
             ${stale}
             ${note}
-            ${items ? `<ul class="sp-activity-items">${items}</ul>` : '<p class="sp-cfg-hint">没有条目变化</p>'}
+            ${itemListHtml(entry)}
         </li>`;
     }).join('')}</ol>`;
 }

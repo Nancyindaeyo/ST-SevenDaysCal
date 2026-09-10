@@ -55,7 +55,11 @@ function floorHost(over = {}) {
         scheduleForChatBoundary: (fn) => { calls.push('scheduleScan'); fn?.(); },
         syncLatestAlmanacBlock: () => calls.push('syncAlmanac'),
         syncLatestScheduleBlock: () => calls.push('syncSchedule'),
-        refresh: { onAiFloor: async () => calls.push('refresh.onAiFloor') },
+        refresh: {
+            onAiFloor: async () => { calls.push('refresh.onAiFloor'); return { status: 'updated' }; },
+            onRerollAlign: async () => calls.push('refresh.onRerollAlign'),
+            abort: () => calls.push('refresh.abort'),
+        },
         beat: { onAiFloor: () => calls.push('beat.onAiFloor'), syncFloor: () => calls.push('beat.sync') },
         activity: { markFloorRestyle: () => calls.push('activity.restyle') },
         floorSig: () => 'sig',
@@ -193,4 +197,27 @@ test('rename maps ST filenames onto chat ids', async () => {
     assert.deepEqual(renamed[0], ['renamed', { oldId: 'old', newId: 'new' }]);
     assert.deepEqual(renamed[1], ['move', ['old', 'new', 'new', 'h1']]);
     assert.deepEqual(renamed[2], ['open', 'chars']);
+});
+
+test('regenerate aborts in-flight align', () => {
+    const h = floorHost();
+    createChatFloorHandlers(h).genStart('regenerate', {}, false);
+    assert.ok(h.calls.includes('refresh.abort'));
+    const dry = floorHost();
+    createChatFloorHandlers(dry).genStart('regenerate', {}, true);
+    assert.equal(dry.calls.includes('refresh.abort'), false);
+});
+
+test('same-floor render asks refresh to realign', async () => {
+    const h = floorHost({
+        refresh: {
+            onAiFloor: async () => { h.calls.push('refresh.onAiFloor'); return { status: 'skipped', reason: 'seen' }; },
+            onRerollAlign: async () => h.calls.push('refresh.onRerollAlign'),
+            abort() {},
+        },
+    });
+    await createChatFloorHandlers(h).char(2, 'new');
+    assert.ok(h.calls.includes('refresh.onAiFloor'));
+    assert.ok(h.calls.includes('refresh.onRerollAlign'));
+    assert.ok(h.calls.includes('activity.restyle'));
 });

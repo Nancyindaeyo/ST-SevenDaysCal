@@ -14,7 +14,10 @@ export function collectPaceRows(snap = {}) {
     const rows = [];
     const push = row => rows.push(row);
 
-    if (snap.alignOn) push({ id: 'align', label: '对齐', text: formatRemain(snap.alignUsed, snap.alignInterval) });
+    if (snap.alignOn) {
+        if (snap.alignFailed) push({ id: 'align', label: '对齐', text: '失败', due: true });
+        else push({ id: 'align', label: '对齐', text: formatRemain(snap.alignUsed, snap.alignInterval) });
+    }
     else push({ id: 'align', label: '对齐', text: '关着', off: true });
 
     if (!snap.linesOn) push({ id: 'advance', label: '推进', text: '线关着', off: true });
@@ -44,14 +47,17 @@ export function collectPaceRows(snap = {}) {
     return rows;
 }
 
-export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id = 'sp-pace-strip' } = {}) {
+export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id = 'sp-pace-strip', interactive = [] } = {}) {
     const live = rows.filter(row => !row.off && row.strip !== false);
+    const clickable = new Set(Array.isArray(interactive) ? interactive : []);
     if (!live.length) {
         return `<div id="${id}" class="sp-pace-strip is-empty" role="status">${empty}</div>`;
     }
     const chips = live.map(row => {
-        const due = row.due || row.text === '下一楼' || row.text === '下一楼补' ? ' is-due' : '';
-        return `<span class="sp-pace-chip${due}" data-pace="${row.id}"><span class="sp-pace-chip-label">${row.label}</span><span class="sp-pace-chip-value">${row.text}</span></span>`;
+        const due = row.due || row.text === '下一楼' || row.text === '下一楼补' || row.text === '失败' ? ' is-due' : '';
+        const tag = clickable.has(row.id) ? 'button' : 'span';
+        const type = tag === 'button' ? ' type="button"' : '';
+        return `<${tag}${type} class="sp-pace-chip${due}" data-pace="${row.id}"><span class="sp-pace-chip-label">${row.label}</span><span class="sp-pace-chip-value">${row.text}</span></${tag}>`;
     }).join('');
     return `<div id="${id}" class="sp-pace-strip" role="status">${chips}</div>`;
 }

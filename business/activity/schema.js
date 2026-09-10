@@ -1,4 +1,5 @@
 export const ACTIVITY_CAP = 30;
+export const ALIGN_ROUND_CAP = 3;
 
 export const ACTIVITY_SOURCES = Object.freeze({
     'align-auto': '自动对齐',
@@ -8,6 +9,17 @@ export const ACTIVITY_SOURCES = Object.freeze({
     guide: '间引导',
     refresh: '手动刷新',
     dashed: '冷知识',
+});
+
+export const ACTIVITY_CAUSES = Object.freeze({
+    reroll: '重 roll 后按新正文补',
+    retry: '按最新楼重试',
+});
+
+export const ACTIVITY_OUTCOMES = Object.freeze({
+    patched: 'patched',
+    unchanged: 'unchanged',
+    failed: 'failed',
 });
 
 export const ACTIVITY_ACTIONS = Object.freeze({
@@ -57,16 +69,59 @@ export function normalizeActivitySnapshot(raw) {
     return Object.keys(snapshot).length ? snapshot : null;
 }
 
+export function isAlignEntry(entry) {
+    return entry?.source === 'align-auto' || entry?.source === 'align';
+}
+
+export function alignSourceOf(options = {}) {
+    const cause = String(options.cause || '');
+    if (options.auto === true || cause === 'reroll' || cause === 'retry' || cause === 'auto') return 'align-auto';
+    return 'align';
+}
+
+export function floorUnchangedNote(floorId) {
+    const floor = Number(floorId);
+    if (!Number.isInteger(floor) || floor < 0) return '这楼没有变化';
+    return `${floor}楼没有变化`;
+}
+
+export function causeLabel(cause) {
+    return ACTIVITY_CAUSES[cause] || '';
+}
+
+export function normalizeCause(value) {
+    const cause = String(value || '');
+    return cause === 'auto' || cause === 'manual' || ACTIVITY_CAUSES[cause] ? cause : '';
+}
+
+export function alignRounds(entries = [], cap = ALIGN_ROUND_CAP) {
+    return (Array.isArray(entries) ? entries : []).filter(isAlignEntry).slice(0, Math.max(1, cap));
+}
+
+export function isLatestAlignAttempt(entry, entries = []) {
+    return !!entry && alignRounds(entries, 1)[0]?.id === entry.id;
+}
+
+export function canUndoActivity(entry, entries = []) {
+    if (!entry || entry.undone || !entry.snapshot) return false;
+    if (!isAlignEntry(entry)) return true;
+    return isLatestAlignAttempt(entry, entries) && entry.outcome !== 'failed' && entry.outcome !== 'unchanged';
+}
+
 export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.random } = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const items = (Array.isArray(source.items) ? source.items : []).map(normalizeActivityItem).filter(item => item.module || item.title);
+    const outcome = ACTIVITY_OUTCOMES[source.outcome] || '';
     return {
         id: String(source.id || activityId(now, random)),
         ts: Number(source.ts) || now,
         source: ACTIVITY_SOURCES[source.source] ? source.source : 'refresh',
+        cause: normalizeCause(source.cause),
+        outcome,
+        error: String(source.error || '').trim().slice(0, 200),
         items,
-        snapshot: normalizeActivitySnapshot(source.snapshot),
-        after: normalizeActivitySnapshot(source.after),
+        snapshot: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.snapshot),
+        after: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.after),
         undone: source.undone === true,
         stale: source.stale === true,
         note: String(source.note || '').trim().slice(0, 280),
@@ -90,7 +145,14 @@ export function moduleLabel(module) {
 
 export function entryTouchesLines(entry) {
     if (!entry || typeof entry !== 'object') return false;
-    if (entry.source === 'advance' || entry.source === 'dashed') return true;
+    if (isAlignEntry(entry) || entry.source === 'advance' || entry.source === 'dashed') return true;
     if (entry.snapshot?.lines != null || entry.after?.lines != null) return true;
     return (entry.items || []).some(item => item?.module === 'lines' || item?.module === 'dashed');
+}
+
+export function entryTouchesPoint(entry) {
+    if (!entry || typeof entry !== 'object') return false;
+    if (isAlignEntry(entry)) return true;
+    if (entry.snapshot?.point != null || entry.after?.point != null) return true;
+    return (entry.items || []).some(item => item?.module === 'point');
 }

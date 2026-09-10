@@ -81,3 +81,67 @@ test('auto align omits lines when lines are off', async () => {
     assert.equal(result.status, 'updated');
     assert.equal(host.writes.length, 0);
 });
+
+test('same floor is seen and does not count as a new align interval', async () => {
+    const host = env({ enabled: () => true, pluginEnabled: () => true, interval: () => 3 });
+    const controller = createRefreshController(host);
+    assert.equal((await controller.onAiFloor(0)).reason, 'interval');
+    assert.equal((await controller.onAiFloor(0)).reason, 'seen');
+    assert.equal(controller.state().counter, 1);
+});
+
+test('failed and unchanged aligns are written to activity', async () => {
+    const activities = [];
+    const failed = createRefreshController(env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 1,
+        onActivity: entry => activities.push(entry),
+        callApi: async () => { throw new Error('boom'); },
+    }));
+    const fail = await failed.onAiFloor(0);
+    assert.equal(fail.status, 'failed');
+    assert.equal(activities[0].outcome, 'failed');
+    assert.equal(failed.didReconcile(0), true);
+
+    const quiet = [];
+    const unchanged = createRefreshController(env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 1,
+        onActivity: entry => quiet.push(entry),
+        callApi: async () => 'note: 与正文一致',
+    }));
+    const result = await unchanged.onAiFloor(0);
+    assert.equal(result.unchanged, true);
+    assert.equal(quiet[0].outcome, 'unchanged');
+    assert.match(quiet[0].note, /0楼没有变化/);
+});
+
+test('reroll on an align floor requests a replacement align', async () => {
+    const calls = [];
+    const host = env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 1,
+        rerollAlign: async () => { calls.push('reroll'); return { status: 'updated' }; },
+    });
+    const controller = createRefreshController(host);
+    await controller.onAiFloor(0);
+    assert.equal((await controller.onAiFloor(0)).reason, 'seen');
+    const reroll = await controller.onRerollAlign(0);
+    assert.equal(reroll.status, 'updated');
+    assert.deepEqual(calls, ['reroll']);
+    assert.equal((await controller.onRerollAlign(0)).reason, 'already');
+});
+
+test('reroll skips floors that were not the align floor', async () => {
+    const controller = createRefreshController(env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 3,
+        rerollEnabled: () => true,
+    }));
+    await controller.onAiFloor(0);
+    assert.equal((await controller.onRerollAlign(0)).reason, 'not-align-floor');
+});

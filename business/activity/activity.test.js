@@ -1,10 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entryTouchesLines, normalizeActivityEntry, sourceLabel } from './schema.js';
+import { entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { activityOverlayHtml, renderActivityList } from './ui.js';
+import { activityOverlayHtml, renderActivityList, renderAlignRounds } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -215,4 +215,101 @@ test('chat storage migrates legacy localStorage once then reads chat entries', (
     assert.equal(browser.has('sp-activity:c1'), false);
     storage.setItem('k', JSON.stringify([{ id: '2', source: 'align', items: [] }]));
     assert.equal(JSON.parse(storage.getItem())[0].id, '2');
+});
+
+test('unchanged and failed aligns are recorded without undo snapshots', () => {
+    assert.equal(floorUnchangedNote(56), '56楼没有变化');
+    const unchanged = normalizeActivityEntry({
+        source: 'align-auto',
+        cause: 'auto',
+        outcome: 'unchanged',
+        floorId: 56,
+        note: '56楼没有变化',
+        snapshot: { point: 'should-drop' },
+    });
+    assert.equal(unchanged.snapshot, null);
+    assert.equal(isAlignEntry(unchanged), true);
+    const failed = normalizeActivityEntry({
+        source: 'align-auto',
+        cause: 'reroll',
+        outcome: 'failed',
+        error: '请先配置 API',
+        note: '请先配置 API',
+        floorId: 56,
+    });
+    assert.equal(failed.cause, 'reroll');
+    const html = renderActivityList([failed, unchanged]);
+    assert.match(html, /重试/);
+    assert.match(html, /56楼没有变化/);
+    assert.match(html, /重 roll 后按新正文补/);
+    assert.doesNotMatch(html, />撤回</);
+    assert.match(renderAlignRounds([failed, unchanged]), /最近 2 次对齐/);
+    assert.equal(entryTouchesPoint(failed), true);
+});
+
+test('only the latest align attempt can be undone', () => {
+    const older = normalizeActivityEntry({
+        id: 'old', source: 'align-auto', outcome: 'patched',
+        snapshot: { point: 'a' }, after: { point: 'b' },
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+    });
+    const latest = normalizeActivityEntry({
+        id: 'new', source: 'align-auto', outcome: 'patched',
+        snapshot: { point: 'b' }, after: { point: 'c' },
+        items: [{ module: 'point', title: '抽查', action: 'edit' }],
+    });
+    assert.equal(canUndoActivity(latest, [latest, older]), true);
+    assert.equal(canUndoActivity(older, [latest, older]), false);
+    assert.match(renderActivityList([latest, older]), /data-id="new"[^>]*>撤回/);
+    assert.doesNotMatch(renderActivityList([latest, older]), /data-id="old"[^>]*>撤回/);
+});
+
+test('realign restores the last align then calls align', async () => {
+    let point = 'after';
+    const calls = [];
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => { point = raw; },
+        query: () => ({ length: 0 }),
+        realign: async opts => { calls.push(opts.cause); return { status: 'updated' }; },
+    });
+    feature.record({
+        source: 'align-auto',
+        outcome: 'patched',
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const reroll = await feature.realign({ cause: 'reroll' });
+    assert.equal(reroll.status, 'updated');
+    assert.equal(point, 'before');
+    assert.deepEqual(calls, ['reroll']);
+    assert.equal(feature.list()[0].undone, true);
+});
+
+test('auto reroll refuses to overwrite later point edits', async () => {
+    let point = 'edited';
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => { point = raw; },
+        query: () => ({ length: 0 }),
+        toast() {},
+        realign: async () => ({ status: 'updated' }),
+    });
+    feature.record({
+        source: 'align-auto',
+        outcome: 'patched',
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const refused = await feature.realign({ cause: 'reroll' });
+    assert.equal(refused.status, 'diverged');
+    assert.equal(point, 'edited');
 });

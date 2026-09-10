@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS = {
     almanacJudgeInterval : 3,     // API 兜底节奏：每几条 AI 回复兜底一次
     ledgerReconcileEnabled: false, // 点/线按正文自动对齐：每 N 条 AI 楼打补丁；默认关
     ledgerReconcileInterval: 3,    // 自动对齐节奏：每几条 AI 回复一次，最小 1
+    ledgerReconcileReroll: true,   // 对齐楼重 roll / 切 swipe 时按新正文再对齐一次；默认开
     outlineRegenMode: 'current',   // 刷新条重做面：current | continue | all
     dashedAutoInterval: 6,         // 冷知识自动：每几条 AI 楼抽一次
     dashedTheme: '',               // 冷知识主题钉：空=近文边角

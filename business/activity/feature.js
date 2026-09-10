@@ -1,7 +1,12 @@
 import { diffSnapshots, sameSnapshot } from './diff.js';
-import { normalizeActivityEntry, sourceLabel } from './schema.js';
+import {
+    canUndoActivity,
+    isAlignEntry,
+    normalizeActivityEntry,
+    sourceLabel,
+} from './schema.js';
 import { createActivityStore } from './store.js';
-import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList } from './ui.js';
+import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderAlignRounds } from './ui.js';
 
 export function createActivityFeature(env = {}) {
     const store = env.store || createActivityStore({
@@ -12,9 +17,11 @@ export function createActivityFeature(env = {}) {
     let unread = 0;
     let watched = { floorId: -1, signature: '' };
     let restyled = false;
+    let paceOpen = '';
 
     const chatId = () => env.chatId?.() ?? null;
     const $in = sel => env.query?.(sel);
+    const list = () => store.list(chatId());
     const capture = (names = []) => {
         const snapshot = {};
         if (names.includes('point')) snapshot.point = String(env.readPoint?.() || '');
@@ -32,9 +39,19 @@ export function createActivityFeature(env = {}) {
         if (snapshot?.outline) await env.writeOutline?.(snapshot.outline);
         if (snapshot?.dashed) await env.writeDashed?.(snapshot.dashed);
     };
+    const syncPaceOpen = () => {
+        const $overlay = $in?.('#sp-activity-overlay');
+        $overlay?.attr?.('data-pace-open', paceOpen || '');
+        $in?.('#sp-activity-pace-strip [data-pace="align"]')?.toggleClass?.('is-open', paceOpen === 'align');
+        const $detail = $in?.('#sp-activity-pace-detail');
+        if ($detail?.length) {
+            $detail.html(paceOpen === 'align' ? renderAlignRounds(list()) : '');
+            $detail.prop('hidden', paceOpen !== 'align');
+        }
+    };
     const paint = () => {
         const $body = $in?.('#sp-activity-body');
-        if ($body?.length) $body.html(renderActivityList(store.list(chatId())));
+        if ($body?.length) $body.html(renderActivityList(list()));
         const $badge = $in?.('.sp-activity-badge');
         if ($badge?.length) {
             $badge.text(unread > 9 ? '9+' : String(unread)).prop('hidden', unread <= 0);
@@ -42,6 +59,7 @@ export function createActivityFeature(env = {}) {
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
         $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
+        syncPaceOpen();
         env.onPaint?.();
     };
     const setOpen = value => {
@@ -53,6 +71,7 @@ export function createActivityFeature(env = {}) {
             $overlay.stop?.(true).css({ display: 'flex', opacity: 0 }).animate?.({ opacity: 1 }, 180) || $overlay.css({ display: 'flex', opacity: 1 });
             paint();
         } else {
+            paceOpen = '';
             $overlay.stop?.(true).animate?.({ opacity: 0 }, 150, function () { env.$(this).css('display', 'none'); }) || $overlay.css({ display: 'none' });
         }
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
@@ -61,7 +80,7 @@ export function createActivityFeature(env = {}) {
     const clearRestyle = () => {
         if (!restyled) return;
         restyled = false;
-        for (const entry of store.list(chatId())) {
+        for (const entry of list()) {
             if (entry.stale && Number(entry.floorId) === watched.floorId) store.update(chatId(), entry.id, { stale: false });
         }
         paint();
@@ -73,7 +92,8 @@ export function createActivityFeature(env = {}) {
         const items = Array.isArray(input.items) && input.items.length
             ? input.items
             : diffSnapshots(snapshot || {}, after || {});
-        if (!items.length && !snapshot) return null;
+        const outcome = input.outcome || '';
+        if (!items.length && !snapshot && outcome !== 'failed' && outcome !== 'unchanged') return null;
         const entry = store.prepend(chatId(), normalizeActivityEntry({
             ...input,
             items,
@@ -98,10 +118,23 @@ export function createActivityFeature(env = {}) {
         return { status: 'updated' };
     };
 
+    const latestUndoableAlign = floorId => list().find(item => {
+        if (!isAlignEntry(item) || item.undone || !item.snapshot) return false;
+        if (item.outcome === 'failed' || item.outcome === 'unchanged') return false;
+        if (!Number.isInteger(Number(floorId)) || Number(floorId) < 0) return true;
+        return Number(item.floorId) === Number(floorId);
+    }) || null;
+
+    const revertLatestAlign = async floorId => {
+        const entry = latestUndoableAlign(floorId);
+        if (!entry) return { status: 'empty' };
+        return revertIfCurrent(entry);
+    };
+
     const undo = async id => {
-        const entry = store.list(chatId()).find(item => item.id === String(id));
-        if (!entry || entry.undone) return { status: 'skipped' };
-        if (!entry.snapshot) return { status: 'failed', reason: 'no-snapshot' };
+        const entries = list();
+        const entry = entries.find(item => item.id === String(id));
+        if (!entry || !canUndoActivity(entry, entries)) return { status: 'skipped' };
         const result = await revertIfCurrent(entry);
         if (result.status === 'diverged') {
             env.toast?.('之后又改过了，没法原样撤回', true);
@@ -110,7 +143,7 @@ export function createActivityFeature(env = {}) {
         return result;
     };
 
-    const latestAdvanceForFloor = floorId => store.list(chatId()).find(item => (
+    const latestAdvanceForFloor = floorId => list().find(item => (
         item.source === 'advance'
         && Number(item.floorId) === Number(floorId)
         && !item.undone
@@ -129,9 +162,9 @@ export function createActivityFeature(env = {}) {
         if (!Number.isInteger(id) || id < 0) return { status: 'skipped' };
         if (watched.floorId === id && watched.signature && sig && watched.signature !== sig) {
             restyled = true;
-            for (const entry of store.list(chatId())) {
+            for (const entry of list()) {
                 if (entry.undone || Number(entry.floorId) !== id) continue;
-                if (entry.source === 'align-auto' || entry.source === 'align' || entry.source === 'advance') {
+                if (isAlignEntry(entry) || entry.source === 'advance') {
                     store.update(chatId(), entry.id, { stale: true });
                 }
             }
@@ -143,9 +176,20 @@ export function createActivityFeature(env = {}) {
         return { status: restyled ? 'stale' : 'ok' };
     };
 
-    const realign = async () => {
+    const defaultReason = cause => cause === 'reroll'
+        ? '这楼重 roll 了，请按最新 AI 楼重新校对未锁的点和线。'
+        : '请按最新 AI 楼重新校对未锁的点和线。';
+
+    const realign = async ({ cause = 'retry', reason, floorId } = {}) => {
+        const floor = Number.isInteger(Number(floorId)) ? Number(floorId) : watched.floorId;
+        const restored = await revertLatestAlign(floor);
+        if (restored.status === 'diverged' && cause === 'reroll') {
+            env.toast?.('之后又改过了，没法按新正文自动补对齐。可在【改】里重试。', true);
+            return restored;
+        }
         const result = await env.realign?.({
-            reason: '这楼重 roll 了，请按最新 AI 楼重新校对未锁的点和线。',
+            reason: String(reason || defaultReason(cause)),
+            cause,
         });
         if (result?.status === 'failed') {
             env.toast?.('按新正文对齐失败', true);
@@ -153,11 +197,12 @@ export function createActivityFeature(env = {}) {
         }
         if (result?.status === 'cancelled') return result;
         clearRestyle();
+        paint();
         return result || { status: 'skipped' };
     };
 
     const quoteToSpace = async id => {
-        const entry = store.list(chatId()).find(item => item.id === String(id));
+        const entry = list().find(item => item.id === String(id));
         const quote = quoteTextForSpace(entry);
         if (!quote) return { status: 'skipped' };
         const sent = await env.sendToSpace?.({
@@ -166,6 +211,11 @@ export function createActivityFeature(env = {}) {
             quote,
         });
         return sent || { status: 'skipped' };
+    };
+
+    const toggleAlignPace = () => {
+        paceOpen = paceOpen === 'align' ? '' : 'align';
+        syncPaceOpen();
     };
 
     const bindUi = () => {
@@ -183,8 +233,13 @@ export function createActivityFeature(env = {}) {
         clickId('.sp-activity-undo', undo);
         clickId('.sp-activity-quote', quoteToSpace);
         click('.sp-activity-open-lines', () => { void env.openLines?.(); });
-        click('.sp-activity-realign', () => { void realign(); });
+        click('.sp-activity-open-point', () => { void env.openPoint?.(); });
+        click('.sp-activity-realign, .sp-activity-retry', () => { void realign({ cause: 'retry' }); });
         click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });
+        click('#sp-activity-pace-strip [data-pace="align"]', event => {
+            event.preventDefault();
+            toggleAlignPace();
+        });
     };
 
     return {
@@ -194,12 +249,15 @@ export function createActivityFeature(env = {}) {
         restore,
         latestAdvanceForFloor,
         replayFloorAdvance,
+        revertLatestAlign,
         markFloorRestyle,
         realign,
         quoteToSpace,
-        list: () => store.list(chatId()),
+        list,
+        latestAlignAttempt: () => list().find(isAlignEntry) || null,
         bindUi,
         paint,
+        syncPaceOpen,
         open: () => setOpen(true),
         close: () => setOpen(false),
         isOpen: () => open,
@@ -208,11 +266,13 @@ export function createActivityFeature(env = {}) {
         onChatChanged: () => {
             unread = 0;
             restyled = false;
+            paceOpen = '';
             watched = { floorId: -1, signature: '' };
             store.clearMemory();
             if (open) paint();
         },
         get unread() { return unread; },
         get restyled() { return restyled; },
+        get paceOpen() { return paceOpen; },
     };
 }
