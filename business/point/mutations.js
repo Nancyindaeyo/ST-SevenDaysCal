@@ -18,3 +18,20 @@ export function deletePointEventRaw(raw, dayKey, eventIndex, calendar = null) {
     const [event] = events.splice(eventIndex, 1);
     return { ok: true, deleted: event, raw: serializeCalendar(parsed.allDays || parsed.days, parsed.future, parsed.startDate, calendar, parsed.startDateToken) };
 }
+
+export function movePointEvent(raw, fromKey, eventIndex, toKey, calendar = null) {
+    if (String(fromKey) === String(toKey)) return { ok: true, moved: false, raw, dayKey: fromKey };
+    const parsed = parseCalendar(raw, calendar);
+    const fromEvents = eventsAt(parsed, fromKey);
+    if (!fromEvents?.[eventIndex]) return { ok: false, reason: 'event-not-found', raw };
+    const dest = toKey === 'future' ? (parsed.future || (parsed.future = { events: [] })) : parsed.days?.[Number(toKey)];
+    if (!dest?.events) return { ok: false, reason: 'day-not-found', raw };
+    const [event] = fromEvents.splice(eventIndex, 1);
+    dest.events.push(event);
+    return {
+        ok: true,
+        moved: true,
+        dayKey: toKey,
+        raw: serializeCalendar(parsed.allDays || parsed.days, parsed.future, parsed.startDate, calendar, parsed.startDateToken),
+    };
+}

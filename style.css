@@ -2428,6 +2428,31 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
 .sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: var(--sp-fs-65); font-weight: 500; line-height: 1; white-space: nowrap; }
 .sp-tab-wd         { font-size: var(--sp-fs-60); opacity: 0.8; line-height: 1; }
+.sp-point-date-align {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 0 14px 8px;
+    padding: 8px 10px;
+    border: 1px dashed color-mix(in oklab, var(--sp-primary) 55%, var(--sp-divider));
+    border-radius: 8px;
+    font-size: var(--sp-fs-70);
+    color: var(--sp-on-surface);
+    line-height: 1.4;
+}
+.sp-point-date-align span { min-width: 0; }
+.sp-align-point-date {
+    flex: 0 0 auto;
+    padding: 4px 10px;
+    border: 1px solid var(--sp-primary);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sp-primary);
+    font-size: var(--sp-fs-65);
+    cursor: pointer;
+}
+.sp-align-point-date:hover { background: var(--sp-chip-bg); }
 
 /* ─── Days sliding track ─────────────────────────────────────────────────────── */
 .sp-days-wrap  { flex: 1; overflow: hidden; min-height: 0; }

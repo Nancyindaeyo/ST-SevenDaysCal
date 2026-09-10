@@ -10,6 +10,7 @@ export const ACTIVITY_SOURCES = Object.freeze({
     refresh: '手动刷新',
     dashed: '冷知识',
     shift: '换日滚点',
+    'date-align': '点日期对齐',
     fill: '点窗口补齐',
     bootstrap: '开局生成',
 });

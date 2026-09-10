@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createPointController, pointScheduleNeedsDateSync, splitAbortController } from './controller.js';
-import { editPointDescription, editPointFields } from './mutations.js';
+import { editPointDescription, editPointFields, movePointEvent } from './mutations.js';
 import { allocatePointAdultPools, parsePointAdultProof, pointTicketPlan, verifyPointAdultContent, verifyPointAdultProof } from './adult.js';
 import { bindPointAdultTickets, mergePinnedPoints, parseCalendar, parsePointEventRecord, replacePointEventBlock, stripPointAdultMetadata, validateGeneratedCalendar } from './parse.js';
 import { createPointWidgetActions } from './widget.js';
@@ -110,6 +110,7 @@ test('point prompt fixes 14 display slots and adult mode emits continuous Ticket
         assert.match(prompt, /每个 Event 建议独占一行并用竖线分隔字段/);
         assert.match(prompt, /location 或线头动态为空时，仍须保留空字段位置/);
         assert.match(prompt, /锁定事件不附 Ticket 或 AdultProof/);
+        assert.match(prompt, /Future 必须带具体月日/);
         assert.doesNotMatch(prompt, /StartDate|日程思考|重要 NPC|非主角人物/);
     }
     assert.match(mixed, /K = 本轮新建事件数（不含锁定事件）/);
@@ -831,6 +832,24 @@ test('point combined edit updates desc and npcAction atomically', () => {
     const raw = '<calendar_widget>\nDay: 1\nEvent: main|标题|旧描述|早晨|地点|旧动态|true\n</calendar_widget>';
     const result = editPointFields(raw, 0, 0, { desc: ' 新描述 ', npcAction: ' 新动态 ' });
     assert.equal(result.ok, true); assert.match(result.raw, /Event: main\|标题\|新描述\|早晨\|地点\|新动态\|true/);
+});
+
+test('point edit can change time and move an event into future', () => {
+    const raw = `<calendar_widget>
+StartDate: 2024-05-01
+Day: 1
+Event: main|标题|描述|早晨|地点|动态|false
+Day: 2
+Event: main|另一件|描述|午|地|动|false
+</calendar_widget>`;
+    const timed = editPointFields(raw, 0, 0, { desc: '描述', npcAction: '动态', time: '5月4日 上午' });
+    assert.equal(timed.ok, true);
+    assert.match(timed.raw, /Event: main\|标题\|描述\|5月4日 上午\|地点\|动态\|false/);
+    const moved = movePointEvent(timed.raw, 0, 0, 'future');
+    assert.equal(moved.ok, true);
+    assert.match(moved.raw, /Future:/);
+    assert.match(moved.raw, /5月4日 上午/);
+    assert.doesNotMatch(moved.raw.split('Future:')[0], /标题/);
 });
 
 function pointBoundaryHarness({ view = 'user', char = '', raw = 'StartDate: 2024-08-20\n<calendar_widget>\nDay: 1\nEvent: main|旧点|描述|早|地点|动态\n</calendar_widget>', generateError = null } = {}) {

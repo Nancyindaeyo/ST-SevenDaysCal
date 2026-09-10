@@ -43,6 +43,13 @@ function makeHost(overrides = {}) {
     return { host, calls, store };
 }
 
+test('锚点善后不再自动滚点', () => {
+    const { host, calls } = makeHost();
+    host.run();
+    assert.equal(calls.some(call => call[0] === 'write'), false);
+    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
+});
+
 test('换日把用户点前移一格并记进改', () => {
     const { host, calls, store } = makeHost();
     assert.equal(host.shiftPointsToToday(), true);
@@ -72,13 +79,12 @@ test('同一天不写 store；TA 视角才会动 TA 账', () => {
     assert.equal(charCalls.filter(call => call[0] === 'record').length, 1);
 });
 
-test('滚点抛错只记 warn，善后后面的刷界面仍会跑', () => {
+test('善后刷界面；读 store 失败不再挡住后面的刷新', () => {
     const { host, calls } = makeHost({
         readStore: () => { throw new Error('boom'); },
     });
     host.run();
-    assert.equal(calls[0][0], 'warn');
-    assert.deepEqual(calls.slice(1), ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
+    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
 });
 
 test('生成中不重画点面板；轴开着才刷轴', () => {

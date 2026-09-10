@@ -41,6 +41,10 @@ export function bindPointPanel(env = {}) {
         if (target) env.deleteEvent?.(target.day, target.idx, { view: target.view, charName: target.charName });
     });
     $in('#sp-body').on('click', '#sp-abort-generate', env.abort);
+    $in('#sp-body').on('click', '.sp-align-point-date', function (e) {
+        e.stopPropagation();
+        env.alignStartDate?.();
+    });
     $in('#sp-body').on('click', '.sp-tab', function () {
         const $track = $(this).closest('#sp-body').find('.sp-days-track').first();
         const total = Number($track.attr('data-total'));

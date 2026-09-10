@@ -31,8 +31,12 @@ export function editPointFields(raw, dayKey, eventIndex, values = {}) {
     const block = parsed.blocks.filter(item => item.day === targetDay)[Number(eventIndex)]; if (!block) return { ok: false, reason: 'not-found', raw };
     const first = parsed.lines[block.start]; const indent = first.match(/^\s*/)?.[0] || ''; const fields = first.trim().replace(/^Event\s*:\s*/i, '').split('|');
     if (fields.length < 4) return { ok: false, reason: 'malformed', raw };
-    const npcAction = Object.prototype.hasOwnProperty.call(values, 'npcAction') ? normalizeEditableText(values.npcAction) : (fields[5] || ''); if (validatePointDescription(`${desc}${npcAction}`)) return { ok: false, reason: 'pipe', raw };
-    fields[2] = desc; if (fields.length >= 6) fields[5] = npcAction;
+    const npcAction = Object.prototype.hasOwnProperty.call(values, 'npcAction') ? normalizeEditableText(values.npcAction) : (fields[5] || '');
+    const timeText = Object.prototype.hasOwnProperty.call(values, 'time') ? normalizeEditableText(values.time) : (fields[3] || '');
+    if (validatePointDescription(`${desc}${npcAction}${timeText}`)) return { ok: false, reason: 'pipe', raw };
+    fields[2] = desc;
+    if (Object.prototype.hasOwnProperty.call(values, 'time')) fields[3] = timeText;
+    if (fields.length >= 6) fields[5] = npcAction;
     parsed.lines[block.start] = `${indent}Event: ${fields.join('|')}`;
-    return { ok: true, raw: parsed.lines.join('\n'), value: desc, values: { desc, npcAction } };
+    return { ok: true, raw: parsed.lines.join('\n'), value: desc, values: { desc, npcAction, time: fields[3] || '' } };
 }

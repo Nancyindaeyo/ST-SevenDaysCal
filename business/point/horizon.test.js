@@ -33,13 +33,13 @@ Event: main|练习赛|上场|下午|球场||false`);
     assert.doesNotMatch(result.raw, /pin\|true/);
 });
 
-test('推进排队：先换日、再补窗口、最后线', () => {
+test('推进排队：窗口不够就补，不再自动滚点', () => {
     assert.deepEqual(planAdvanceSteps({
         hasPoint: true,
         pointRaw: oneDay,
         today: { month: 5, day: 1 },
         linesOn: true,
-    }), ['shift', 'fill', 'lines']);
+    }), ['fill', 'lines']);
     assert.deepEqual(planAdvanceSteps({
         hasPoint: true,
         pointRaw: widget('2024-05-01', 'Day: 1\nDay: 2\nDay: 3\n'),

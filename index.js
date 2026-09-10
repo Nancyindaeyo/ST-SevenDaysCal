@@ -202,7 +202,7 @@ import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } fro
 import { isGregorian as isGregorianCalendar, addCalendarDays } from './business/calendar/date.js';
 import { buildPrompt, buildHorizonFillPrompt } from './business/point/prompt.js';
 import { bindPointRender, renderSchedule, scheduleDayCtx, scheduleDayLabel, TYPE_META } from './business/point/render.js';
-import { togglePointPinRaw, deletePointEventRaw, editPointDescription, editPointFields } from './business/point/mutations.js';
+import { togglePointPinRaw, deletePointEventRaw, editPointDescription, editPointFields, movePointEvent } from './business/point/mutations.js';
 import { bindPointRepository, getScheduleKey, loadCachedSchedule, refreshCachedSchedule } from './business/point/repository.js';
 import { createPointActions } from './business/point/actions.js';
 import { createPointWidgetActions } from './business/point/widget.js';
@@ -529,6 +529,7 @@ const pointActions = createPointActions({
     parseCalendar,
     togglePointPinRaw,
     deletePointEventRaw,
+    movePointEvent,
     editPointDescription,
     editPointFields: (raw, day, index, values) => editPointFields(raw, day, index, values),
     promptFields: options => customDialog.promptFields(options),
@@ -544,6 +545,8 @@ const pointActions = createPointActions({
     chatId: () => getContext().chatId,
     captureParticipantIdentity,
     sameParticipantIdentity,
+    today: almTodayAnchor,
+    onActivity: entry => activityFeature.record(entry),
 });
 const applyPointWidget = createPointWidgetActions({
     firstPointEventBlock,
@@ -2862,6 +2865,7 @@ function injectModal() {
         charViewName: () => charViewName,
         deleteEvent: triggerDeletePointEvent,
         abort: abortScheduleGen,
+        alignStartDate: () => pointActions.alignStartDate(),
     });
     $in('.sp-sheet').on('click', '#sp-gen-books-now', () => void bootstrapFeature.start());
     $in('.sp-sheet').on('click', '#sp-bootstrap-retry', () => void bootstrapFeature.retry());

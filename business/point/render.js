@@ -6,7 +6,7 @@
 // escape / weatherChipHtml——均为已拆模块，直接 import）。
 import { parseCalendar, buildPointInjectText } from './parse.js';
 import { isGregorian } from '../calendar/date.js';
-import { buildScheduleDateContext, scheduleDateAtOffset, scheduleWeekdayAtOffset, formatPointDate } from './date-context.js';
+import { asCalendarDate, buildScheduleDateContext, scheduleDateAtOffset, scheduleWeekdayAtOffset, formatPointDate } from './date-context.js';
 import { axisState } from '../axis/state.js';
 import { ALM_WEEKDAYS, almDayOfYear, loadCalDesc } from '../axis/data.js';
 import { escapeHtml, escapeAttr } from '../../utils/dom.js';
@@ -114,6 +114,16 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     }
 
     const ctx = scheduleDayCtx(startDate, calendar);
+    const today = env?.almTodayAnchor?.();
+    const startMd = asCalendarDate(startDate, calendar);
+    const todayMd = today && Number.isInteger(Number(today.month)) && Number.isInteger(Number(today.day))
+        ? { month: Number(today.month), day: Number(today.day) }
+        : null;
+    const needsAlign = startMd && todayMd && (startMd.month !== todayMd.month || startMd.day !== todayMd.day);
+    const alignHtml = needsAlign ? `<div class="sp-point-date-align">
+        <span>点上今天是 ${escapeHtml(formatPointDate(startMd.month, startMd.day, ctx.cal, true) || '')}，剧情是 ${escapeHtml(formatPointDate(todayMd.month, todayMd.day, ctx.cal, true) || '')}</span>
+        <button type="button" class="sp-align-point-date">对齐日期</button>
+    </div>` : '';
     const tabs = days.map((_, i) => {
         let numLabel = String(i + 1);
         let wdLabel = '';
@@ -148,6 +158,6 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
         <details class="sp-debug"><summary>⚠ 仅解析到 ${days.length} 天</summary>
         <pre class="sp-debug-raw">${escapeHtml(raw)}</pre></details>` : '';
 
-    return `${header}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>
+    return `${header}${alignHtml}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>
         <div class="sp-days-wrap"><div class="sp-days-track" data-total="${totalTabs}" style="width:${totalTabs * 100}%">${panels.join('')}</div></div>${debug}`;
 }

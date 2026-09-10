@@ -2,14 +2,6 @@ import { parseCalendar, serializeCalendar } from './parse.js';
 
 export const POINT_HORIZON_DAYS = 3;
 
-function pointStartDateBehind(raw, today) {
-    if (!String(raw || '').trim()) return false;
-    const match = String(raw).match(/StartDate:\s*(?:\d{4}|null)-(\d{1,2})-(\d{1,2})/i);
-    const month = Number(today?.month), day = Number(today?.day);
-    return !!(match && Number.isInteger(month) && Number.isInteger(day)
-        && (Number(match[1]) !== month || Number(match[2]) !== day));
-}
-
 export function pointDayCount(raw, calendar = null) {
     const parsed = parseCalendar(String(raw || ''), calendar);
     return (parsed.allDays || parsed.days || []).length;
@@ -61,7 +53,6 @@ export function planAdvanceSteps({
     linesOn = true,
 } = {}) {
     const steps = [];
-    if (hasPoint && pointStartDateBehind(pointRaw, today)) steps.push('shift');
     if (hasPoint && pointHorizonGap(pointRaw, calendar) > 0) steps.push('fill');
     if (linesOn) steps.push('lines');
     return steps;

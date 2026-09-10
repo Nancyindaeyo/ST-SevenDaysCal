@@ -9,7 +9,8 @@ function shiftItems(result) {
 }
 
 // 锚点善后：任何一处改「今天」后统一走这里。
-// 1) 格子前移（不调 API；往回拨不猜格子）2) 刷楼内框/点面板/轴 3) 日期制线在这里看换日。
+// 刷楼内框/点面板/轴；日期制线在这里看换日。
+// 点上的日期标签不对时，由面板「对齐日期」改 StartDate（事项不动）。不再自动滚点删除。
 export function createAnchorAftermath(env = {}) {
     function shiftPointsToToday() {
         try {
@@ -47,7 +48,6 @@ export function createAnchorAftermath(env = {}) {
     }
 
     function run() {
-        shiftPointsToToday();
         env.syncAlmanacBlock?.();
         env.syncScheduleBlock?.();
         // 星期锚是纯显示：用现有 raw 重画点面板，不写 store、不请求 API。生成中不抢画。
