@@ -6,7 +6,8 @@ import {
     sourceLabel,
 } from './schema.js';
 import { createActivityStore } from './store.js';
-import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderAlignRounds } from './ui.js';
+import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderPaceDetail } from './ui.js';
+import { isPaceExpandable, canJumpActivityItem } from './jump.js';
 
 export function createActivityFeature(env = {}) {
     const store = env.store || createActivityStore({
@@ -42,11 +43,13 @@ export function createActivityFeature(env = {}) {
     const syncPaceOpen = () => {
         const $overlay = $in?.('#sp-activity-overlay');
         $overlay?.attr?.('data-pace-open', paceOpen || '');
-        $in?.('#sp-activity-pace-strip [data-pace="align"]')?.toggleClass?.('is-open', paceOpen === 'align');
+        $in?.('#sp-activity-pace-strip')?.find?.('[data-pace]')?.each?.(function () {
+            env.$(this).toggleClass('is-open', String(env.$(this).attr('data-pace') || '') === paceOpen);
+        });
         const $detail = $in?.('#sp-activity-pace-detail');
         if ($detail?.length) {
-            $detail.html(paceOpen === 'align' ? renderAlignRounds(list()) : '');
-            $detail.prop('hidden', paceOpen !== 'align');
+            $detail.html(paceOpen ? renderPaceDetail(paceOpen, list()) : '');
+            $detail.prop('hidden', !paceOpen);
         }
     };
     const paint = () => {
@@ -62,7 +65,7 @@ export function createActivityFeature(env = {}) {
         syncPaceOpen();
         env.onPaint?.();
     };
-    const setOpen = value => {
+    const setOpen = (value, { immediate } = {}) => {
         open = value === true;
         const $overlay = $in?.('#sp-activity-overlay');
         if (!$overlay?.length) return;
@@ -72,7 +75,8 @@ export function createActivityFeature(env = {}) {
             paint();
         } else {
             paceOpen = '';
-            $overlay.stop?.(true).animate?.({ opacity: 0 }, 150, function () { env.$(this).css('display', 'none'); }) || $overlay.css({ display: 'none' });
+            if (immediate) $overlay.stop?.(true).css({ display: 'none', opacity: 0 });
+            else $overlay.stop?.(true).animate?.({ opacity: 0 }, 150, function () { env.$(this).css('display', 'none'); }) || $overlay.css({ display: 'none' });
         }
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
         env.onToggle?.(open);
@@ -213,9 +217,18 @@ export function createActivityFeature(env = {}) {
         return sent || { status: 'skipped' };
     };
 
-    const toggleAlignPace = () => {
-        paceOpen = paceOpen === 'align' ? '' : 'align';
+    const togglePace = paceId => {
+        if (!isPaceExpandable(paceId)) return;
+        paceOpen = paceOpen === paceId ? '' : paceId;
         syncPaceOpen();
+    };
+
+    const jumpToItem = async item => {
+        if (!canJumpActivityItem(item)) return { status: 'skipped' };
+        setOpen(false, { immediate: true });
+        const result = await env.openItem?.(item);
+        if (result?.status === 'missing') env.toast?.('这条已经不在了', true);
+        return result || { status: 'skipped' };
     };
 
     const bindUi = () => {
@@ -232,13 +245,23 @@ export function createActivityFeature(env = {}) {
         click('.sp-activity-close-btn', () => setOpen(false));
         clickId('.sp-activity-undo', undo);
         clickId('.sp-activity-quote', quoteToSpace);
-        click('.sp-activity-open-lines', () => { void env.openLines?.(); });
-        click('.sp-activity-open-point', () => { void env.openPoint?.(); });
         click('.sp-activity-realign, .sp-activity-retry', () => { void realign({ cause: 'retry' }); });
         click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });
-        click('#sp-activity-pace-strip [data-pace="align"]', event => {
+        click('#sp-activity-pace-strip [data-pace]', event => {
+            const paceId = env.$(event.currentTarget).attr('data-pace');
+            if (!isPaceExpandable(paceId)) return;
             event.preventDefault();
-            toggleAlignPace();
+            togglePace(paceId);
+        });
+        click('.sp-activity-jump', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            const $btn = env.$(this);
+            void jumpToItem({
+                module: String($btn.attr('data-module') || ''),
+                title: String($btn.attr('data-title') || ''),
+                ref: String($btn.attr('data-ref') || ''),
+            });
         });
     };
 
@@ -253,13 +276,14 @@ export function createActivityFeature(env = {}) {
         markFloorRestyle,
         realign,
         quoteToSpace,
+        jumpToItem,
         list,
         latestAlignAttempt: () => list().find(isAlignEntry) || null,
         bindUi,
         paint,
         syncPaceOpen,
         open: () => setOpen(true),
-        close: () => setOpen(false),
+        close: (opts) => setOpen(false, opts),
         isOpen: () => open,
         overlayHtml: activityOverlayHtml,
         buttonHtml: activityButtonHtml,

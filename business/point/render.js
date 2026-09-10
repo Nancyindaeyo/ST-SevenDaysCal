@@ -68,7 +68,7 @@ function renderEvent(ev, dayKey = null, evIdx = null, weather = '', temp = '', d
         { action: 'point-inject', icon: 'fa-arrow-right-to-bracket', label: '注入', title: '注入到输入框' },
         { action: 'point-delete', icon: 'fa-trash', label: '删除', title: '删除这个点' },
     ], escapeHtml, escapeAttr).replace('data-menu-id="point"', 'data-menu-id="point" data-day="' + escapeAttr(String(dayKey)) + '" data-ev="' + evIdx + '" data-iid="' + iid + '"') : inject;
-    return `<div class="sp-event ${meta.cls}${ev.pin ? ' sp-event-pinned' : ''}">
+    return `<div class="sp-event ${meta.cls}${ev.pin ? ' sp-event-pinned' : ''}" data-jump-mod="point" data-jump-key="${escapeAttr(String(ev.title || ''))}">
         <div class="sp-event-head">
             <span class="sp-type-badge"><i class="fa-solid ${meta.icon}"></i>${escapeHtml(meta.label)}</span>${adultToggle(adult)}
             ${ev.time ? `<span class="sp-event-time"><i class="fa-regular fa-clock"></i> ${escapeHtml(ev.time)}</span>` : ''}

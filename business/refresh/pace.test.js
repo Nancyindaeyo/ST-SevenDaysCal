@@ -49,8 +49,16 @@ test('failed align chip is due and activity chips can be buttons', () => {
     const failed = collectPaceRows({ alignOn: true, alignFailed: true, alignUsed: 0, alignInterval: 3 });
     assert.equal(failed.find(row => row.id === 'align').text, '失败');
     assert.equal(failed.find(row => row.id === 'align').due, true);
-    const html = paceStripHtml(failed.filter(row => row.id === 'align'), { interactive: ['align'] });
+    const html = paceStripHtml(failed.filter(row => row.id === 'align'), { interactive: ['align', 'advance', 'outline', 'dashed'] });
     assert.match(html, /<button type="button" class="sp-pace-chip is-due" data-pace="align"/);
+    const mixed = paceStripHtml([
+        { id: 'advance', label: '推进', text: '下一楼' },
+        { id: 'dashed', label: '冷知识', text: '还差 2 楼' },
+        { id: 'ledger-capture', label: '刻度标注', text: '下一楼' },
+    ], { interactive: ['align', 'advance', 'outline', 'dashed'] });
+    assert.match(mixed, /<button type="button" class="sp-pace-chip is-due" data-pace="advance"/);
+    assert.match(mixed, /<button type="button" class="sp-pace-chip" data-pace="dashed"/);
+    assert.match(mixed, /<span class="sp-pace-chip is-due" data-pace="ledger-capture"/);
 });
 
 test('pace state survives a reload-shaped hydrate', async () => {

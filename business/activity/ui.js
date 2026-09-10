@@ -1,14 +1,12 @@
 import {
     actionLabel,
-    alignRounds,
     canUndoActivity,
     causeLabel,
-    entryTouchesLines,
-    entryTouchesPoint,
     isAlignEntry,
     moduleLabel,
     sourceLabel,
 } from './schema.js';
+import { canJumpActivityItem, latestPaceEntry } from './jump.js';
 
 function escape(value) {
     return String(value ?? '')
@@ -68,9 +66,15 @@ export function quoteTextForSpace(entry) {
     return lines.filter(Boolean).join('\n');
 }
 
+function jumpButton(item) {
+    if (!canJumpActivityItem(item)) return '';
+    const ref = item.ref ? ` data-ref="${escape(item.ref)}"` : '';
+    return `<button type="button" class="sp-activity-jump" data-module="${escape(item.module)}" data-title="${escape(item.title || '')}"${ref} title="去这条" aria-label="去这条"><i class="fa-solid fa-arrow-up-right-from-square" aria-hidden="true"></i></button>`;
+}
+
 function itemListHtml(entry) {
     const items = (entry.items || []).map(item => (
-        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em></li>`
+        `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action))}</em>${jumpButton(item)}</li>`
     )).join('');
     if (items) return `<ul class="sp-activity-items">${items}</ul>`;
     if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || '对齐失败')}</p>`;
@@ -87,9 +91,7 @@ function cardButtons(entry, entries) {
             : '';
     const retry = isAlignEntry(entry) ? button('sp-activity-retry', '重试') : '';
     const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
-    const jumpPoint = entryTouchesPoint(entry) ? button('sp-activity-open-point', '去点里看') : '';
-    const jumpLines = entryTouchesLines(entry) ? button('sp-activity-open-lines', '去线里看') : '';
-    const actions = `${undo}${retry}${quote}${jumpPoint}${jumpLines}`;
+    const actions = `${undo}${retry}${quote}`;
     return actions ? `<div class="sp-activity-card-actions">${actions}</div>` : '';
 }
 
@@ -107,28 +109,33 @@ function roundStatus(entry) {
     return count ? `改了 ${count} 条` : '已对齐';
 }
 
-export function renderAlignRounds(entries = []) {
-    const rounds = alignRounds(entries);
-    if (!rounds.length) {
-        return `<div class="sp-align-rounds is-empty"><p>还没有对齐记录。倒计时到了会跑，详情写在下面。</p></div>`;
+const PACE_EMPTY = {
+    align: '还没有对齐记录。倒计时到了会跑，详情写在下面。',
+    advance: '还没有推进记录。倒计时到了会跑，详情写在下面。',
+    outline: '还没有面判定记录。倒计时到了会跑，详情写在下面。',
+    dashed: '还没有冷知识改动。倒计时到了会跑，详情写在下面。',
+};
+
+export function renderPaceDetail(paceId, entries = []) {
+    const entry = latestPaceEntry(entries, paceId);
+    if (!entry) {
+        return `<div class="sp-pace-detail-empty"><p>${PACE_EMPTY[paceId] || '这类还没有改动记录。'}</p></div>`;
     }
-    return `<div class="sp-align-rounds">
-        <p class="sp-align-rounds-title">最近 ${rounds.length} 次对齐</p>
-        <ol class="sp-align-round-list">${rounds.map(entry => {
-            const retry = isAlignEntry(entry)
-                ? `<button type="button" class="sp-btn sp-activity-retry" data-id="${escape(entry.id)}">重试</button>`
-                : '';
-            return `<li class="sp-align-round${entry.undone ? ' is-undone' : ''}${entry.outcome === 'failed' ? ' is-failed' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}" data-id="${escape(entry.id)}">
-                <div class="sp-align-round-main">
-                    <b>${escape(sourceLabel(entry.source))}</b>
-                    ${cardMeta(entry)}
-                    <time>${escape(timeLabel(entry.ts))}</time>
-                    <span class="sp-align-round-status">${escape(roundStatus(entry))}</span>
-                </div>
-                ${retry}
-            </li>`;
-        }).join('')}</ol>
+    const stale = entry.stale && !entry.undone ? '<p class="sp-activity-stale">这楼重 roll 了</p>' : '';
+    return `<div class="sp-pace-latest"${entry.undone ? ' data-undone="true"' : ''}>
+        <div class="sp-pace-latest-head">
+            <b>${escape(sourceLabel(entry.source))}</b>
+            ${cardMeta(entry)}
+            <time>${escape(timeLabel(entry.ts))}</time>
+            <span class="sp-align-round-status">${escape(roundStatus(entry))}</span>
+        </div>
+        ${stale}
+        ${itemListHtml(entry)}
     </div>`;
+}
+
+export function renderAlignRounds(entries = []) {
+    return renderPaceDetail('align', entries);
 }
 
 export function renderActivityList(entries = []) {

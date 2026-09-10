@@ -4,7 +4,7 @@ import { entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry,
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { activityOverlayHtml, renderActivityList, renderAlignRounds } from './ui.js';
+import { activityOverlayHtml, renderActivityList, renderPaceDetail } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -106,13 +106,15 @@ test('activity cards keep align notes and mark a restyled floor', () => {
     assert.match(html, /拿到间里聊/);
 });
 
-test('advance cards jump to lines and do not auto-write diary notes', () => {
+test('advance cards jump to the line item and do not auto-write diary notes', () => {
     const html = renderActivityList([{
         id: '2', ts: Date.now(), source: 'advance', undone: false,
         items: [{ module: 'lines', title: '调查', action: 'advance' }],
         snapshot: { lines: 'x' },
     }]);
-    assert.match(html, /去线里看/);
+    assert.match(html, /sp-activity-jump/);
+    assert.match(html, /data-module="lines"/);
+    assert.doesNotMatch(html, /去线里看|去点里看/);
     assert.doesNotMatch(html, /往前走了一拍/);
     const feature = createActivityFeature({
         chatId: () => 'c1',
@@ -243,10 +245,8 @@ test('unchanged and failed aligns are recorded without undo snapshots', () => {
     assert.match(html, /56楼没有变化/);
     assert.match(html, /重 roll 后按新正文补/);
     assert.doesNotMatch(html, />撤回</);
-    assert.match(renderAlignRounds([failed, unchanged]), /最近 2 次对齐/);
-    assert.match(renderAlignRounds([failed, unchanged]), /失败/);
-    assert.match(renderAlignRounds([failed, unchanged]), /没有变化/);
-    assert.doesNotMatch(renderAlignRounds([failed, unchanged]), /完成并删除|去点里看/);
+    assert.match(renderPaceDetail('align', [failed, unchanged]), /失败/);
+    assert.doesNotMatch(renderPaceDetail('align', [failed, unchanged]), /完成并删除|去点里看/);
     assert.equal(entryTouchesPoint(failed), true);
 });
 
@@ -315,4 +315,57 @@ test('auto reroll refuses to overwrite later point edits', async () => {
     const refused = await feature.realign({ cause: 'reroll' });
     assert.equal(refused.status, 'diverged');
     assert.equal(point, 'edited');
+});
+
+test('pace detail shows the latest matching round items with jumps, not card actions', () => {
+    const older = normalizeActivityEntry({
+        id: 'old', source: 'align-auto', outcome: 'patched',
+        items: [{ module: 'point', title: '旧点', action: 'edit' }],
+    });
+    const latest = normalizeActivityEntry({
+        id: 'new', source: 'align-auto', outcome: 'patched',
+        items: [
+            { module: 'point', title: '体检', action: 'complete' },
+            { module: 'lines', title: '调查', action: 'advance' },
+        ],
+    });
+    const html = renderPaceDetail('align', [latest, older]);
+    assert.match(html, /体检/);
+    assert.match(html, /调查/);
+    assert.doesNotMatch(html, /旧点/);
+    assert.match(html, /sp-activity-jump/);
+    assert.doesNotMatch(html, /去点里看|去线里看|>撤回<|>重试</);
+});
+
+test('jumpToItem closes the overlay and reports missing targets', async () => {
+    const calls = [];
+    const overlay = {
+        length: 1,
+        stop() { return overlay; },
+        css(style) { calls.push(['css', style]); return overlay; },
+        attr() { return overlay; },
+        animate() { return overlay; },
+        prop() { return overlay; },
+        html() { return overlay; },
+        toggleClass() { return overlay; },
+        text() { return overlay; },
+    };
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        query: () => overlay,
+        $: () => overlay,
+        toast: message => calls.push(['toast', message]),
+        openItem: async item => {
+            calls.push(['open', item.module, item.title]);
+            return { status: 'missing' };
+        },
+    });
+    const result = await feature.jumpToItem({ module: 'point', title: '体检' });
+    assert.equal(result.status, 'missing');
+    assert.deepEqual(calls.filter(item => item[0] !== 'css').slice(0, 2), [
+        ['open', 'point', '体检'],
+        ['toast', '这条已经不在了'],
+    ]);
 });

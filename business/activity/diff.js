@@ -122,7 +122,7 @@ export function diffDashedItems(before, after) {
     const oldIds = new Set(oldItems.map(item => String(item?.id || '')));
     return newItems
         .filter(item => item?.id && !oldIds.has(String(item.id)))
-        .map(item => normalizeActivityItem({ module: 'dashed', title: String(item.text || '').slice(0, 40), action: 'add' }));
+        .map(item => normalizeActivityItem({ module: 'dashed', title: String(item.text || '').slice(0, 40), action: 'add', ref: item.id }));
 }
 
 export function diffSnapshots(before = {}, after = {}) {

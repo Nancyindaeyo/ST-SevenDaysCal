@@ -16,6 +16,7 @@ import { createPaceBook } from './business/refresh/pace-book.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createActivityFeature } from './business/activity/feature.js';
 import { createActivityChatStorage } from './business/activity/store.js';
+import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
@@ -1607,14 +1608,7 @@ const activityFeature = createActivityFeature({
         spaceFeature.ui?.setQuote?.(item);
         return { status: ok ? 'quoted' : 'failed' };
     },
-    openLines: () => {
-        activityFeature.close();
-        return openPluginViewWithPrefill('lines');
-    },
-    openPoint: () => {
-        activityFeature.close();
-        return openPluginViewWithPrefill('schedule');
-    },
+    openItem: item => openActivityItem(item),
 });
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
 const linesFeature = createLinesFeature({
@@ -2709,11 +2703,11 @@ function paintPace() {
     if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
     const $host = $in('#sp-activity-pace-strip-host');
     if ($host.length) {
-        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align'] }));
+        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align', 'advance', 'outline', 'dashed'] }));
         activityFeature.syncPaceOpen?.();
     } else {
         const $activityPace = $in('#sp-activity-pace');
-        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align'] }));
+        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align', 'advance', 'outline', 'dashed'] }));
     }
     const $settings = $in('#sp-pace-settings');
     if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
@@ -2895,6 +2889,25 @@ function openPluginViewWithPrefill(view, inputSelector = '', prefill = '') {
         $input.trigger('focus');
         resolve(true);
     }, 0));
+}
+
+function openActivityItem(item) {
+    const dest = jumpViewOf(item?.module);
+    if (!dest) return Promise.resolve({ status: 'skipped' });
+    showPanel();
+    if (dest.view === 'lines') linesFeature.setSheet?.(dest.sheet);
+    const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${dest.view}"]`);
+    const already = $tab.hasClass('sp-view-active');
+    if (!already) $tab.trigger('click');
+    else if (dest.view === 'lines') linesFeature.refreshPanel?.();
+    return new Promise(resolve => {
+        const go = () => {
+            const found = revealActivityTarget(_spShadow, item);
+            resolve(found ? { status: 'opened' } : { status: 'missing' });
+        };
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(go));
+        else setTimeout(go, 0);
+    });
 }
 
 function initChatObserver() {

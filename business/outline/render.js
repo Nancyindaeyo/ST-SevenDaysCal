@@ -40,7 +40,7 @@ export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton,
                 { action: 'outline-delete', icon: 'fa-trash', label: '删除', title: '删除这个面' },
             ], escapeHtml, value => String(value ?? '')).replace('data-menu-id="outline"', `data-menu-id="outline" data-idx="${index + 1}" data-iid="${injectId}" data-cid="${copyId}"`);
             return `
-        <div class="sp-beat${highlight}">
+        <div class="sp-beat${highlight}" data-jump-mod="outline" data-jump-key="${esc(beat.title)}">
             <div class="sp-beat-head">
                 <span class="sp-beat-index">${index + 1}</span>
                 ${badge}

@@ -50,10 +50,12 @@ export function normalizeActivityItem(raw) {
     const item = raw && typeof raw === 'object' ? raw : {};
     const module = ACTIVITY_MODULES[item.module] ? item.module : '';
     const action = ACTIVITY_ACTIONS[item.action] ? item.action : '';
+    const ref = String(item.ref || '').trim().slice(0, 80);
     return {
         module,
         title: String(item.title || '').trim().slice(0, 80),
         action,
+        ...(ref ? { ref } : {}),
     };
 }
 

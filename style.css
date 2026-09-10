@@ -372,10 +372,10 @@ q::after {
 }
 .sp-activity-items { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .sp-activity-items li {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    gap: 12px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 8px;
     font-size: var(--sp-fs-80);
 }
 .sp-activity-items li span { min-width: 0; }
@@ -384,6 +384,52 @@ q::after {
     font-style: normal;
     flex: 0 0 auto;
     white-space: nowrap;
+}
+.sp-activity-jump {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sp-subtle);
+    cursor: pointer;
+    flex: 0 0 auto;
+}
+.sp-activity-jump:hover {
+    border-color: var(--sp-primary);
+    color: var(--sp-primary);
+    background: color-mix(in oklab, var(--sp-primary) 10%, transparent);
+}
+.sp-activity-jump i { font-size: 11px; }
+@keyframes sp-activity-jump-flash {
+    0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--sp-primary) 55%, transparent); }
+    100% { box-shadow: 0 0 0 10px transparent; }
+}
+.sp-activity-jump-flash {
+    animation: sp-activity-jump-flash 1.1s ease-out;
+    outline: 2px solid color-mix(in oklab, var(--sp-primary) 70%, transparent);
+    outline-offset: 2px;
+    border-radius: 8px;
+}
+.sp-pace-latest-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+    font-size: var(--sp-fs-80);
+}
+.sp-pace-latest-head b { flex: 1 1 auto; min-width: 0; }
+.sp-pace-latest-head time,
+.sp-pace-latest-head .sp-align-round-status { color: var(--sp-subtle); font-size: var(--sp-fs-62); font-family: var(--sp-font-mono); }
+.sp-pace-detail-empty p {
+    margin: 0;
+    font-size: var(--sp-fs-70);
+    color: var(--sp-subtle);
 }
 .sp-activity-undone { font-size: var(--sp-fs-62); color: var(--sp-subtle); }
 .sp-activity-empty { padding: 24px 16px; }
@@ -464,8 +510,6 @@ q::after {
     color: var(--sp-on-surface);
 }
 .sp-activity-quote,
-.sp-activity-open-lines,
-.sp-activity-open-point,
 .sp-activity-retry { flex: 0 0 auto; }
 
 .sp-side-tab {
