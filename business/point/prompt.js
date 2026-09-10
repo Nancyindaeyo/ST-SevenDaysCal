@@ -73,3 +73,32 @@ ${eventTemplate(14)}
 【Future 说明】
 Future 收录 Day 3 之后或时间尚未确定的事项，不得重复 Day 1-3 已安排的同一事件；允许基于剧情走向合理推测，但不能凭空捏造从未提及的约定或承诺。`;
 }
+
+export function buildHorizonFillPrompt(userName, charName, perspective = 'user', { gap = 1, existingSummary = '' } = {}) {
+    const subject = perspective === 'char' ? charName : userName;
+    const companion = perspective === 'char' ? userName : charName;
+    const missing = Math.max(1, Math.min(3, Number(gap) || 1));
+    const dayBlocks = Array.from({ length: missing }, (_, index) => `Day: ${index + 1}|天气|温度
+Event: type|title|description|time|location|线头动态
+Event: type|title|description|time|location|线头动态
+Event: type|title|description|time|location|线头动态`).join('\n');
+    return `请暂停角色扮演，以旁观者视角根据以上剧情，只补 ${subject} 日程里还缺的后面 ${missing} 天。
+【重要】所有输出必须使用中文（人名、地名可保留原文）。
+【人称】你是旁观者，不要扮演任何角色。所有文字必须以第三人称叙述，直呼 ${subject} 的名字。
+
+【已有日程，禁止改写、删除、重排、复述】
+${existingSummary || '（空）'}
+
+只生成接在已有最后一天之后的新日子。Day 1 是已有窗口的下一天，依次向后。不要输出已有的天，不要输出 Future，不要改 StartDate。
+以 ${subject} 自身目标为核心，可按剧情证据涉及 ${companion} 或第三方。不得把已有事项换标题再写一遍。
+
+事件分三类：main（明线）/ hidden（暗线）/ bond（红线）。
+格式：Event: type|title|description|time|location|线头动态
+description 与线头动态各 30 字以上。
+
+【理想输出结构】
+内部完成去重与排序，最终只输出以下 widget。
+<calendar_widget>
+${dayBlocks}
+</calendar_widget>`;
+}

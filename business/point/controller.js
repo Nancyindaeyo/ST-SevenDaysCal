@@ -1,4 +1,5 @@
 import { classifyGenerationError, createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
+import { horizonExistingSummary, pointHorizonGap } from './horizon.js';
 // 点任务控制器的宿主边界：owner/lifecycle 由宿主提供，模块只负责统一清理与中止。
 export function splitAbortController(controller) {
     if (!controller || typeof controller.abort !== 'function' || !controller.signal || typeof controller.signal.addEventListener !== 'function') throw new TypeError('需要原生 AbortController');
@@ -136,7 +137,8 @@ export function createPointController(env) {
         const view = explicitTarget ? (explicitTarget.view === 'char' ? 'char' : 'user') : env.view();
         const char = view === 'char' ? String(explicitTarget?.charName ?? env.char() ?? '').trim() : '';
         if (!validPointTarget(view, char)) { if (!auto) env.toast('请先选择明确的角色，再刷新 TA 的点', null, true); return { status: 'skipped', reason: 'invalid-char-target' }; }
-        if (auto && view === 'char') return { status: 'skipped', reason: 'auto-char-disallowed' };
+        const fillGap = Math.max(0, Number(travelContext?.horizonFill) || 0);
+        if (auto && view === 'char' && !fillGap) return { status: 'skipped', reason: 'auto-char-disallowed' };
         const today = travelContext?.targetDate || env.today();
         const targetScope = { view, charName: char };
         if (env.syncing()) {
@@ -146,8 +148,8 @@ export function createPointController(env) {
         if (env.state.isGenerating || env.editing?.()) { if (!auto) env.toast('点正在生成或编辑中，稍候再同步', null, true); return { status: 'skipped' }; }
         const key = env.key(view, char), saved = key && env.read(key), previous = saved?.raw || ''; if (!key || !previous) return { status: 'skipped' };
         const attemptKey = `${env.chatId()}|${view}|${char}|${Number(today?.month) || ''}-${Number(today?.day) || ''}`;
-        if (auto && lastAutoAttemptKey === attemptKey) return { status: 'skipped', reason: 'auto-date-already-attempted' };
-        if (auto) lastAutoAttemptKey = attemptKey;
+        if (!fillGap && auto && lastAutoAttemptKey === attemptKey) return { status: 'skipped', reason: 'auto-date-already-attempted' };
+        if (!fillGap && auto) lastAutoAttemptKey = attemptKey;
         env.abortAuto?.(); const chatId = env.chatId(); const owner = attachParticipant(env.owners.create('point-auto', { chatId, chatRevision: env.owners.currentChatRevision(), view, charName: char, targetDate: travelContext?.targetDate })); owner.canonical = { key, raw: previous, ts: Number(saved?.ts) || null, chatId, view, char }; const { signal } = splitAbortController(env.setAuto(owner.controller)); env.setSyncing(true);
         owner.adultMode = env.adultMode?.(owner.participantIdentity) || 'off';
         let syncSucceeded = false;
@@ -155,31 +157,61 @@ export function createPointController(env) {
             if (!participantCurrent(owner)) return { status: 'cancelled' };
             const ctx = owner.contextSnapshot || env.context(), cfg = env.config(); if (!cfg.url || !cfg.key) { const error = makeDiagnosticError('config-missing'); env.logDiagnostic?.(safeDiagnosticLog('point', 'request', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(diagnosticMessage(error), null, true); return { status: 'failed', error }; }
             const user = owner.participantIdentity?.userName || ctx.name1 || '用户', character = view === 'char' ? (char || owner.participantIdentity?.charName || ctx.name2 || '角色') : (owner.participantIdentity?.charName || ctx.name2 || '角色'), subject = view === 'char' ? character : user, parsed = env.parse(previous, env.calendar()), pinned = [];
-            for (const day of parsed.days) for (const event of day.events) if (event.pin) pinned.push(event); if (parsed.future) for (const event of parsed.future.events) if (event.pin) pinned.push(event);
-            const fresh = await env.generate(ctx, user, character, view, signal, pinned, travelContext, owner.adultMode, diagnostic.sink); if (env.editing?.() || !participantCurrent(owner) || !env.canCommit(owner, travelContext) || env.state.isGenerating || !canonicalMatches(owner.canonical)) return { status: 'cancelled' };
-            const freshCheck = env.validate(fresh, env.calendar(), { generated: true, adultMode: owner.adultMode, pinned }); if (!freshCheck.ok) { const error = diagnostic.rejected(makePointValidationError(freshCheck), { phase: 'validation', reasonCode: freshCheck.code || freshCheck.reason }); env.logDiagnostic?.(safeDiagnosticLog('point', 'validation', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点同步失败：${diagnosticMessage(error)}；旧点数据未改变，请重试`, null, true); return { status: 'failed', error }; }
-            const boundFresh = env.bindAdult ? env.bindAdult(fresh, owner.adultMode, env.calendar()) : fresh; const merged = env.forceStart(env.mergePinned(previous, boundFresh, env.calendar()), today.month, today.day, env.calendar()); const mergedCheck = env.validate(merged, env.calendar()); if (!mergedCheck.ok) { const error = diagnostic.rejected(makeDiagnosticError('invalid-structure', { phase: 'validation' }), { phase: 'validation', reasonCode: mergedCheck.code || mergedCheck.reason || 'merged-invalid' }); env.logDiagnostic?.(safeDiagnosticLog('point', 'validation', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点同步失败：${diagnosticMessage(error)}；旧点数据未改变，请重试`, null, true); return { status: 'failed', error }; }
+            if (!fillGap) {
+                for (const day of parsed.days) for (const event of day.events) if (event.pin) pinned.push(event); if (parsed.future) for (const event of parsed.future.events) if (event.pin) pinned.push(event);
+            }
+            const fillTravel = fillGap ? { ...(travelContext || {}), horizonFill: fillGap, existingSummary: travelContext?.existingSummary || horizonExistingSummary(previous, env.calendar()) } : travelContext;
+            const adultMode = fillGap ? 'off' : owner.adultMode;
+            const failVerb = fillGap ? '补齐' : '同步';
+            const fresh = await env.generate(ctx, user, character, view, signal, pinned, fillTravel, adultMode, diagnostic.sink); if (env.editing?.() || !participantCurrent(owner) || !env.canCommit(owner, travelContext) || env.state.isGenerating || !canonicalMatches(owner.canonical)) return { status: 'cancelled' };
+            const freshCheck = env.validate(fresh, env.calendar(), fillGap ? { generated: false } : { generated: true, adultMode: owner.adultMode, pinned }); if (!freshCheck.ok) { const error = diagnostic.rejected(makePointValidationError(freshCheck), { phase: 'validation', reasonCode: freshCheck.code || freshCheck.reason }); env.logDiagnostic?.(safeDiagnosticLog('point', 'validation', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点${failVerb}失败：${diagnosticMessage(error)}；旧点数据未改变，请重试`, null, true); return { status: 'failed', error }; }
+            const boundFresh = fillGap ? fresh : (env.bindAdult ? env.bindAdult(fresh, owner.adultMode, env.calendar()) : fresh);
+            let merged;
+            if (fillGap) {
+                const appended = env.appendHorizon?.(previous, boundFresh, env.calendar());
+                if (!appended?.changed) {
+                    const error = diagnostic.rejected(makeDiagnosticError('invalid-structure', { phase: 'validation' }), { phase: 'validation', reasonCode: 'horizon-empty' });
+                    if (!auto || env.notify() === 'full') env.toast(`点补齐失败：没有补出后面几天；旧点数据未改变，请重试`, null, true);
+                    return { status: 'failed', error };
+                }
+                owner.fillAdded = appended.added;
+                merged = appended.raw;
+            } else {
+                merged = env.forceStart(env.mergePinned(previous, boundFresh, env.calendar()), today.month, today.day, env.calendar());
+            }
+            const mergedCheck = env.validate(merged, env.calendar()); if (!mergedCheck.ok) { const error = diagnostic.rejected(makeDiagnosticError('invalid-structure', { phase: 'validation' }), { phase: 'validation', reasonCode: mergedCheck.code || mergedCheck.reason || 'merged-invalid' }); env.logDiagnostic?.(safeDiagnosticLog('point', 'validation', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点${failVerb}失败：${diagnosticMessage(error)}；旧点数据未改变，请重试`, null, true); return { status: 'failed', error }; }
             if (env.editing?.() || !participantCurrent(owner) || !env.canCommit(owner, travelContext) || !canonicalMatches(owner.canonical)) return { status: 'cancelled' };
             diagnostic.accepted({ phase: 'validation', reasonCode: 'point-valid' });
             let stored;
             try { stored = await (env.writeConfirmed || env.write)(key, { raw: merged, userName: subject, ts: Date.now() }, { ownerGuard: () => env.canCommit(owner, travelContext) && participantCurrent(owner) }); if (!(stored === true || stored?.ok === true)) { const rejected = Object.assign(new Error(stored?.reason || 'save-rejected'), { saveResult: stored }); throw rejected; } }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'point-commit-failed' }); }
             diagnostic.committed({ reasonCode: 'point-saved' }); syncSucceeded = true;
+            if (fillGap) env.recordFill?.({ previous, merged, added: owner.fillAdded || 0 });
             if (stored?.stale || !env.canCommit(owner, travelContext)) return { status: 'cancelled', reason: 'committed-but-stale', committed: true, targetDate: today };
             try {
                 env.sync();
                 if (env.view() === view && (view !== 'char' || env.char() === char)) { env.setCached(env.render(merged, subject, view, env.calendar())); if (env.panelVisible()) env.setBody(env.cached()); }
-                if (auto ? env.notify() === 'full' : env.notify() !== 'off') env.toast(`点已同步到 ${env.monthName(today.month)}${today.day}日`);
+                if (auto ? env.notify() === 'full' : env.notify() !== 'off') env.toast(fillGap ? `点已补上后面 ${owner.fillAdded} 天` : `点已同步到 ${env.monthName(today.month)}${today.day}日`);
             } catch (error) { diagnostic.uiFailed(error, { reasonCode: 'point-ui-refresh-failed' }); }
-            return { status: 'updated', targetDate: today };
-        } catch (error) { const canNotify = error?.name !== 'AbortError' && participantCurrent(owner) && env.canCommit(owner, travelContext); if (canNotify) { env.logDiagnostic?.(safeDiagnosticLog('point', 'request', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点同步失败：${diagnosticMessage(error)}`, null, true); } return { status: error?.name === 'AbortError' || travelContext?.signal?.aborted || !participantCurrent(owner) ? 'cancelled' : 'failed', error }; }
+            return { status: 'updated', targetDate: today, added: fillGap ? owner.fillAdded : undefined };
+        } catch (error) { const canNotify = error?.name !== 'AbortError' && participantCurrent(owner) && env.canCommit(owner, travelContext); if (canNotify) { env.logDiagnostic?.(safeDiagnosticLog('point', 'request', error, { background: auto })); if (!auto || env.notify() === 'full') env.toast(`点${fillGap ? '补齐' : '同步'}失败：${diagnosticMessage(error)}`, null, true); } return { status: error?.name === 'AbortError' || travelContext?.signal?.aborted || !participantCurrent(owner) ? 'cancelled' : 'failed', error }; }
         finally {
             const pending = env.owners.peekPending(owner); const lifecycle = env.followupState(owner, travelContext, allowPending, pending); if (!lifecycle.canCleanup) return; env.setAuto(null); env.setSyncing(false); env.clearBusy();
             if (!lifecycle.canFollowup || !syncSucceeded) env.owners.discardPending(owner);
             const followup = pending ? { ...(travelContext || {}), targetDate: pending.targetDate, targetScope: pending.targetScope } : travelContext;
             const followupAuto = pending ? pending.auto === true : auto;
-            if (syncSucceeded && env.shouldFollowup(lifecycle, followup, allowPending, owner)) syncPointToToday(followupAuto, followup); env.owners.finish(owner);
+            if (syncSucceeded && !fillGap && env.shouldFollowup(lifecycle, followup, allowPending, owner)) syncPointToToday(followupAuto, followup); env.owners.finish(owner);
         }
     }
-    return { cleanupManualOwner, abort, reset, triggerGenerate, runGenerate, syncPointToToday };
+    async function fillHorizon(auto = false, travelContext = null) {
+        const explicitTarget = travelContext?.targetScope;
+        const view = explicitTarget ? (explicitTarget.view === 'char' ? 'char' : 'user') : env.view();
+        const char = view === 'char' ? String(explicitTarget?.charName ?? env.char() ?? '').trim() : '';
+        const key = env.key(view, char);
+        const previous = (key && env.read(key)?.raw) || '';
+        const gap = pointHorizonGap(previous, env.calendar());
+        if (!gap) return { status: 'skipped', reason: 'full' };
+        return syncPointToToday(auto, { ...(travelContext || {}), horizonFill: gap, existingSummary: horizonExistingSummary(previous, env.calendar()) });
+    }
+    return { cleanupManualOwner, abort, reset, triggerGenerate, runGenerate, syncPointToToday, fillHorizon };
 }

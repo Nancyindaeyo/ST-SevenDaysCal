@@ -1,3 +1,4 @@
+import { formatCalendarDate } from '../axis/date-format.js';
 import {
     actionLabel,
     canUndoActivity,
@@ -23,12 +24,28 @@ function timeLabel(ts) {
     return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+export function activityClockLabel({ clock = null, today = null, calendar = null, monthName, weekdayFor } = {}) {
+    const meta = [clock?.endMeta, clock?.startMeta].find(item => item && (item.month != null && item.day != null));
+    const axis = today && Number.isInteger(Number(today.month)) && Number.isInteger(Number(today.day))
+        ? formatCalendarDate({ month: Number(today.month), day: Number(today.day), year: today.year, eraLabel: today.eraLabel }, calendar, monthName)
+        : '';
+    const axisWeekday = today && weekdayFor ? String(weekdayFor(today) || '').trim() : '';
+    if (meta) {
+        const stamp = formatCalendarDate(meta, calendar, monthName);
+        const extra = [meta.weekdayText, meta.time].filter(Boolean).join(' ');
+        return extra ? `当前时间戳 ${stamp} ${extra}` : `当前时间戳 ${stamp}`;
+    }
+    if (axis) return `这楼还没有时间戳，轴上今天是 ${axis}${axisWeekday ? ` ${axisWeekday}` : ''}`;
+    return '还没有故事日期';
+}
+
 export function activityOverlayHtml() {
     return `<div id="sp-activity-overlay" class="sp-settings-overlay" style="display:none">
         <div class="sp-settings-header">
             <span class="sp-settings-title"><i class="fa-solid fa-clock-rotate-left"></i> 最近改动</span>
             <button type="button" class="sp-icon-btn sp-activity-close-btn" title="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
+        <div id="sp-activity-clock" class="sp-activity-clock">还没有故事日期</div>
         <div id="sp-activity-pace" class="sp-activity-pace">
             <div id="sp-activity-pace-strip-host"></div>
             <div id="sp-activity-pace-detail" class="sp-activity-pace-detail" hidden></div>

@@ -14,7 +14,9 @@ import { refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
+import { createAdvanceQueue } from './business/refresh/advance-queue.js';
 import { createActivityFeature } from './business/activity/feature.js';
+import { activityClockLabel } from './business/activity/ui.js';
 import { createActivityChatStorage } from './business/activity/store.js';
 import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
@@ -198,13 +200,14 @@ import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parseP
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
 import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } from './business/bootstrap/ui.js';
 import { isGregorian as isGregorianCalendar, addCalendarDays } from './business/calendar/date.js';
-import { buildPrompt } from './business/point/prompt.js';
+import { buildPrompt, buildHorizonFillPrompt } from './business/point/prompt.js';
 import { bindPointRender, renderSchedule, scheduleDayCtx, scheduleDayLabel, TYPE_META } from './business/point/render.js';
 import { togglePointPinRaw, deletePointEventRaw, editPointDescription, editPointFields } from './business/point/mutations.js';
 import { bindPointRepository, getScheduleKey, loadCachedSchedule, refreshCachedSchedule } from './business/point/repository.js';
 import { createPointActions } from './business/point/actions.js';
 import { createPointWidgetActions } from './business/point/widget.js';
 import { createPointController } from './business/point/controller.js';
+import { appendHorizonDays, planAdvanceSteps } from './business/point/horizon.js';
 import { createPointInlineRenderer } from './business/point/inline.js';
 import { pointTicketPlan } from './business/point/adult.js';
 import { bindLedgerSelect, selectLedgerForInject } from './business/ledger/select.js';
@@ -592,6 +595,14 @@ const pointController = createPointController({
     mergePinned: mergePinnedPoints,
     today: almTodayAnchor,
     forceStart: forceStartDate,
+    appendHorizon: (existing, fill, calendar) => appendHorizonDays(existing, fill, calendar),
+    recordFill: ({ previous, merged, added } = {}) => activityFeature.record({
+        source: 'fill',
+        snapshot: { point: previous },
+        after: { point: merged },
+        items: [{ module: 'point', title: `后面 ${added} 天`, action: 'add' }],
+        note: `点窗口补齐 ${added} 天`,
+    }),
     render: renderSchedule,
     sync: syncLatestScheduleBlock,
     setChar: value => { charViewName = value; },
@@ -1437,6 +1448,13 @@ const activityFeature = createActivityFeature({
     onPaint: () => paintPaceSoon(),
     missingLatestStamp,
     fillLatestStamp: () => fillLatestStoryClock(),
+    clockLabel: () => activityClockLabel({
+        clock: latestStoryClock(),
+        today: almTodayAnchor(),
+        calendar: loadCalDesc(),
+        monthName: (cal, month) => calMonthName(cal, month),
+        weekdayFor: almWeekdayFor,
+    }),
     realign: opts => refreshController.align({
         auto: opts?.cause === 'reroll' || opts?.cause === 'retry' || opts?.cause === 'auto',
         selected: ['point', 'lines'],
@@ -2626,13 +2644,48 @@ const anchorAftermath = createAnchorAftermath({
     notifyLinesDate: () => {
         const floorId = (getContext().chat?.length ?? 0) - 1;
         const day = almTodayAnchor();
-        void linesFeature.onDateAftermath({ messageId: floorId, chatId: getContext().chatId, day: day ? `${+day.month}-${+day.day}` : null });
+        void advanceQueue.run({
+            trigger: 'date',
+            messageId: floorId,
+            chatId: getContext().chatId,
+            day: day ? `${+day.month}-${+day.day}` : null,
+        });
     },
     almanacVisible: () => axisState.almanacMode,
     renderAlmanac: renderAlmanacPanel,
     paintPace: paintPaceSoon,
 });
 function runAnchorAftermath() { anchorAftermath.run(); }
+async function fillPointHorizons(auto = false) {
+    const user = await pointController.fillHorizon(auto, { targetScope: { view: 'user', charName: '' } });
+    const charName = String(charViewName || '').trim();
+    if (currentView === 'char' && charName) await pointController.fillHorizon(false, { targetScope: { view: 'char', charName } });
+    return user;
+}
+const advanceQueue = createAdvanceQueue({
+    plan: () => {
+        const raw = readStore(getCacheKey('user', ''))?.raw || '';
+        return planAdvanceSteps({
+            hasPoint: !!raw,
+            pointRaw: raw,
+            today: almTodayAnchor(),
+            calendar: loadCalDesc(),
+            linesOn: true,
+        });
+    },
+    shift: () => anchorAftermath.shiftPointsToToday(),
+    fill: options => fillPointHorizons(options.trigger === 'date'),
+    lines: options => {
+        if (options.trigger === 'date') {
+            return linesFeature.onDateAftermath({
+                messageId: options.messageId,
+                chatId: options.chatId,
+                day: options.day,
+            });
+        }
+        return linesFeature.actions.advance();
+    },
+});
 function schedulePointNeedsSync(target = { view: 'user', charName: '' }, targetDate = null) {
     return anchorAftermath.pointNeedsSync(target, targetDate);
 }
@@ -2789,6 +2842,7 @@ function injectModal() {
         generate: triggerGenerateLines,
         abort: abortLinesGen,
         openRefresh: () => openRefreshFor(['lines']),
+        advance: () => advanceQueue.run({ trigger: 'manual' }),
     });
     bindRefreshBar({
         $in,
@@ -3390,7 +3444,16 @@ async function generate(ctx, userName, charName, perspective = 'user', signal = 
         if (!settingsOpen) toggleSettings();
         throw makeDiagnosticError('config-missing');
     }
-    const prompt = appendTravelPromptContext(buildPrompt(userName, charName, perspective, pinned, loadCalDesc(), { mode: adultMode, tickets: pointTicketPlan(adultMode, 14) }), travelContext);
+    const horizonFill = Number(travelContext?.horizonFill) || 0;
+    const prompt = appendTravelPromptContext(
+        horizonFill
+            ? buildHorizonFillPrompt(userName, charName, perspective, {
+                gap: horizonFill,
+                existingSummary: travelContext?.existingSummary || '',
+            })
+            : buildPrompt(userName, charName, perspective, pinned, loadCalDesc(), { mode: adultMode, tickets: pointTicketPlan(adultMode, 14) }),
+        travelContext,
+    );
     const apiOpts = { ...(travelContext?.feedback === 'time-travel' ? { fullMemory: true, ...travelContext } : (travelContext || {})), promptMode: 'creative', diagnosticModule: 'point', diagnosticSink };
     apiOpts.pointView = perspective;
     return callCustomApi(ctx, prompt, cfg, userName, charName, signal, 3, apiOpts);

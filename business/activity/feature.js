@@ -62,6 +62,7 @@ export function createActivityFeature(env = {}) {
         if ($badge?.length) {
             $badge.text(unread > 9 ? '9+' : String(unread)).prop('hidden', unread <= 0);
         }
+        $in?.('#sp-activity-clock')?.text?.(env.clockLabel?.() || '还没有故事日期');
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
         $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);

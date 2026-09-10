@@ -5,7 +5,7 @@ import { editPointDescription, editPointFields } from './mutations.js';
 import { allocatePointAdultPools, parsePointAdultProof, pointTicketPlan, verifyPointAdultContent, verifyPointAdultProof } from './adult.js';
 import { bindPointAdultTickets, mergePinnedPoints, parseCalendar, parsePointEventRecord, replacePointEventBlock, stripPointAdultMetadata, validateGeneratedCalendar } from './parse.js';
 import { createPointWidgetActions } from './widget.js';
-import { buildPrompt } from './prompt.js';
+import { buildPrompt, buildHorizonFillPrompt } from './prompt.js';
 import { createTaskOwnerManager } from '../../runtime/task-owner.js';
 
 test('point parser removes arbitrary structural wrappers without weakening fields or metadata', () => {
@@ -120,6 +120,17 @@ test('point prompt fixes 14 display slots and adult mode emits continuous Ticket
     assert.match(mixed, /SFW 票不得成人化，紧邻「AdultProof: NONE」/);
     assert.match(mixed, /模板中的 Ticket／AdultProof 两行仅供新 Event 使用/);
     assert.match(mixed, /具体票型与 proof 只服从上方本轮票据表/);
+});
+
+test('horizon fill prompt only asks for the missing days', () => {
+    const prompt = buildHorizonFillPrompt('用户', '角色', 'user', {
+        gap: 2,
+        existingSummary: 'Day 1：体检',
+    });
+    assert.match(prompt, /只补 .* 日程里还缺的后面 2 天/);
+    assert.match(prompt, /Day 1：体检/);
+    assert.doesNotMatch(prompt, /Future:/);
+    assert.equal((prompt.match(/^Day: \d+\|/gm) || []).length, 2);
 });
 
 test('point prompt and validator keep new Tickets continuous when zero, one or several events are locked', () => {
@@ -772,6 +783,39 @@ test('point controller maps generated field and structure failures while preserv
     const structureResult = await structureController.syncPointToToday(false);
     assert.equal(structureResult.error.diagnosticCode, 'invalid-structure');
     assert.equal(structureResult.error.validation, structureValidation);
+});
+
+test('point controller fillHorizon appends days without rewriting StartDate', async () => {
+    const testCase = pointControllerTestEnv({ validation: { ok: true } });
+    testCase.saved.raw = `<calendar_widget>
+StartDate: 2024-05-01
+Day: 1|晴|18℃
+Event: main|体检|去做体检|上午|医院||false
+Future:
+Event: main|暑假|以后再说|未定|海边||false
+</calendar_widget>`;
+    const travels = [];
+    testCase.env.generate = async (_ctx, _user, _char, _view, _signal, pinned, travel) => {
+        travels.push({ pinned, travel });
+        return `<calendar_widget>
+Day: 1|阴|16℃
+Event: main|报到|去宿舍报到并安顿行李|上午|基地||false
+</calendar_widget>`;
+    };
+    testCase.env.appendHorizon = (previous, fresh) => {
+        testCase.env._appended = { previous, fresh };
+        return { changed: true, added: 1, raw: `${previous}\n${fresh}` };
+    };
+    testCase.env.forceStart = raw => { testCase.env._forced = raw; return raw; };
+    testCase.env.recordFill = payload => { testCase.recorded = payload; };
+    const result = await createPointController(testCase.env).fillHorizon(false);
+    assert.equal(result.status, 'updated');
+    assert.equal(result.added, 1);
+    assert.equal(travels[0].travel.horizonFill, 2);
+    assert.deepEqual(travels[0].pinned, []);
+    assert.equal(testCase.env._forced, undefined);
+    assert.equal(testCase.recorded.added, 1);
+    assert.match(testCase.toasts[0], /点已补上后面 1 天/);
 });
 
 test('point controller manual generation exposes field diagnostic and restores cached content', async () => {

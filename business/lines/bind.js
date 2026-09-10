@@ -36,7 +36,7 @@ export function bindLinesPanel(env = {}) {
     $wrap.on('click', '.sp-inline-refresh-lines', reroll);
     $chat.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', reroll);
 
-    const advance = stopThen(() => lines.actions.advance());
+    const advance = stopThen(() => (env.advance || (() => lines.actions.advance()))());
     $wrap.on('click', '.sp-advance-lines, .sp-inline-advance-lines', advance);
     $chat.on('click', '.sp-advance-lines, .sp-inline-advance-lines', advance);
 

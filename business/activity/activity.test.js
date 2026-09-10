@@ -4,7 +4,7 @@ import { entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry,
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { activityOverlayHtml, renderActivityList, renderPaceDetail } from './ui.js';
+import { activityOverlayHtml, activityClockLabel, renderActivityList, renderPaceDetail } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -152,6 +152,7 @@ test('activity cards keep align notes and mark a restyled floor', () => {
     assert.match(html, /体检已发生/);
     assert.match(html, /这楼重 roll 了/);
     assert.match(activityOverlayHtml(), /手动补时间戳/);
+    assert.match(activityOverlayHtml(), /sp-activity-clock/);
     assert.match(html, /拿到间里聊/);
 });
 
@@ -417,4 +418,17 @@ test('jumpToItem closes the overlay and reports missing targets', async () => {
         ['open', 'point', '体检'],
         ['toast', '这条已经不在了'],
     ]);
+});
+
+test('activity clock label prefers the latest stamp, else axis today', () => {
+    assert.equal(activityClockLabel({
+        clock: { endMeta: { month: 5, day: 1, weekdayText: '周四', time: '午时' } },
+        today: { month: 4, day: 30 },
+    }), '当前时间戳 5月1日 周四 午时');
+    assert.match(activityClockLabel({
+        clock: null,
+        today: { month: 5, day: 1 },
+        weekdayFor: () => '周四',
+    }), /这楼还没有时间戳，轴上今天是 5月1日 周四/);
+    assert.equal(activityClockLabel({}), '还没有故事日期');
 });
