@@ -1,4 +1,4 @@
-import { resolveAlmanacContextText } from './generation-context.js';
+import { resolveAlmanacContextText, sanitizeGenerationContextText } from './generation-context.js';
 
 export function memoryLibraryBlock(memText, { userName, charName, pointView } = {}) {
     if (!memText) return '';
@@ -70,4 +70,78 @@ export function assembleGenerationMessages({ system, history = [], prompt }) {
 
 export function almanacBlockForOptions(options, readAlmanac) {
     return almanacLibraryBlock(resolveAlmanacContextText(options, readAlmanac));
+}
+
+function characterOf(ctx) {
+    return ctx?.characters?.[ctx.characterId] ?? {};
+}
+
+function tagStripOptions(settings) {
+    return { keepTags: settings?.keepTags, extraTags: settings?.extraTags };
+}
+
+// 点/线/历/刻度共用的观察者消息；面聊天另走 composeCreativeChat。
+// 装配根只注入世界书/记忆/历法端口，不再自己拼 system + history。
+export function createGenerationMessagesHost(env = {}) {
+    const sanitize = env.sanitize || sanitizeGenerationContextText;
+
+    async function buildMessages(ctx, prompt, userName, charName, historyLimit = 3, opts = {}) {
+        const wiContext = await env.buildWorldInfoContext?.(ctx) || '';
+        const { personaDesc, authorNote } = readCardExtras(ctx);
+        const rawMemText = await env.getMemText?.({ full: opts.fullMemory, query: prompt }) || '';
+        const memText = sanitize(rawMemText, { reroll: opts.reroll });
+        const sys = observerSystemPrompt({
+            userName,
+            charName,
+            personaDesc,
+            character: characterOf(ctx),
+            authorNote,
+            extraBlocks: [
+                wiContext,
+                memoryLibraryBlock(memText, { userName, charName, pointView: opts.pointView }),
+                env.garnish?.() || '',
+                almanacBlockForOptions(opts, env.getAlmanacInjectText),
+                calendarLibraryBlock(env.getCalDescInjectText?.() || ''),
+            ],
+        });
+        let history = [];
+        if (historyLimit > 0) {
+            const stripOpts = tagStripOptions(env.settings?.());
+            history = env.selectVisibleHistory?.(ctx?.chat ?? [], historyLimit, {
+                excludedAssistant: opts.excludedAssistant,
+                mapMessage: message => mapVisibleHistoryMessage(message, {
+                    substituteParams: env.substituteParams,
+                    sanitize: value => sanitize(value ?? '', {
+                        reroll: opts.reroll,
+                        stripTags: text => env.stripTags?.(text, stripOpts) ?? String(text ?? ''),
+                    }),
+                }),
+            }) || [];
+        }
+        if (Array.isArray(opts.ledgerSourceFloors)) history = ledgerSourceHistory(opts.ledgerSourceFloors);
+        return assembleGenerationMessages({ system: sys, history, prompt });
+    }
+
+    async function composeCreativeChat({ target, userMsg, historySnapshot }) {
+        const ctx = env.getContext?.() || {};
+        const userName = ctx.name1 || '用户';
+        const charName = ctx.name2 || '角色';
+        const { personaDesc, authorNote } = readCardExtras(ctx);
+        const sys = env.buildCreativeChatSystemPrompt?.({
+            userName,
+            charName,
+            personaDesc,
+            authorNote,
+            outlineRaw: env.readOutline?.(target) || '',
+            wiContext: await env.buildWorldInfoContext?.(ctx) || '',
+            recentCtx: await env.buildRecentChatContext?.(ctx) || '',
+            almanacText: env.getAlmanacInjectText?.() || '',
+            calDescText: env.getCalDescInjectText?.() || '',
+            garnish: env.garnish?.() || '',
+        }) || '';
+        // 历史快照已包含刚写入的 user turn；末尾再追加一次是当前生产合同，禁止去重。
+        return [{ role: 'system', content: sys }, ...(historySnapshot || []), { role: 'user', content: userMsg }];
+    }
+
+    return { buildMessages, composeCreativeChat };
 }
