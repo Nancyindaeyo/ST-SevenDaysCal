@@ -2450,7 +2450,7 @@ inlineHost.replaceFeature(createInlineFeature({
     isStreaming: () => linesFeature.isStreaming(),
     syncTheme: () => syncVectorGlyphTheme(document, currentTheme, (getSettings().themeMode || 'auto') !== 'auto'),
     watchChatDom: !chatSurfaceOwnsDom,
-});
+}));
 if (document.querySelector('#chat')) inlineHost.init();
 const LINES_INJECT_KEY   = 'sp_lines_latent';
 function refreshLinesInjection() {
