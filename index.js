@@ -125,6 +125,7 @@ import {
     ALM_WEEKDAYS,
     weekdayAdjacentDate,
     validRealDate,
+    calRealWeekdayRef,
     almMonthDayFromDoy,
     almEndMonthDay,
     almItemCoversDoy,
@@ -958,6 +959,11 @@ bindStoryClock({
     cnToNumber: _cnToNumber,
     monthAlias: _CN_MONTH_ALIAS,
     explicitWeekdayDate: (text, cal) => weekdayAdjacentDate(text, cal == null || cal === DEFAULT_CAL || cal.kind === 'gregorian' || cal.id === 'default-gregorian'),
+    realWeekdayRef: (text, cal) => calRealWeekdayRef(text, cal),
+    storyTimeText: () => {
+        try { return String(globalThis.STBaiBaiBook?.getSnapshot?.()?.state?.time || ''); }
+        catch { return ''; }
+    },
     context: getContext,
     dayOfYear: almDayOfYear,
 });

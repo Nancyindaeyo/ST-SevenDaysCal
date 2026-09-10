@@ -11,6 +11,26 @@ export function validateCalendarDescriptor(calendar) {
     return total > 0 && total <= 2000 && (calendar.weekdayCycle == null || (Number.isInteger(Number(calendar.weekdayCycle)) && Number(calendar.weekdayCycle) > 0));
 }
 
+export function gregorianWeekdayRef(date = {}, { weekday = null, calendar = null } = {}) {
+    if (!isGregorian(calendar)) return null;
+    const parsedYear = Number(date.year);
+    const year = Number.isInteger(parsedYear) && parsedYear >= 1 && parsedYear <= 9999 ? parsedYear : null;
+    const month = Number(date.month);
+    const day = Number(date.day);
+    if (!Number.isInteger(month) || !Number.isInteger(day)) return null;
+    // 日序只用来和点/轴页对齐相位；真实闰年 day-of-year 不能拿来当 refDoy，
+    // 显示层用的是历法描述里固定的月长（公历默认 2 月 29）。
+    const refDoy = ordinalOf(calendarDate(2000, month, day), calendar);
+    if (refDoy == null) return null;
+    if (Number.isInteger(weekday) && weekday >= 0 && weekday <= 6) {
+        return { refDoy, refWd: weekday, source: 'explicit' };
+    }
+    if (year == null) return null;
+    const refWd = weekdayFor(calendarDate(year, month, day), calendar);
+    if (!Number.isInteger(refWd)) return null;
+    return { refDoy, refWd, source: 'ymd' };
+}
+
 export function weekdayFor(date, calendar = null, reference = { ordinal: 1, weekday: 1 }) {
     if (isGregorian(calendar) && Number.isInteger(date?.year)) {
         const d = new Date(0); d.setUTCHours(0, 0, 0, 0); d.setUTCFullYear(date.year, date.month - 1, date.day);

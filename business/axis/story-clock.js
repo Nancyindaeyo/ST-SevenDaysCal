@@ -1,8 +1,9 @@
 import { _cnToNumber, _CN_MONTH_ALIAS, normalizeCnDateDigits } from '../../utils/cn-date.js';
+import { gregorianWeekdayRef } from '../calendar/date.js';
 const START_RE = /<!--\s*SDC-start\s+([\s\S]*?)\s*-->/i;
 const END_RE = /<!--\s*SDC-end\s+([\s\S]*?)\s*-->/i;
 const CLOCK_NAMESPACES = Object.freeze(['SDC', 'QQJ', 'myknots']);
-let deps = { loadCalendar: () => null, validMonthDay: () => null, validRealDate: null, defaultCalendar: null, monthDayFromKey: () => null, extractDay: () => null, cnToNumber: () => 0, monthAlias: {}, explicitWeekdayDate: () => null, context: () => null };
+let deps = { loadCalendar: () => null, validMonthDay: () => null, validRealDate: null, defaultCalendar: null, monthDayFromKey: () => null, extractDay: () => null, cnToNumber: () => 0, monthAlias: {}, explicitWeekdayDate: () => null, realWeekdayRef: null, storyTimeText: null, dayOfYear: null, context: () => null };
 export function bindStoryClock(next = {}) { deps = { ...deps, ...next }; }
 const WEEKDAY_TEXT = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 const WEEKDAY_ALIASES = /(?:周|週|星期|礼拜|禮拜)\s*([一二三四五六日天])|\b(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/i;
@@ -247,6 +248,47 @@ function storyTextWithoutClockMetadata(message) {
         // 的 date/weekday 泄漏成正文显式证据。
         .replace(/<!--\s*(?:SDC|QQJ|myknots)-(?:start|end)\b[\s\S]*$/i, ' ');
 }
+function attachStoryDoy(ref, month, day, calendar) {
+    if (!ref || !Number.isInteger(ref.refWd)) return null;
+    const refDoy = deps.dayOfYear?.(month, day, calendar);
+    if (Number.isInteger(refDoy)) return { ...ref, refDoy };
+    return Number.isInteger(ref.refDoy) ? ref : null;
+}
+
+function weekdayRefFromYmdText(text, calendar) {
+    const raw = storyTextWithoutClockMetadata(text);
+    const explicit = deps.explicitWeekdayDate?.(raw, calendar);
+    if (explicit && Number.isInteger(explicit.wd)) {
+        const computed = gregorianWeekdayRef(
+            { year: explicit.year, month: explicit.month, day: explicit.day },
+            { weekday: explicit.wd, calendar },
+        );
+        return attachStoryDoy(computed || { refWd: explicit.wd, source: 'explicit' }, explicit.month, explicit.day, calendar);
+    }
+    const md = deps.monthDayFromKey?.(deps.extractDay?.(raw), calendar);
+    const injected = deps.realWeekdayRef?.(raw, calendar);
+    if (injected && Number.isInteger(injected.refWd)) {
+        return attachStoryDoy({ ...injected, source: injected.source || 'ymd' }, md?.month ?? injected.month, md?.day ?? injected.day, calendar) || injected;
+    }
+    if (!md || !Number.isInteger(md.year)) return null;
+    return attachStoryDoy(gregorianWeekdayRef({ year: md.year, month: md.month, day: md.day }, { calendar }), md.month, md.day, calendar);
+}
+
+function weekdayRefFromRecentYmd(messages, top, limit, calendar) {
+    let scanned = 0;
+    for (let i = top; i >= 0 && scanned < limit; i--) {
+        const msg = messages[i];
+        if (!msg || msg.is_system || msg.role === 'system' || !msg.mes) continue;
+        scanned++;
+        const ref = weekdayRefFromYmdText(msg.mes, calendar);
+        if (ref && Number.isInteger(ref.refWd)) return { ...ref, floor: i };
+    }
+    const timeText = deps.storyTimeText?.();
+    if (!timeText) return null;
+    const ref = weekdayRefFromYmdText(timeText, calendar);
+    return ref && Number.isInteger(ref.refWd) ? { ...ref, floor: null } : null;
+}
+
 export function storyWeekdayRef(context = deps.context?.(), calendar = deps.loadCalendar?.(), limit = 100, floor = null, currentDate = null) {
     const messages = context?.chat || []; const top = Number.isInteger(floor) ? Math.min(floor, messages.length - 1) : messages.length - 1;
     let aiFloor = null; let scanned = 0;
@@ -254,7 +296,10 @@ export function storyWeekdayRef(context = deps.context?.(), calendar = deps.load
         const msg = messages[i]; if (!msg || msg.is_user || msg.is_system || msg.role === 'system' || !msg.mes) continue;
         scanned++; aiFloor = i; break;
     }
-    if (!Number.isInteger(aiFloor)) return null;
+    if (!Number.isInteger(aiFloor)) {
+        const ymd = weekdayRefFromRecentYmd(messages, top, limit, calendar);
+        return ymd ? storyWeekdayResult(ymd.refDoy, ymd.refWd, WEEKDAY_TEXT[ymd.refWd], ymd.floor, ymd.source || 'ymd') : null;
+    }
     const clock = parseStoryClock(messages[aiFloor].mes);
     if (completeStoryClock(clock)) {
         const meta = clock.endMeta;
@@ -270,6 +315,9 @@ export function storyWeekdayRef(context = deps.context?.(), calendar = deps.load
         const refDoy = md ? deps.dayOfYear?.(md.month, md.day, calendar) : null;
         if (Number.isInteger(refDoy)) return storyWeekdayResult(refDoy, explicit.wd, WEEKDAY_TEXT[explicit.wd], aiFloor, 'explicit');
     }
+
+    const ymd = weekdayRefFromRecentYmd(messages, top, limit, calendar);
+    if (ymd) return storyWeekdayResult(ymd.refDoy, ymd.refWd, WEEKDAY_TEXT[ymd.refWd], aiFloor, ymd.source || 'ymd', ymd.floor);
 
     // 半残 SDC 只能贡献日期相位，不能贡献星期；无可用日期时再使用调用方已经
     // 确认的当前日期锚。重复 SDC 不作为日期证据，以免两份互相冲突的标签抢占。

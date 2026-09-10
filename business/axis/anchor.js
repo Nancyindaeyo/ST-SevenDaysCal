@@ -113,7 +113,8 @@ export function almDaysBetweenFull(from, to, cal = loadCalDesc()) {
     return daysBetweenCalendarDates(from, to, cal);
 }
 
-// 取「参照日→周几」锚：完整 SDC、人工校准与保守浅兜底统一在此排序；不做现实公历推算。
+// 取「参照日→周几」锚：完整 SDC、正文紧贴星期、正文/柏宝书公历年月日推算、人工校准。
+// 不用点 StartDate 的假年 2024 去 getDay()；自定义历法仍不拿现实公历硬猜。
 export function almWeekdayRef(cal = loadCalDesc()) {
     const automatic = storyWeekdayRef(getContext(), cal, 100, null, almTodayAnchorEvidence());
     const manual = env.getStoryCalibration?.();
