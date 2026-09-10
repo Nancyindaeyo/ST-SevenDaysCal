@@ -14,7 +14,7 @@ test('header entries are the 必开/头/尾 rows, not lottery types', () => {
     assert.equal(isTheaterHeaderEntry('完全随机'), false);
 });
 
-test('strip drops snow/html/js/word-count and keeps the playable premise', () => {
+test('strip drops snow/html/js and keeps the playable premise including word-count', () => {
     const snow = stripTheaterRecipe('<snow小剧场要求>\n- 每次正文结束后生成**仅一个**小剧场。\n- 禁止使用 HTML / CSS；需适合手机阅读。\n- 所有内容需包裹在 <snow> 标签中。\n格式：\n<snow>\n<details><summary>回 · 标题</summary>\n</details>\n</snow>');
     assert.equal(snow.includes('<snow>'), false);
     assert.equal(/正文结束后/.test(snow), false);
@@ -23,7 +23,7 @@ test('strip drops snow/html/js/word-count and keeps the playable premise', () =>
     assert.equal(/HTML|script/i.test(aurora), false);
     const rabbit = stripTheaterRecipe('日常的某天世界规则被改写成扇耳光决斗。\n要求：请完整描写这个故事，正文需达到6000字以上\n全文使用 HTML 与 CSS 美化排版并适配移动端。严禁低对比度配色。');
     assert.match(rabbit, /扇耳光/);
-    assert.equal(/6000/.test(rabbit), false);
+    assert.match(rabbit, /6000/);
     assert.equal(/HTML/.test(rabbit), false);
 });
 
@@ -148,12 +148,33 @@ test('write prompt freezes each face then asks for sibling theater wrappers', ()
     assert.match(messages[1].content, /棱近输出短锁/);
     assert.match(messages[1].content, /依次完成 2 个独立成品/);
     assert.equal(messages[0].content.includes('自行想'), false);
+    assert.equal(/1500/.test(messages.map(m => m.content).join('\n')), false);
+    assert.match(messages[0].content, /篇幅跟本面配方走/);
     const boxed = buildWriteMessages('这是一条很长的世界书内容', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
         boxed: true,
         recipes: [{ title: '装置', stripped: '这是一条很长的世界书内容', bookName: '极光' }],
     });
     assert.match(boxed[1].content, /只输出 1 个/);
     assert.equal(boxed[1].content.includes('这是一条很长的世界书内容'), false);
+});
+
+test('continue prompt keeps previous text and optional direction, without a plugin length cap', () => {
+    const messages = buildWriteMessages('他们出门', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
+        continueFrom: {
+            id: 'p1',
+            title: '回望',
+            raw: '他们站在门口。',
+            templateSource: { title: '回望', input: '回顾正文，写到 3000 字。' },
+        },
+    });
+    const text = messages.map(m => m.content).join('\n');
+    assert.match(text, /续写一篇已有的纯文字番外/);
+    assert.match(text, /他们站在门口/);
+    assert.match(text, /他们出门/);
+    assert.match(text, /写到 3000 字/);
+    assert.match(text, /插件不限字数/);
+    assert.equal(/1500/.test(text), false);
+    assert.equal(text.includes('不要同构续写'), false);
 });
 
 test('random pool pick uses entry content and skips headers', () => {

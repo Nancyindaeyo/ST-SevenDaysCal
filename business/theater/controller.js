@@ -13,30 +13,34 @@ export function createTheaterController({ owners, repository, generate, drawPool
         owner.userName = frozenNames.userName || '用户';
         owner.charName = frozenNames.charName || '角色';
         owner.templateSource = options.templateSource || null;
+        owner.continueFrom = options.continueFrom || null;
         owner.settings = settings?.() || {};
         const diagnostic = createGenerationDiagnosticScope('theater-generation');
         active = owner;
         try {
             owner.storyContext = await storyContext?.(owner);
             if (!valid(owner)) return { status: 'cancelled', reason: cancellationReason(owner) };
-            const boxed = String(owner.input || '').trim();
-            const drawn = options.recipes || options.headers
-                ? { recipes: options.recipes || [], headers: options.headers || [] }
-                : boxed
-                    ? {
-                        recipes: [{
-                            uid: owner.templateSource?.uid,
-                            bookName: owner.templateSource?.bookName || '',
-                            title: owner.templateSource?.title || '(手选)',
-                            stripped: stripTheaterRecipe(boxed) || boxed,
-                        }],
-                        headers: [],
-                    }
-                    : (await drawPool?.(owner.settings, owner) || { recipes: [], headers: [] });
+            const continueFrom = owner.continueFrom;
+            const boxed = !continueFrom && String(owner.input || '').trim();
+            const drawn = continueFrom
+                ? { recipes: [], headers: [] }
+                : options.recipes || options.headers
+                    ? { recipes: options.recipes || [], headers: options.headers || [] }
+                    : boxed
+                        ? {
+                            recipes: [{
+                                uid: owner.templateSource?.uid,
+                                bookName: owner.templateSource?.bookName || '',
+                                title: owner.templateSource?.title || '(手选)',
+                                stripped: stripTheaterRecipe(boxed) || boxed,
+                            }],
+                            headers: [],
+                        }
+                        : (await drawPool?.(owner.settings, owner) || { recipes: [], headers: [] });
             if (!valid(owner)) return { status: 'cancelled', reason: cancellationReason(owner) };
             owner.recipes = Array.isArray(drawn?.recipes) ? drawn.recipes : [];
             owner.headers = Array.isArray(drawn?.headers) ? drawn.headers : [];
-            const result = await generate(owner.input, { ...options, boxed: Boolean(boxed), signal: owner.controller.signal, userName: owner.userName, charName: owner.charName, storyContext: owner.storyContext, settings: owner.settings, recipes: owner.recipes, headers: owner.headers, count: boxed ? 1 : owner.settings.theaterCount, diagnosticScope: diagnostic, isCurrent: () => valid(owner), onStage: text => { if (valid(owner)) stage?.(text, owner); } });
+            const result = await generate(owner.input, { ...options, boxed: Boolean(boxed), continueFrom, signal: owner.controller.signal, userName: owner.userName, charName: owner.charName, storyContext: owner.storyContext, settings: owner.settings, recipes: owner.recipes, headers: owner.headers, count: continueFrom || boxed ? 1 : owner.settings.theaterCount, diagnosticScope: diagnostic, isCurrent: () => valid(owner), onStage: text => { if (valid(owner)) stage?.(text, owner); } });
             if (!valid(owner)) return { status: 'cancelled', reason: cancellationReason(owner) };
             const pieces = Array.isArray(result?.pieces) && result.pieces.length ? result.pieces : (result ? [result] : []);
             if (!pieces.length) { const emptyError = diagnostic.rejected(makeDiagnosticError('empty-output', { phase: 'parse' }), { phase: 'parse', reasonCode: 'theater-empty-draft' }); error?.(emptyError, owner); return { status: 'failed', reason: 'empty', error: emptyError }; }

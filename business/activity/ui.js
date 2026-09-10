@@ -78,7 +78,7 @@ function itemListHtml(entry) {
     return '<p class="sp-cfg-hint">没有条目变化</p>';
 }
 
-function cardButtons(entry, entries, { compact = false } = {}) {
+function cardButtons(entry, entries) {
     const button = (cls, label) => `<button type="button" class="sp-btn ${cls}" data-id="${escape(entry.id)}">${label}</button>`;
     const undo = entry.undone
         ? '<span class="sp-activity-undone">已撤回</span>'
@@ -86,10 +86,11 @@ function cardButtons(entry, entries, { compact = false } = {}) {
             ? button('sp-activity-undo', '撤回')
             : '';
     const retry = isAlignEntry(entry) ? button('sp-activity-retry', '重试') : '';
-    const quote = !compact && (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
+    const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
     const jumpPoint = entryTouchesPoint(entry) ? button('sp-activity-open-point', '去点里看') : '';
     const jumpLines = entryTouchesLines(entry) ? button('sp-activity-open-lines', '去线里看') : '';
-    return `${undo}${retry}${quote}${jumpPoint}${jumpLines}`;
+    const actions = `${undo}${retry}${quote}${jumpPoint}${jumpLines}`;
+    return actions ? `<div class="sp-activity-card-actions">${actions}</div>` : '';
 }
 
 function cardMeta(entry) {
@@ -97,26 +98,34 @@ function cardMeta(entry) {
     return extra ? `<span class="sp-activity-cause">${escape(extra)}</span>` : '';
 }
 
+function roundStatus(entry) {
+    if (entry.undone) return '已撤回';
+    if (entry.outcome === 'failed') return '失败';
+    if (entry.outcome === 'unchanged') return '没有变化';
+    if (entry.stale) return '这楼重 roll 了';
+    const count = (entry.items || []).length;
+    return count ? `改了 ${count} 条` : '已对齐';
+}
+
 export function renderAlignRounds(entries = []) {
     const rounds = alignRounds(entries);
     if (!rounds.length) {
-        return `<div class="sp-align-rounds is-empty"><p>还没有对齐记录。倒计时到了会跑，结果出现在这里。</p></div>`;
+        return `<div class="sp-align-rounds is-empty"><p>还没有对齐记录。倒计时到了会跑，详情写在下面。</p></div>`;
     }
     return `<div class="sp-align-rounds">
         <p class="sp-align-rounds-title">最近 ${rounds.length} 次对齐</p>
         <ol class="sp-align-round-list">${rounds.map(entry => {
-            const stale = entry.stale && !entry.undone ? '<p class="sp-activity-stale">这楼重 roll 了</p>' : '';
-            const note = entry.note ? `<p class="sp-activity-note">${escape(entry.note)}</p>` : '';
+            const retry = isAlignEntry(entry)
+                ? `<button type="button" class="sp-btn sp-activity-retry" data-id="${escape(entry.id)}">重试</button>`
+                : '';
             return `<li class="sp-align-round${entry.undone ? ' is-undone' : ''}${entry.outcome === 'failed' ? ' is-failed' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}" data-id="${escape(entry.id)}">
-                <div class="sp-activity-card-head">
+                <div class="sp-align-round-main">
                     <b>${escape(sourceLabel(entry.source))}</b>
                     ${cardMeta(entry)}
                     <time>${escape(timeLabel(entry.ts))}</time>
-                    ${cardButtons(entry, entries, { compact: true })}
+                    <span class="sp-align-round-status">${escape(roundStatus(entry))}</span>
                 </div>
-                ${stale}
-                ${note}
-                ${itemListHtml(entry)}
+                ${retry}
             </li>`;
         }).join('')}</ol>
     </div>`;
@@ -134,9 +143,11 @@ export function renderActivityList(entries = []) {
         const failed = entry.outcome === 'failed' && !entry.undone;
         return `<li class="sp-activity-card${entry.undone ? ' is-undone' : ''}${entry.stale && !entry.undone ? ' is-stale' : ''}${failed ? ' is-failed' : ''}${entry.outcome === 'unchanged' ? ' is-quiet' : ''}" data-id="${escape(entry.id)}">
             <div class="sp-activity-card-head">
-                <b>${escape(sourceLabel(entry.source))}</b>
-                ${cardMeta(entry)}
-                <time>${escape(timeLabel(entry.ts))}</time>
+                <div class="sp-activity-card-meta">
+                    <b>${escape(sourceLabel(entry.source))}</b>
+                    ${cardMeta(entry)}
+                    <time>${escape(timeLabel(entry.ts))}</time>
+                </div>
                 ${cardButtons(entry, entries)}
             </div>
             ${stale}

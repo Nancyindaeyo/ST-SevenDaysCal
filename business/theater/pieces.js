@@ -1,5 +1,4 @@
 import { theaterId } from './schema.js';
-import { THEATER_TARGET_CHARS } from './constants.js';
 
 const FACE_BLOCK = /<theater\b([^>]*)>([\s\S]*?)<\/theater>/gi;
 const OPEN_FACE = /<theater\b([^>]*)>([\s\S]+)$/i;
@@ -127,5 +126,5 @@ export function parseTheaterPieces(raw, { makeId = theaterId, request = '', temp
 
 export function theaterTargetHint(count) {
     const n = Math.max(1, Math.min(3, Math.floor(Number(count) || 2)));
-    return `共 ${n} 条，每条约 ${THEATER_TARGET_CHARS} 字`;
+    return `共 ${n} 条，篇幅跟模板走`;
 }

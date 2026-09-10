@@ -12,7 +12,6 @@ export function panelMarkup({
     escapeHtml,
     storyClockStatusCopy,
     storyClockController,
-    THEATER_TARGET_CHARS,
     THEATER_COUNT_DEFAULT,
     THEATER_EXPORT_BOOK,
     linesFeature,
@@ -412,7 +411,7 @@ export function panelMarkup({
                                         <p class="sp-cfg-hint">只换<strong>语气 / 行文 / 人格色彩</strong>；「间仍是创作顾问、不推进剧情、不扮演故事角色」这条内核<strong>恒定保留</strong>（写得再放飞它也不会跑去演戏）。<b>只作用于「间」</b>，不影响面·和间聊聊。支持 <code>{{char}}</code> / <code>{{user}}</code>。</p>
                                     </details>
                                     <details id="sp-theater-section" class="sp-settings-subsection sp-prompt-theater-write"><summary>棱 · 写作与抽取世界书</summary>
-                                        <p class="sp-cfg-hint">棱固定输出纯文字番外，不再做 HTML 美化。一次 1～3 条，每条约 ${THEATER_TARGET_CHARS} 字。抽取用世界书也可以在棱页顶部勾选。挂载的书只给棱抽签读，不要绑到角色卡。</p>
+                                        <p class="sp-cfg-hint">棱固定输出纯文字番外，不再做 HTML 美化。一次 1～3 条，篇幅跟模板走，插件不再限字数。当前篇可续写。抽取用世界书也可以在棱页顶部勾选。挂载的书只给棱抽签读，不要绑到角色卡。</p>
                                         <label class="sp-mode-opt"><span>一次数量</span><input id="sp-theater-count" class="sp-input sp-interval-input" type="number" min="1" max="3" value="${escapeAttr(String(getSettings().theaterCount || THEATER_COUNT_DEFAULT))}"><span>条（上限 3）</span></label>
                                         <label class="sp-cfg-label">写作提示词（文风 + 范文）</label>
                                         <textarea id="sp-theater-style" class="sp-input sp-theater-cfg-textarea" placeholder="指定文体基调、节奏、感官描写要求，禁套路化开头结尾；也可直接贴 1-2 段你认可的文笔让 AI 模仿其笔触…"></textarea>

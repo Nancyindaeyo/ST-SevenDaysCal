@@ -1,4 +1,4 @@
-import { THEATER_COUNT_DEFAULT, THEATER_TARGET_CHARS } from './constants.js';
+import { THEATER_COUNT_DEFAULT } from './constants.js';
 import { normalizeTheaterCount } from './recipe.js';
 
 function faceOrder(count) {
@@ -30,7 +30,7 @@ function outputProtocol(count) {
         `- ${count} 个标题必须互不相同；据本面实际内容命名，不用母本名或分类名代替。`,
         `- 禁止把多面塞进同一个 <theater>；每面只执行同编号计划，不得交换编号、合并或复制另一面。`,
         `- 只写纯文字。禁止 HTML、CSS、JavaScript、<style>、<script>、<snow>、<toto>、<details>、代码块和解释。`,
-        `- 每条约 ${THEATER_TARGET_CHARS} 字，问卷按题量写完即可。若长度紧张，精简次要描写，但仍须输出恰好 ${count} 面并全部闭合。`,
+        `- 篇幅跟本面配方走：配方写了字数就按配方写够；没写就写到这一面完整收束即可。不要为了凑字注水，也不要因为紧张提前收束。问卷按题量写完。仍须输出恰好 ${count} 面并全部闭合。`,
         `- 只有第 ${count} 面的 </theater> 完整闭合后才结束；中间各面闭合后立即继续下一面，不得追加面外说明。`,
     ].join('\n');
 }
@@ -51,7 +51,46 @@ function executionLock(recipes, count, boxed) {
     ].join('\n');
 }
 
+export function buildContinueMessages(userInput, story = null, settings = {}, extras = {}) {
+    const context = story || { sysBlocks: [], userName: '用户', charName: '角色' };
+    const source = extras.continueFrom || {};
+    const direction = String(userInput || '').trim();
+    const recipe = source.templateSource?.input
+        ? `【原配方（只锁体裁与口吻，不要重写前文）】\n${String(source.templateSource.input)}`
+        : '';
+    const sysParts = [
+        `你是一位小说家，正在为 ${context.userName} 与 ${context.charName} 的故事续写一篇已有的纯文字番外。这不是新开一篇，也不是重写前文。`,
+        settings.theaterStylePrompt ? String(settings.theaterStylePrompt).trim() : '',
+        ...(Array.isArray(context.sysBlocks) ? context.sysBlocks : []),
+        recipe,
+        [
+            '棱续写输出【本轮必需】:',
+            '- 只输出 1 个完整闭合的 <theater data-face="1">。开标签后先写一行【短标题】，再写纯文字正文，然后 </theater>。',
+            '- 标题据续写内容命名，可在原标题上加续，不要原样照抄。',
+            '- 只写纯文字。禁止 HTML、CSS、JavaScript、<style>、<script>、<snow>、<toto>、<details>、代码块和解释。',
+            '- 从前文结束处接着写。不要复述、改写或摘要已经写过的段落。',
+            '- 保持体裁、人称、口吻和人物关系。',
+            '- 篇幅跟原配方走；配方没写篇幅就写到这一段完整收束即可。插件不限字数。',
+            '- 只有 </theater> 完整闭合后才结束，不得追加面外说明。',
+        ].join('\n'),
+    ].filter(Boolean);
+    const userParts = [
+        `【已完成的前文】\n标题：${source.title || '(未命名)'}\n\n${String(source.raw || '').trim()}`,
+        direction ? `【作者希望接下来看到】\n${direction}` : '作者没有额外方向：顺着前文自然往下写。',
+        [
+            '<棱近输出短锁>',
+            '本轮只输出 1 个完整闭合的 <theater data-face="1">；这是续写，不是新开一篇。',
+            '不要复述前文，不要另抽配方。',
+            '具象的感官与动作，避免概括与套路化开头结尾。',
+            '</棱近输出短锁>',
+        ].join('\n'),
+        '现在直接输出完整 <theater data-face="1">...</theater>。不要解释。',
+    ];
+    return [{ role: 'system', content: sysParts.join('\n\n') }, { role: 'user', content: userParts.join('\n\n') }];
+}
+
 export function buildWriteMessages(userInput, story = null, settings = {}, extras = {}) {
+    if (extras.continueFrom) return buildContinueMessages(userInput, story, settings, extras);
     const context = story || { sysBlocks: [], userName: '用户', charName: '角色' };
     const recipes = Array.isArray(extras.recipes) ? extras.recipes : [];
     const headers = Array.isArray(extras.headers) ? extras.headers : [];

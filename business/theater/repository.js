@@ -33,6 +33,9 @@ export function createTheaterRepository({ storage, metadata, persist, keyForChat
         if (copy.templateSource?.input && String(copy.templateSource.input).length > max) {
             copy.templateSource = { ...copy.templateSource, input: String(copy.templateSource.input).slice(0, max) };
         }
+        if (copy.continueSource?.raw && String(copy.continueSource.raw).length > max) {
+            copy.continueSource = { ...copy.continueSource, raw: String(copy.continueSource.raw).slice(0, max) };
+        }
         return copy;
     };
     const readDrafts = chatId => {

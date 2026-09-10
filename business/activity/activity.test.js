@@ -244,6 +244,9 @@ test('unchanged and failed aligns are recorded without undo snapshots', () => {
     assert.match(html, /重 roll 后按新正文补/);
     assert.doesNotMatch(html, />撤回</);
     assert.match(renderAlignRounds([failed, unchanged]), /最近 2 次对齐/);
+    assert.match(renderAlignRounds([failed, unchanged]), /失败/);
+    assert.match(renderAlignRounds([failed, unchanged]), /没有变化/);
+    assert.doesNotMatch(renderAlignRounds([failed, unchanged]), /完成并删除|去点里看/);
     assert.equal(entryTouchesPoint(failed), true);
 });
 

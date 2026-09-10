@@ -17,7 +17,6 @@ test('panel markup keeps the shells settings bind to', () => {
         escapeHtml: value => String(value ?? ''),
         storyClockStatusCopy: () => '时间戳正常',
         storyClockController: { refresh: () => ({}) },
-        THEATER_TARGET_CHARS: 800,
         THEATER_COUNT_DEFAULT: 2,
         THEATER_EXPORT_BOOK: '构画-棱-导出',
         linesFeature: { dashed: { normalizeKeepCount: value => Number(value) || 15 } },

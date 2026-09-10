@@ -2,6 +2,7 @@ import { renderTheaterPieceHtml } from './render.js';
 import { buildTheaterSnapshot } from './snapshot.js';
 import { selectTheaterView, theaterPieceOpen } from './view.js';
 import { classifyGenerationError } from '../../api/diagnostics.js';
+import { resolveTheaterContinueSource } from './identity.js';
 
 // 棱 UI 只编排注入的宿主能力；它不读取 SillyTavern 全局对象，也不拥有生成状态。
 export function createTheaterUi({ repository, templates, resolveRegen, draftCap = 10, exporter, feature, host = {}, pickPoolEntry } = {}) {
@@ -19,7 +20,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const currentChat = () => host.getChatId?.() ?? '';
     const isCurrent = target => target?.isCurrent ? target.isCurrent() : true;
     const body = html => host.setBody?.(html);
-    const renderCard = piece => `<div class="sp-theater-card" data-id="${attr(piece.id)}"><div class="sp-theater-card-head"><span class="sp-theater-card-title">${esc(piece.title || '(未命名)')}</span><span class="sp-theater-card-time">${esc(piece.ts ? new Date(piece.ts).toLocaleString('zh-CN', { hour12: false }) : '')}</span></div><div class="sp-theater-card-actions"><label class="sp-theater-like"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="draft"${piece.liked ? ' checked' : ''}><span>喜欢</span></label><button class="sp-theater-view" data-id="${attr(piece.id)}">查看</button><button class="sp-theater-collect" data-id="${attr(piece.id)}">收藏</button><button class="sp-theater-del-draft" data-id="${attr(piece.id)}">删除</button></div></div>`;
+    const renderCard = piece => `<div class="sp-theater-card" data-id="${attr(piece.id)}"><div class="sp-theater-card-head"><span class="sp-theater-card-title">${esc(piece.title || '(未命名)')}</span><span class="sp-theater-card-time">${esc(piece.ts ? new Date(piece.ts).toLocaleString('zh-CN', { hour12: false }) : '')}</span></div><div class="sp-theater-card-actions"><label class="sp-theater-like"><input type="checkbox" class="sp-theater-like-cb" data-id="${attr(piece.id)}" data-layer="draft"${piece.liked ? ' checked' : ''}><span>喜欢</span></label><button class="sp-theater-view" data-id="${attr(piece.id)}">查看</button><button class="sp-theater-continue" data-id="${attr(piece.id)}">续写</button><button class="sp-theater-collect" data-id="${attr(piece.id)}">收藏</button><button class="sp-theater-del-draft" data-id="${attr(piece.id)}">删除</button></div></div>`;
     const renderTemplateButtons = templates => templates.length ? templates.map(t => `<button type="button" class="sp-theater-tpl-pick" data-uid="${attr(t.uid)}">${esc(t.title)}</button>`).join('') : '<div class="sp-theater-list-empty">暂无模板，可在设置 · 棱里新增</div>';
     const renderPoolRows = (names, selected, query) => {
         if (!names.length) return '<div class="sp-theater-list-empty">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选，不要绑到角色卡。</div>';
@@ -93,7 +94,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         const likedCount = drafts.filter(item => item.liked).length;
         const result = batch.length ? `<div class="sp-theater-batch">${batch.map(item => renderPieceCard(item, theaterPieceOpen(item, piece))).join('')}</div>` : '<div class="sp-empty sp-theater-result-empty"><i class="fa-solid fa-masks-theater"></i><p>可留空抽 1～3 条。随机模板会从勾选世界书抽一条内容填进框；框里有字时只写这一条。</p></div>';
         const source = piece?.templateSource?.input ? `<div class="sp-theater-source-wrap"><button type="button" class="sp-theater-source-toggle" aria-expanded="false" title="查看本次实际使用内容"><i class="fa-solid fa-file-lines"></i><span>配方 · ${esc(piece.templateSource.title || '(无标题)')}</span><i class="fa-solid fa-chevron-down sp-theater-source-chevron"></i></button><div id="sp-theater-source-detail" class="sp-theater-source-detail" style="display:none"><div class="sp-theater-source-caption">本次实际使用内容</div><pre>${esc(piece.templateSource.input)}</pre></div></div>` : '';
-        const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">收藏</button></div>` : '';
+        const op = piece ? `<div class="sp-theater-opbar"><button class="sp-btn sp-theater-regen">重新生成</button><button class="sp-btn sp-theater-continue" data-id="${attr(piece.id)}">续写</button><input type="text" id="sp-theater-title" class="sp-input" placeholder="标题（可选）" value="${attr(piece.title || '')}"><button class="sp-btn sp-btn-primary sp-theater-save">收藏</button></div>` : '';
         const exportBar = `<div class="sp-theater-export-row"><span class="sp-cfg-hint">已喜欢 ${likedCount} 条</span><button type="button" class="sp-btn sp-theater-export"${likedCount ? '' : ' disabled'}>导出已选为新世界书</button></div>`;
         const resultBlock = piece ? `<div class="sp-theater-result-wrap"><button class="sp-theater-fullscreen-btn" type="button" title="全屏浏览小剧场"><i class="fa-solid fa-expand"></i></button><button class="sp-theater-fold-toggle" type="button" style="display:none"><i class="fa-solid fa-chevron-down"></i><span class="sp-theater-fold-label">展开全文</span></button><div class="sp-theater-result sp-theater-result-collapsible" id="sp-theater-result">${result}</div></div>` : `<div class="sp-theater-result" id="sp-theater-result">${result}</div>`;
         const selectedBooks = new Set(host.getPoolBooks?.() || []);
@@ -124,16 +125,19 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
         root.on('click.sp-theater-ui', '#sp-theater-tpl-import', () => host.triggerFileInput?.());
         root.on('change.sp-theater-ui', '#sp-theater-tpl-import-file', async function () { const file = this.files?.[0]; this.value = ''; if (!file) return; try { const items = templates.parse(await file.text()); if (!items.length) return host.toast?.('未解析到模板，请检查 txt 格式（需 title：起头）', null, true); const count = await templates.addBatch(items); await refreshTemplates(); host.toast?.(`已导入 ${count} 条模板`); } catch (error) { host.toast?.('导入失败：' + (error?.message || error), null, true); } });
     };
-    const generate = async input => {
+    const generate = async (input, options = {}) => {
         const inputSnapshot = String(input || '').trim();
         const requestSeq = ++state.generationSeq;
         const requestChatId = currentChat();
+        const continueFrom = options.continueFrom || null;
         state.retry = null;
         state.abortPending = false;
-        const selectedSource = state.source ? { ...state.source } : null;
-        const requestSource = selectedSource ? { ...selectedSource, input: inputSnapshot || selectedSource.input } : null;
-        body(host.loading?.('正在折射', 'sp-abort-theater') || '');
-        const result = await feature.generate(inputSnapshot, { templateSource: requestSource });
+        const selectedSource = continueFrom ? null : (state.source ? { ...state.source } : null);
+        const requestSource = continueFrom
+            ? (continueFrom.templateSource || null)
+            : (selectedSource ? { ...selectedSource, input: inputSnapshot || selectedSource.input } : null);
+        body(host.loading?.(continueFrom ? '正在续写' : '正在折射', 'sp-abort-theater') || '');
+        const result = await feature.generate(inputSnapshot, { templateSource: requestSource, continueFrom });
         // A cancelled request may settle after a new owner starts. Only the latest
         // UI request may restore/render; otherwise A would overwrite B's loading UI.
         if (requestSeq !== state.generationSeq) return result;
@@ -142,18 +146,18 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             if (currentChat() !== requestChatId) return result;
             state.current = result.piece || state.current;
             state.batchId = result.piece?.batchId || result.pieces?.[0]?.batchId || '';
-            state.solo = false;
+            state.solo = Boolean(continueFrom);
             if (state.source?.uid === selectedSource?.uid && state.source?.input === selectedSource?.input) state.source = null;
             if (host.isOpen?.()) {
                 render();
                 if (result.persistFailed) host.toast?.('棱已生成。本机草稿未写入，先看上面的正文；刷新前请先收藏到坐标', null, true);
-                else if (host.notifyEnabled?.()) host.toast?.(result.pieces?.length > 1 ? `棱已生成 ${result.pieces.length} 条` : '棱已生成');
+                else if (host.notifyEnabled?.()) host.toast?.(continueFrom ? '已续写' : (result.pieces?.length > 1 ? `棱已生成 ${result.pieces.length} 条` : '棱已生成'));
             }
             else host.closedSuccess?.(result.pieces?.length || 1);
         } else if (result?.status === 'failed') {
             if (currentChat() !== requestChatId) return result;
             const retryable = classifyGenerationError(result.error) !== 'config-missing';
-            state.retry = retryable ? { chatId: requestChatId, input: inputSnapshot, templateSource: requestSource } : null;
+            state.retry = retryable ? { chatId: requestChatId, input: inputSnapshot, templateSource: requestSource, continueFrom } : null;
             state.source = null;
             if (host.isOpen?.()) host.showError?.(result.error, { retryable }); else host.closedFailure?.();
         } else if (result?.status === 'cancelled' || result?.status === 'stale') {
@@ -162,6 +166,38 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             if (result?.reason === 'aborted' && currentChat() === requestChatId && host.isOpen?.()) render();
         }
         return result;
+    };
+    const continueSourceOf = piece => resolveTheaterContinueSource(piece, findPiece);
+    const askContinue = async piece => {
+        if (!piece || feature.busy) return;
+        const source = continueSourceOf(piece);
+        if (!source) return host.toast?.('这篇没有可续的正文', null, true);
+        if (!host.promptTextarea) return host.toast?.('续写对话框还没就绪', null, true);
+        const value = await host.promptTextarea({
+            title: '续写这篇小剧场',
+            body: '可留空。AI 会接着这篇往下写，不会重写前文。',
+            placeholder: '接下来想看什么（可选）',
+            confirmText: '开始续写',
+            cancelText: '取消',
+            rows: 4,
+            maxLength: 2000,
+        });
+        if (value == null) return;
+        return generate(String(value).trim(), { continueFrom: source });
+    };
+    const parentForRegen = piece => {
+        if (!piece?.continuedFrom && !piece?.continueSource) return null;
+        const live = piece.continuedFrom ? findPiece(piece.continuedFrom) : null;
+        if (live) return continueSourceOf(live);
+        if (piece.continueSource?.raw) {
+            return {
+                id: String(piece.continuedFrom || ''),
+                title: String(piece.continueSource.title || ''),
+                raw: String(piece.continueSource.raw || ''),
+                templateSource: piece.continueSource.templateSource || piece.templateSource,
+            };
+        }
+        return null;
     };
     const abortCurrent = () => {
         if (state.abortPending || !feature.busy) return false;
@@ -174,7 +210,11 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
     const retry = () => {
         const capsule = state.retry;
         if (!capsule || feature.busy || currentChat() !== capsule.chatId) return false;
-        state.source = capsule.templateSource ? { ...capsule.templateSource } : null;
+        state.source = capsule.continueFrom ? null : (capsule.templateSource ? { ...capsule.templateSource } : null);
+        if (capsule.continueFrom) {
+            void generate(capsule.input, { continueFrom: capsule.continueFrom });
+            return true;
+        }
         host.val?.('#sp-theater-input', capsule.input);
         void generate(capsule.input);
         return true;
@@ -238,6 +278,11 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             else if (result?.conflict && isCurrent(target)) host.toast?.('草稿已变化，请重新确认', null, true);
         });
         root.on('click.sp-theater-ui', '.sp-theater-collect', async function () { const piece = findPiece(dataOf(this, 'id')); if (piece) await collectPiece(piece); });
+        root.on('click.sp-theater-ui', '.sp-theater-continue', function () {
+            if (feature.busy) return;
+            const piece = findPiece(dataOf(this, 'id')) || state.current;
+            void askContinue(piece);
+        });
         root.on('click.sp-theater-ui', '.sp-theater-save', async function () {
             if (!state.current) return;
             const target = host.captureTarget?.(currentChat());
@@ -253,7 +298,18 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             await collectPiece(piece);
         });
         // resolveTheaterRegen(state.current, textarea) is supplied by the feature boundary.
-        root.on('click.sp-theater-ui', '.sp-theater-regen', function () { if (feature.busy || !state.current) return; const regen = resolveRegen(state.current, host.val?.('#sp-theater-input') || ''); state.source = regen.templateSource; host.val?.('#sp-theater-input', regen.input); generate(regen.input); });
+        root.on('click.sp-theater-ui', '.sp-theater-regen', function () {
+            if (feature.busy || !state.current) return;
+            const parent = parentForRegen(state.current);
+            if (parent) {
+                void generate(state.current.request || '', { continueFrom: parent });
+                return;
+            }
+            const regen = resolveRegen(state.current, host.val?.('#sp-theater-input') || '');
+            state.source = regen.templateSource;
+            host.val?.('#sp-theater-input', regen.input);
+            generate(regen.input);
+        });
         root.on('change.sp-theater-ui', '.sp-theater-like-cb', function () {
             const id = dataOf(this, 'id'); const liked = !!this.checked;
             const target = host.captureTarget?.(currentChat());

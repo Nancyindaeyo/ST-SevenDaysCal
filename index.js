@@ -9,7 +9,7 @@ import {
 } from './state.js';
 import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
-import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK, THEATER_TARGET_CHARS } from './business/theater/constants.js';
+import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK } from './business/theater/constants.js';
 import { refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
@@ -440,7 +440,7 @@ function createTheaterHostFeature() {
         onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
         stage: text => { if (theaterMode) setTheaterBody(loadingHtml(`正在${text}`, 'sp-abort-theater')); }, renderAiMessageHtml,
         downloadJson: downloadJsonFile,
-        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); }, snapshotContext: () => { const ctx = getContext() || {}; const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return { chatId: ctx.chatId ?? null, chatIdHash: ctx.chatMetadata?.chat_id_hash ?? null, chatName: el?.value || el?.textContent?.trim() || ctx.chatId || '当前聊天', charName: ctx.name2 || '角色' }; }, saveSnapshot: item => { const coordinate = getCoordinateRuntime(); if (!coordinate?.feature?.saveFromTheater) throw new Error('坐标还没就绪'); return coordinate.feature.saveFromTheater(item); } }),
+        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, promptTextarea: options => customDialog.promptTextarea(options), scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); }, snapshotContext: () => { const ctx = getContext() || {}; const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return { chatId: ctx.chatId ?? null, chatIdHash: ctx.chatMetadata?.chat_id_hash ?? null, chatName: el?.value || el?.textContent?.trim() || ctx.chatId || '当前聊天', charName: ctx.name2 || '角色' }; }, saveSnapshot: item => { const coordinate = getCoordinateRuntime(); if (!coordinate?.feature?.saveFromTheater) throw new Error('坐标还没就绪'); return coordinate.feature.saveFromTheater(item); } }),
     });
     return runtime.feature;
 }
@@ -2924,7 +2924,7 @@ function injectModal() {
         refreshFoldHtml, beatFoldHtml, activityFeature,
         getSettings, hasCustomApi, cfg, escapeAttr, escapeHtml,
         storyClockStatusCopy, storyClockController,
-        THEATER_TARGET_CHARS, THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK,
+        THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK,
         linesFeature, paceStripHtml, collectPaceRows, readPaceSnapshot,
         getAlmanacJudgeInterval, getLedgerReconcileInterval, getLinesMode, getLinesInterval,
         outlineFeature,

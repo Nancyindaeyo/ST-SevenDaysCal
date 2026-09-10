@@ -21,6 +21,15 @@ export function normalizeTheaterPiece(piece) {
         copy.formSeed = String(copy.formSeed || '').trim();
         copy.themeName = String(copy.themeName || '').trim();
         copy.themeSeed = String(copy.themeSeed || '').trim();
+        if (copy.continuedFrom) copy.continuedFrom = String(copy.continuedFrom);
+        else delete copy.continuedFrom;
+        if (copy.continueSource && typeof copy.continueSource === 'object') {
+            copy.continueSource = {
+                title: String(copy.continueSource.title || ''),
+                raw: String(copy.continueSource.raw || ''),
+                ...(copy.continueSource.templateSource ? { templateSource: copy.continueSource.templateSource } : {}),
+            };
+        } else delete copy.continueSource;
         return copy;
 }
 

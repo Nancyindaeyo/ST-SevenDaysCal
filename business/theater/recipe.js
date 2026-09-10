@@ -2,7 +2,6 @@
 
 const HEADER_COMMENT = /必开|使用必开|^(?:开启|头|尾)$|[（(【]\s*(?:头|尾)\s*[）)】]|开启[（(]|（头）|（尾）/;
 const DROP_LINE = /(?:^|[^\S\r\n])(?:<style|<script|<\/style|<\/script|@media|@keyframes|scrollbar|onclick|oninput|addEventListener)|全文使用\s*HTML|使用 HTML\s*与\s*CSS|美化排版并适配|适配移动端|严禁低对比度|禁止使用\s*HTML|每次正文结束后|正文结束后生成|所有内容需包裹在|需包裹在\s*<snow|使用\s*<details|<snow>|<\/snow>|<toto>|<\/toto>|构画以外的主楼插入/i;
-const WORD_COUNT_CMD = /(?:正文)?(?:总)?字数[^\n]{0,12}(?:不少于|不得少于|需达到|达到|以上|下限)|不少于\s*\d{3,}\s*字|\d{3,}\s*字以上|6000\s*字|8000\s*字|10000\s*字/;
 
 export function isTheaterHeaderEntry(comment) {
     const text = String(comment || '').trim();
@@ -30,7 +29,6 @@ export function stripTheaterRecipe(content) {
         const t = line.trim();
         if (!t) return true;
         if (DROP_LINE.test(t)) return false;
-        if (WORD_COUNT_CMD.test(t)) return false;
         return true;
     });
     const text = kept.join('\n').replace(/\n{3,}/g, '\n\n').trim();
