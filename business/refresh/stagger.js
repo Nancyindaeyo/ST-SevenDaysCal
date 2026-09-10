@@ -30,6 +30,13 @@ export function createStaggerGate() {
             pendingAdvance = false;
             return true;
         },
+        deferDashed: () => { pendingDashed = true; },
+        consumeDashed: () => {
+            if (!pendingDashed) return false;
+            pendingDashed = false;
+            return true;
+        },
+        hasPendingDashed: () => pendingDashed,
         hydrate({ pendingAdvance: nextAdvance = false, pendingDashed: nextDashed = false } = {}) {
             pendingAdvance = nextAdvance === true;
             pendingDashed = nextDashed === true;

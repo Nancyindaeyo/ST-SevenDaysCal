@@ -1,12 +1,12 @@
 import { parseOutline } from './schema.js';
 import { renderActionMenu } from '../utils/action-menu.js';
 
-export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton, makeCopyButton, beginRender } = {}) {
+export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton, makeCopyButton, beginRender, emptyHtml } = {}) {
     const esc = value => escapeHtml?.(String(value ?? '')) ?? String(value ?? '');
     const clean = value => cleanText?.(value) ?? String(value ?? '');
     const empty = () => {
         beginRender?.();
-        return `<div class="sp-empty"><i class="fa-solid fa-scroll"></i><p>当前还没有面，可以先直接聊天讨论，也可以生成一版面作为起点</p><button class="sp-gen-btn sp-outline-gen-btn" id="sp-gen-outline-now">生成面</button></div>`;
+        return emptyHtml?.() || `<div class="sp-empty"><i class="fa-solid fa-scroll"></i><p>当前还没有面，可以先直接聊天讨论，也可以生成一版面作为起点</p><button class="sp-gen-btn sp-outline-gen-btn" id="sp-gen-outline-now">生成面</button></div>`;
     };
     const render = (raw, cursor = 0) => {
         beginRender?.();

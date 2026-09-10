@@ -191,6 +191,7 @@ import {
     ledgerSourceHistory,
     mapVisibleHistoryMessage,
     memoryLibraryBlock,
+    baiBaiBookGarnishBlock,
     observerSystemPrompt,
     readCardExtras,
 } from './runtime/generation-messages.js';
@@ -211,6 +212,9 @@ const TERMINAL_STAGES = TERMINAL_LINE_STAGES;
 // point 业务域已从本文件抽出到 business/point/*，此处仅按需导入（机械迁移，不改行为）。
 import { pointState } from './business/point/state.js';
 import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
+import { shiftPointCalendar } from './business/point/shift.js';
+import { createBootstrapFeature } from './business/bootstrap/feature.js';
+import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } from './business/bootstrap/ui.js';
 import { isGregorian as isGregorianCalendar } from './business/calendar/date.js';
 import { buildPrompt } from './business/point/prompt.js';
 import { bindPointRender, renderSchedule, scheduleDayCtx, scheduleDayLabel, TYPE_META } from './business/point/render.js';
@@ -235,7 +239,7 @@ import { buildLedgerSources } from './business/ledger/reconcile.js';
 import { ledgerOwnerIdentity, sameLedgerOwner } from './business/ledger/owner.js';
 import { bindLedgerCapture, createLedgerCaptureController, ledgerNarrativeMessage, ledgerFloorDateContext, ledgerAiFloorRecords, LEDGER_EVENT_TYPES, LEDGER_FIELD_SPEC } from './business/ledger/capture.js';
 import { filterRerollItems, shouldRunPendingPointFollowup } from './runtime/refactor-adapters.js';
-import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
+import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
 import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
 import { parseLines as parseCanonicalLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
@@ -274,8 +278,6 @@ import {
     dispatchStoreClearInvalidate,
     dispatchStoreClearRefreshAfter,
     dispatchStoreClearRefreshFromStore,
-    STORE_CLEAR_EMPTY_LINES_HTML,
-    STORE_CLEAR_EMPTY_SCHEDULE_HTML,
 } from './runtime/storage-clear.js';
 
 // 坐标与楼内框各自持有唯一 runtime 句柄。
@@ -1636,7 +1638,16 @@ const linesFeature = createLinesFeature({
     didReconcile: mid => refreshController.didReconcile(mid),
     deferAdvance: () => refreshController.stagger.deferAdvance(),
     consumeDeferredAdvance: () => refreshController.stagger.consumeAdvance(),
-    tryDashed: (mid, opts) => linesFeature.dashed.onAiFloor(mid, { ...opts, latestStory: cleanText(latestAiFloor(getContext().chat)?.text || '') }),
+    tryDashed: (mid, opts) => {
+        const blocked = opts?.blocked === true;
+        const owed = !blocked && refreshController.stagger.consumeDashed();
+        return linesFeature.dashed.onAiFloor(mid, {
+            ...opts,
+            blocked,
+            owed,
+            latestStory: cleanText(latestAiFloor(getContext().chat)?.text || ''),
+        });
+    },
     pluginEnabled, getSettings, getMode: getLinesMode, getInterval: getLinesInterval,
     floorSignature: _floorSig, messageText: mid => getContext().chat?.[mid]?.mes,
     chat: () => getContext().chat, lastAssistant: () => snapshotLastAssistant(getContext().chat),
@@ -1674,6 +1685,7 @@ const linesFeature = createLinesFeature({
         onActivity: entry => activityFeature.record(entry),
         logDiagnostic: diagnostic => console.warn('[SP dashed failure]', diagnostic),
         refreshPanel: () => {}, refreshInline: () => {},
+        deferDashed: () => refreshController.stagger.deferDashed(),
     },
     dashedEnabled: () => getSettings().dashedEnabled === true,
     generationEnv: {
@@ -1744,6 +1756,7 @@ const outlineFeature = createOutlineFeature({
         isOutlineMode: () => outlineMode,
         isPanelVisible: () => $(`#${MODAL_ID}`).is(':visible'),
         toast: (message, error) => showToast(message, null, error),
+        openRefresh: selected => openRefreshFor(selected),
         closedSuccess: () => showToast('面已生成，点击查看', () => {
             if (!outlineMode) $in('.sp-view-btn[data-view="outline"]').trigger('click');
             showPanel();
@@ -1751,6 +1764,43 @@ const outlineFeature = createOutlineFeature({
     },
     onActivity: entry => activityFeature.record(entry),
     logDiagnostic: diagnostic => console.warn('[SP outline failure]', diagnostic),
+    emptyOutlineHtml: () => booksEmptyHtml('outline'),
+});
+let bootstrapFeature = null;
+function bootstrapStatus(result) {
+    if (result?.status === 'updated' || result?.status === 'cancelled') return result;
+    if (result?.status === 'failed') {
+        return { status: 'failed', errorMessage: result.errorMessage || diagnosticMessage(result.error) || '生成失败', error: result.error };
+    }
+    return { status: 'failed', errorMessage: result?.reason || '没有生成' };
+}
+bootstrapFeature = createBootstrapFeature({
+    chatId: () => getContext().chatId,
+    flags: readBooksFlags,
+    runners: {
+        outline: async () => bootstrapStatus(await outlineFeature.generation.trigger({ mode: 'all', reroll: true, module: 'outline' })),
+        point: async () => {
+            if (!await memoryPreCheckConfirm()) return { status: 'cancelled' };
+            return bootstrapStatus(await pointController.runGenerate());
+        },
+        lines: async () => bootstrapStatus(await linesFeature.generate()),
+        axis: async () => bootstrapStatus(await triggerGenerateAlmanac()),
+        dashed: async () => bootstrapStatus(await linesFeature.dashed.run({
+            manual: true,
+            nearText: true,
+            latestStory: cleanText(latestAiFloor(getContext().chat)?.text || ''),
+        })),
+    },
+    abortRunners: () => {
+        abortScheduleGen();
+        abortLinesGen();
+        outlineFeature.abortAll('bootstrap-abort');
+        abortAlmanacGen();
+        linesFeature.dashed.abort('bootstrap-abort');
+    },
+    setProgress: html => paintBootstrapProgress(html),
+    toast: (message, error) => showToast(message, null, error),
+    onDone: () => paintCurrentBookAfterBootstrap(),
 });
 let spaceMode = false;
 const spaceFeature = createSpaceFeature({
@@ -1784,6 +1834,7 @@ const spaceFeature = createSpaceFeature({
         readCardExtras,
         readAlmanacText: () => getAlmanacInjectText(),
         readCalendarText: () => getCalDescInjectText(),
+        readBaiBaiGarnish: () => getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
     },
     renderEnv: {
         escapeHtml,
@@ -2327,7 +2378,7 @@ jQuery(async () => {
             $in('#sp-chat-msgs').empty();
             $in('#sp-space-msgs').empty();
             if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
-            else setBody(`<div class="sp-empty"><i class="fa-regular fa-calendar"></i><p>还没有点</p><button class="sp-gen-btn" id="sp-gen-schedule-now">生成点</button></div>`);
+            else setBody(booksEmptyHtml('point'));
         },
         scheduleAfterLoad(mig) {
             scheduleForChatBoundary(backfillLinesInlineBlocks, 300);
@@ -2670,6 +2721,7 @@ function readPaceSnapshot() {
         linesOn: settings.linesEnabled !== false,
         linesMode: getLinesMode(),
         pendingAdvance: gates.pendingAdvance,
+        pendingDashed: gates.pendingDashed,
         missingStamp: missingLatestStamp(),
         advanceUsed: gates.advance.counter,
         advanceInterval: getLinesInterval(),
@@ -2838,9 +2890,11 @@ async function fillLatestStoryClock() {
 
 // ─── 共享锚点善后 ───────────────────────────────────────────────────────────
 // 任何一处改「今天」锚点（自动判定 applyDetectedDate / 历面板 ±1天·改·恢复自动）后都走这里，统一善后：
-//   1) 刷当前渲染窗口与轴面板；2) 日期制线推进在这里检测换日。
-// 点不再随「今天」后台整表重排；时旅仍可显式调用 syncPointToToday。点/线对齐走刷新条或 ledgerReconcileEnabled。
+//   1) 格子前移：4.14 过了则 4.15 变今天，不调 API；往回拨不猜格子。
+//   2) 刷当前渲染窗口与轴面板；3) 日期制线推进在这里检测换日。
+// 时旅若已把 StartDate 钉到目标日，delta 为 0，不会再挪一次。点/线对齐仍走刷新条或 ledgerReconcileEnabled。
 function runAnchorAftermath() {
+    shiftPointsToToday();
     syncLatestAlmanacBlock();
     syncLatestScheduleBlock();
     // 星期锚属于纯显示上下文：锚到位/变化时用现有 raw 重画当前点面板，不写 store、不请求 API。
@@ -2855,7 +2909,6 @@ function runAnchorAftermath() {
     const _linesDay = almTodayAnchor();
     void linesFeature.onDateAftermath({ messageId: _linesFloorId, chatId: getContext().chatId, day: _linesDay ? `${+_linesDay.month}-${+_linesDay.day}` : null });
     if (axisState.almanacMode) renderAlmanacPanel();
-    // 点不再随「今天」后台整表重排；点/线对齐走刷新条或 ledgerReconcileEnabled。
     paintPaceSoon();
 }
 
@@ -2995,6 +3048,7 @@ function injectModal() {
         lines: linesFeature,
         generate: triggerGenerateLines,
         abort: abortLinesGen,
+        openRefresh: () => openRefreshFor(['lines']),
     });
     bindRefreshBar({
         $in,
@@ -3008,12 +3062,17 @@ function injectModal() {
     bindPointPanel({
         $, $in, $inAll, $chat: $('#chat'),
         regen: onRegenClick,
+        openRefresh: () => openRefreshFor(['point']),
         pinChar: onCharPinToggle,
         currentView: () => currentView,
         charViewName: () => charViewName,
         deleteEvent: triggerDeletePointEvent,
         abort: abortScheduleGen,
     });
+    $in('.sp-sheet').on('click', '#sp-gen-books-now', () => void bootstrapFeature.start());
+    $in('.sp-sheet').on('click', '#sp-bootstrap-retry', () => void bootstrapFeature.retry());
+    $in('.sp-sheet').on('click', '#sp-bootstrap-skip', () => void bootstrapFeature.skip());
+    $in('.sp-sheet').on('click', '#sp-bootstrap-abort', () => bootstrapFeature.abort());
     taDrawer.bindUi();
     bindAdultReveal({ $, $in, $chat: $('#chat') });
     bindManualActionMenus({
@@ -3137,7 +3196,8 @@ function injectModal() {
             outline: outlineFeature,
             space: spaceFeature,
             paintLines() {
-                if (linesRuntime.busy) linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
+                if (bootstrapFeature?.busy) linesFeature.renderBody(bootstrapFeature.progressHtml());
+                else if (linesRuntime.busy) linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
                 else {
                     const cached = loadCachedLinesForCurrentChat();
                     linesFeature.renderBody(cached || renderEmptyLinesState());
@@ -3152,7 +3212,8 @@ function injectModal() {
                 $inAll('.sp-sub-btn').removeClass('sp-view-active');
                 $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
                 updateTaTriggerLabel();
-                if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
+                if (bootstrapFeature?.busy) setBody(bootstrapFeature.progressHtml());
+                else if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
                 else if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
                 else showEmptyGenerate();
             },
@@ -3438,7 +3499,9 @@ function openSchedule() {
             return true;
         },
         paintHome() {
-            if (pointState.isGenerating) {
+            if (bootstrapFeature?.busy) {
+                setBody(bootstrapFeature.progressHtml());
+            } else if (pointState.isGenerating) {
                 setBody('<div class="sp-loading"><div class="sp-spinner"></div><p class="sp-loading-text">正在规划中…</p><button class="sp-abort-btn" id="sp-abort-generate"><i class="fa-solid fa-circle-stop"></i>中止生成</button></div>');
             } else if (pointState.cachedSchedule) {
                 setBody(pointState.cachedSchedule);
@@ -3451,14 +3514,84 @@ function openSchedule() {
 }
 
 function showEmptyGenerate() {
-    setBody(`<div class="sp-empty">
-        <i class="fa-regular fa-calendar"></i>
-        <button class="sp-gen-btn" id="sp-gen-now">生成点</button>
-    </div>`);
-    $in('#sp-gen-now').on('click', triggerGenerate);
+    setBody(booksEmptyHtml('point'));
 }
 
 function setBody(html) { $in('#sp-body').html(html); }
+
+function readBooksFlags() {
+    return {
+        hasPoint: !!readStore(getCacheKey('user', ''))?.raw,
+        hasLines: !!readStore(getLinesCacheKey())?.raw,
+        hasOutline: !!String(outlineFeature?.readRaw?.() || '').trim(),
+        hasAlmanac: (loadAlmanac() || []).length > 0,
+        dashedEnabled: getSettings().dashedEnabled === true,
+        dashedEmpty: !(linesFeature?.dashed?.read?.() || []).length,
+    };
+}
+
+function booksEmptyHtml(kind) {
+    if (bootstrapFeature?.busy) return bootstrapFeature.progressHtml();
+    if (kind === 'outline') return emptyOutlineHtml(readBooksFlags());
+    if (kind === 'lines') return emptyLinesHtml(readBooksFlags());
+    return emptyPointHtml(readBooksFlags());
+}
+
+function openRefreshFor(selected) {
+    return openRefreshFold($in('#sp-refresh-fold'), selected);
+}
+
+function paintBootstrapProgress(html) {
+    if (outlineMode) setOutlineBody(html);
+    else if (linesMode) linesFeature.renderBody(html);
+    else setBody(html);
+}
+
+function paintCurrentBookAfterBootstrap() {
+    if (outlineMode) outlineFeature.refreshPanel();
+    else if (linesMode) linesFeature.refreshPanel();
+    else if (!spaceMode && !theaterMode && !axisState.almanacMode) {
+        pointState.cachedSchedule = loadCachedForCurrentChat();
+        if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
+        else showEmptyGenerate();
+    }
+}
+
+function shiftPointsToToday() {
+    try {
+        const today = almTodayAnchor();
+        if (!today || !Number.isInteger(Number(today.month)) || !Number.isInteger(Number(today.day))) return;
+        const calendar = loadCalDesc();
+        const shiftOne = (view, charName) => {
+            const key = getCacheKey(view, charName);
+            if (!key) return false;
+            const saved = readStore(key);
+            const raw = saved?.raw || '';
+            if (!raw) return false;
+            const result = shiftPointCalendar(raw, today, calendar);
+            if (!result.changed) return false;
+            writeStore(key, { ...saved, raw: result.raw, ts: Date.now() });
+            if (view === 'user') {
+                const items = [
+                    ...result.completed.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'complete' })),
+                    ...result.lockedMoved.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'postpone' })),
+                ];
+                activityFeature.record({
+                    source: 'shift',
+                    snapshot: { point: raw },
+                    after: { point: result.raw },
+                    items,
+                    note: `格子前移 ${result.delta} 天`,
+                });
+            }
+            return true;
+        };
+        shiftOne('user', '');
+        if (currentView === 'char' && String(charViewName || '').trim()) shiftOne('char', charViewName);
+    } catch (error) {
+        console.warn('[SP shift] 换日滚点失败', error);
+    }
+}
 
 // ─── Memory pre-check helpers ─────────────────────────────────────────────────
 // Show a one-time toast when memory schema migration wiped this chat's summaries.
@@ -4091,7 +4224,13 @@ async function buildMessages(ctx, prompt, userName, charName, historyLimit = 3, 
         personaDesc,
         character: char,
         authorNote,
-        extraBlocks: [wiContext, memBlock, almanacBlock, calDescBlock],
+        extraBlocks: [
+            wiContext,
+            memBlock,
+            getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
+            almanacBlock,
+            calDescBlock,
+        ],
     });
     const allMsgs = ctx.chat ?? [];
     let history = [];
@@ -4227,6 +4366,7 @@ async function composeCreativeChatMessages({ target, userMsg, historySnapshot })
         recentCtx,
         almanacText,
         calDescText,
+        garnish: getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
     });
     // 历史快照已包含刚写入的 user turn；末尾再追加一次是当前生产合同，禁止在本轮去重。
     return [{ role: 'system', content: sys }, ...historySnapshot, { role: 'user', content: userMsg }];
@@ -4526,7 +4666,7 @@ function storeClearHost() {
         abortDashed: () => linesFeature.dashed.abort('store-clear'),
         refreshScheduleEmpty() {
             pointState.cachedSchedule = null;
-            setBody(STORE_CLEAR_EMPTY_SCHEDULE_HTML);
+            setBody(booksEmptyHtml('point'));
             syncLatestScheduleBlock();
         },
         refreshOutlineEmpty: kind => { outlineFeature.refreshAfterStoreClear(kind); syncLatestInlineBlock(); },
@@ -4549,7 +4689,7 @@ function storeClearHost() {
             const subject = currentView === 'char' ? (charViewName || getContext().name2 || '角色') : (getContext().name1 || '用户');
             pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || subject, currentView, loadCalDesc()) : null;
             if (!outlineMode && !linesMode && !spaceMode && !theaterMode && $(`#${MODAL_ID}`).is(':visible')) {
-                setBody(pointState.cachedSchedule || STORE_CLEAR_EMPTY_SCHEDULE_HTML);
+                setBody(pointState.cachedSchedule || booksEmptyHtml('point'));
             }
             syncLatestScheduleBlock();
         },
@@ -4582,7 +4722,7 @@ function refreshEditorsFromCurrentStore(kind) {
 }
 
 function renderEmptyLinesState() {
-    return STORE_CLEAR_EMPTY_LINES_HTML;
+    return booksEmptyHtml('lines');
 }
 
 async function triggerGenerateLines() {

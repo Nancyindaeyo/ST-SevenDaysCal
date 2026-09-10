@@ -56,7 +56,7 @@ const ADVISOR_TONE_GUIDE = [
     `这些规则只约束与用户讨论时的顾问口吻，不限制所创作的大纲内容；合理的强烈情绪、冲突、危机或大开大合应按剧情需要充分呈现。当用户明确要求某种表达风格时，以用户要求为准。`,
 ].join('\n');
 
-export function buildCreativeChatSystemPrompt({ userName, charName, personaDesc = '', authorNote = '', outlineRaw = '', wiContext = '', recentCtx = '', almanacText = '', calDescText = '' }) {
+export function buildCreativeChatSystemPrompt({ userName, charName, personaDesc = '', authorNote = '', outlineRaw = '', wiContext = '', recentCtx = '', almanacText = '', calDescText = '', garnish = '' }) {
     const outlineSection = outlineRaw
         ? `\n当前大纲：\n${outlineRaw}\n`
         : '\n当前还没有既定大纲，可先从灵感、剧情走向、角色关系、人物设定或世界观想法开始讨论。\n';
@@ -71,6 +71,7 @@ export function buildCreativeChatSystemPrompt({ userName, charName, personaDesc 
         personaDesc ? `【${userName} 的人物设定】\n${personaDesc}` : '',
         authorNote  ? `【作者注释（当前聊天）】\n${authorNote}` : '',
         wiContext,
+        garnish,
         almanacText ? `【本世界观·重要日期（历）】一年之中的既定节日、生日、纪念日（按月日排序）：\n${almanacText}\n讨论剧情走向或排布大纲时间线时，若临近或涉及这些日子，应自然纳入考量，使故事与该世界的历法自洽。` : '',
         calDescText ? `【本世界观·现行历法（纪年）】${calDescText}\n排布大纲时间线、给节点推演时间时，以此历法为准（月份数、每月天数、纪年名），不要默认套用公历。` : '',
         recentCtx,

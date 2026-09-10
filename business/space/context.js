@@ -160,6 +160,7 @@ export function createSpaceContext(env = {}) {
         const memText = await env.readMemory?.(ctx) || '';
         const recentCtx = await env.readRecent?.(ctx) || '';
         const { personaDesc = '', authorNote = '' } = env.readCardExtras?.(ctx) || {};
+        const garnish = env.readBaiBaiGarnish?.() || '';
         const system = buildSpaceChatSystemPrompt({
             userName,
             charName,
@@ -177,6 +178,7 @@ export function createSpaceContext(env = {}) {
             faqText,
             personaOverride: String(env.settings?.()?.spacePersona || '').trim(),
             intent,
+            garnish,
         });
         return [{ role: 'system', content: system }, ...stripWidgetsForApi(historySnapshot), { role: 'user', content: quotedSpaceMessageForApi(userMsg) }];
     };

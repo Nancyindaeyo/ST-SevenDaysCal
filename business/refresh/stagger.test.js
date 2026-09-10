@@ -30,6 +30,14 @@ test('shouldDeferAdvance keeps an owed advance', () => {
     assert.deepEqual(shouldDeferAdvance({ reconcileRan: false, wouldAdvance: true }), { advance: true, pending: false });
 });
 
+test('dashed defer is consumed on the next empty floor', () => {
+    const gate = createStaggerGate();
+    gate.deferDashed();
+    assert.equal(gate.hasPendingDashed(), true);
+    assert.equal(gate.consumeDashed(), true);
+    assert.equal(gate.consumeDashed(), false);
+});
+
 test('refresh bar reads outline mode defaulting to current', () => {
     assert.match(refreshBarHtml(), /value="current" checked/);
     const fake = {

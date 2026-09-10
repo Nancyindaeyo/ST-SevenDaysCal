@@ -213,7 +213,11 @@ export function createOutlineUi(host = {}) {
             });
             if (confirmed) controllers.chat.clear();
         });
-        $root.on('click.spOutlineFeature', '#sp-gen-outline-now, .sp-refresh-outline', () => void controllers.generation.trigger({ reroll: true, module: 'outline' }));
+        $root.on('click.spOutlineFeature', '#sp-gen-outline-now', () => void controllers.generation.trigger({ reroll: true, module: 'outline' }));
+        $root.on('click.spOutlineFeature', '.sp-refresh-outline', () => {
+            if (host.openRefresh?.(['outline'])) return;
+            void controllers.generation.trigger({ reroll: true, module: 'outline' });
+        });
         $root.on('click.spOutlineFeature', '#sp-abort-outline', () => controllers.generation.abort());
     };
     const bindControllers = value => { controllers = value; };

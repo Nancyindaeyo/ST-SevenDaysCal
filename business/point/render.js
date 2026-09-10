@@ -103,7 +103,7 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
         <span class="${chipCls}">${escapeHtml(userName)}</span>
         <span class="sp-schedule-label">的点</span>
         ${pinBtn}
-        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${axisState._almSyncingPoint ? '点正在同步中，稍候…' : '重新生成点'}"><i class="fa-solid fa-rotate-right"></i></button>
+        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${axisState._almSyncingPoint ? '点正在同步中，稍候…' : '打开刷新账本'}"><i class="fa-solid fa-rotate-right"></i></button>
     </div>` + SP_JUMP_HINT_POINT;
 
     // Parse failed (AI leaked prompt / malformed output) — still render header

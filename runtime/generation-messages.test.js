@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
     almanacLibraryBlock,
     assembleGenerationMessages,
+    baiBaiBookGarnishBlock,
     calendarLibraryBlock,
     ledgerSourceHistory,
     mapVisibleHistoryMessage,
@@ -44,6 +45,9 @@ test('history mapping and ledger floors keep generation roles', () => {
     const ledger = ledgerSourceHistory([{ floor: 3, content: '正文', sources: [{ token: 'SDC', stamp: '1-1' }] }]);
     assert.match(ledger[0].content, /楼层 3/);
     assert.equal(assembleGenerationMessages({ system: 's', history: [{ role: 'assistant', content: 'h' }], prompt: 'p' })[2].content, 'p');
+    assert.equal(baiBaiBookGarnishBlock(''), '');
+    assert.match(baiBaiBookGarnishBlock('【眼下】合宿基地'), /柏宝书当前账/);
+    assert.match(baiBaiBookGarnishBlock('【眼下】合宿基地'), /合宿基地/);
     assert.deepEqual(readCardExtras({
         substituteParams: s => `x:${s}`,
         powerUserSettings: { persona_description: 'p' },

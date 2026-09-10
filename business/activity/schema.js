@@ -9,6 +9,8 @@ export const ACTIVITY_SOURCES = Object.freeze({
     guide: '间引导',
     refresh: '手动刷新',
     dashed: '冷知识',
+    shift: '换日滚点',
+    bootstrap: '开局生成',
 });
 
 export const ACTIVITY_CAUSES = Object.freeze({

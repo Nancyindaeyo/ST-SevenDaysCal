@@ -2548,6 +2548,29 @@ select.sp-input { appearance: none; cursor: pointer; }
 }
 .sp-empty i { font-size: var(--sp-fs-200); opacity: 0.35; }
 .sp-empty p { font-size: var(--sp-fs-85); margin: 0; }
+.sp-bootstrap-steps {
+    list-style: none;
+    margin: 8px 0 0;
+    padding: 0;
+    width: min(220px, 100%);
+    font-size: var(--sp-fs-80);
+}
+.sp-bootstrap-steps li {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 2px 0;
+}
+.sp-bootstrap-steps .is-done { color: var(--sp-on-surface); }
+.sp-bootstrap-steps .is-run { color: var(--sp-on-surface); font-weight: 600; }
+.sp-bootstrap-steps .is-failed { color: #c45c5c; }
+.sp-bootstrap-steps em { font-style: normal; opacity: 0.7; }
+.sp-bootstrap-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.sp-bootstrap-empty .sp-cfg-hint,
+.sp-bootstrap-progress .sp-cfg-hint {
+    text-align: center;
+    max-width: 18em;
+}
 
 .sp-raw {
     color      : var(--sp-on-surface);

@@ -32,7 +32,8 @@ export function bindLinesPanel(env = {}) {
     $wrap.on('click', '.sp-lines-dashed-delete', function () { lines.dashed.remove($(this).attr('data-id')); });
 
     const reroll = stopThen(() => lines.actions.reroll());
-    $wrap.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', reroll);
+    $wrap.on('click', '.sp-refresh-lines', env.openRefresh || reroll);
+    $wrap.on('click', '.sp-inline-refresh-lines', reroll);
     $chat.on('click', '.sp-refresh-lines, .sp-inline-refresh-lines', reroll);
 
     const advance = stopThen(() => lines.actions.advance());

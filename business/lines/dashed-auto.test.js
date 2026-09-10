@@ -30,3 +30,15 @@ test('auto floor gate skips seen, blocked, and unfinished intervals', async () =
     assert.equal(dashed.state().lastFloor, 2);
     assert.equal(dashed.state().counter, 1);
 });
+
+test('blocked due floor defers dashed instead of drawing', async () => {
+    const { createDashedModule } = await import('./dashed.js');
+    let deferred = false;
+    const dashed = createDashedModule({
+        getSettings: () => ({ dashedEnabled: true, dashedAutoInterval: 1 }),
+        deferDashed: () => { deferred = true; },
+    });
+    assert.equal((await dashed.onAiFloor(1, { blocked: true })).reason, 'stagger');
+    assert.equal(deferred, true);
+    assert.equal(dashed.state().counter, 0);
+});

@@ -1,3 +1,5 @@
+import { emptyBooksHtml } from '../bootstrap/ui.js';
+
 export function panelMarkup({
     themeToggleTitle,
     themeToggleIcon,
@@ -627,17 +629,17 @@ export function panelMarkup({
 
                     <div class="sp-main">
                         <div class="sp-body" id="sp-body">
-                            <div class="sp-empty"><i class="fa-regular fa-calendar"></i><p>还没有点</p><button class="sp-gen-btn" id="sp-gen-schedule-now">生成点</button></div>
+                            ${emptyBooksHtml()}
                         </div>
 
                         <div class="sp-outline-wrap" id="sp-outline-wrap" style="display:none">
                             <div class="sp-schedule-header sp-outline-header">
                                 <span class="sp-outline-title">故事面</span>
                                 <span class="sp-schedule-label" id="sp-outline-node-count">0 个节点</span>
-                                <button class="sp-panel-refresh sp-refresh-outline" title="重新生成面" aria-label="重新生成面"><i class="fa-solid fa-rotate-right"></i></button>
+                                <button class="sp-panel-refresh sp-refresh-outline" title="打开刷新账本" aria-label="打开刷新账本"><i class="fa-solid fa-rotate-right"></i></button>
                             </div>
                             <div class="sp-outline-beats" id="sp-outline-beats">
-                                <div class="sp-empty"><i class="fa-solid fa-scroll"></i><p>当前还没有面，可以先直接聊天讨论，也可以生成一版面作为起点</p><button class="sp-gen-btn sp-outline-gen-btn" id="sp-gen-outline-now">生成面</button></div>
+                                ${emptyBooksHtml()}
                             </div>
                             <div class="sp-outline-divider" id="sp-outline-divider">
                                 <i class="fa-solid fa-grip-lines"></i>
@@ -655,7 +657,7 @@ export function panelMarkup({
                         <div class="sp-lines-wrap" id="sp-lines-wrap" style="display:none">
                             <div class="sp-lines-toolbar" id="sp-lines-toolbar"></div>
                             <div class="sp-lines-list" id="sp-lines-list">
-                                <div class="sp-empty"><i class="fa-solid fa-diagram-project"></i><p>还没有追踪的线，可以生成一版</p><button class="sp-gen-btn" id="sp-gen-lines-now">生成线</button></div>
+                                ${emptyBooksHtml()}
                             </div>
                         </div>
 
