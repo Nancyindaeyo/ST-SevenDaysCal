@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
+import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAdvanceEntry, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
@@ -326,6 +326,26 @@ test('unchanged and failed aligns are recorded without undo snapshots', () => {
     assert.equal(entryTouchesPoint(failed), true);
 });
 
+test('failed advance cards can be retried and the overlay has catch-up actions', () => {
+    const failed = normalizeActivityEntry({
+        source: 'advance',
+        cause: 'auto',
+        outcome: 'failed',
+        error: '请先配置 API',
+        note: '请先配置 API',
+        floorId: 12,
+    });
+    assert.equal(isAdvanceEntry(failed), true);
+    const html = renderActivityList([failed]);
+    assert.match(html, /重试/);
+    assert.match(html, /请先配置 API/);
+    assert.doesNotMatch(html, />撤回</);
+    const overlay = activityOverlayHtml();
+    assert.match(overlay, /sp-activity-readvance/);
+    assert.match(overlay, /sp-activity-catchup/);
+    assert.match(overlay, /手动推进到今天/);
+});
+
 test('only the latest align attempt can be undone', () => {
     const older = normalizeActivityEntry({
         id: 'old', source: 'align-auto', outcome: 'patched',
@@ -391,6 +411,56 @@ test('auto reroll refuses to overwrite later point edits', async () => {
     const refused = await feature.realign({ cause: 'reroll' });
     assert.equal(refused.status, 'diverged');
     assert.equal(point, 'edited');
+});
+
+test('readvance restores the last advance then calls force advance', async () => {
+    let lines = 'after';
+    const calls = [];
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readLines: () => lines,
+        writeLines: async raw => { lines = raw; },
+        query: () => ({ length: 0 }),
+        readvance: async opts => { calls.push(opts.cause); return { status: 'updated' }; },
+    });
+    feature.record({
+        source: 'advance',
+        outcome: 'patched',
+        items: [{ module: 'lines', title: '调查', action: 'advance' }],
+        snapshot: { lines: 'before' },
+        after: { lines: 'after' },
+    });
+    const retry = await feature.readvance({ cause: 'retry' });
+    assert.equal(retry.status, 'updated');
+    assert.equal(lines, 'before');
+    assert.deepEqual(calls, ['retry']);
+    assert.equal(feature.list()[0].undone, true);
+});
+
+test('catch-up advance does not restore a previous snapshot', async () => {
+    let lines = 'current';
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readLines: () => lines,
+        writeLines: async raw => { lines = raw; },
+        query: () => ({ length: 0 }),
+        toast() {},
+        catchUpAdvance: async () => ({ status: 'updated' }),
+    });
+    feature.record({
+        source: 'advance',
+        outcome: 'patched',
+        items: [{ module: 'lines', title: '调查', action: 'advance' }],
+        snapshot: { lines: 'before' },
+        after: { lines: 'after' },
+    });
+    const result = await feature.catchUpAdvance();
+    assert.equal(result.status, 'updated');
+    assert.equal(lines, 'current');
 });
 
 test('pace detail shows the latest matching round items with jumps, not card actions', () => {

@@ -3,6 +3,7 @@ import {
     actionLabel,
     canUndoActivity,
     causeLabel,
+    isAdvanceEntry,
     isAlignEntry,
     moduleLabel,
     sourceLabel,
@@ -58,6 +59,13 @@ export function activityOverlayHtml() {
             <p>这楼没打上时间戳，日期制推进先停着。补上起止时间后会按新戳再判断要不要推进。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-stamp-fill">手动补时间戳</button>
         </div>
+        <div id="sp-activity-advance" class="sp-activity-restyle" hidden>
+            <p>时间戳已经换日，但这轮自动推进没补上。可以重试自动推进；若线还停在旧日，也可以只把它们推到今天。这和线页上「缺后天再一起演化」不是同一件事。</p>
+            <div class="sp-activity-restyle-actions">
+                <button type="button" class="sp-btn sp-btn-primary sp-activity-readvance">重试自动推进</button>
+                <button type="button" class="sp-btn sp-activity-catchup">手动推进到今天</button>
+            </div>
+        </div>
         <div class="sp-settings-body" id="sp-activity-body"></div>
     </div>`;
 }
@@ -103,7 +111,7 @@ function itemListHtml(entry, { undo = false, entries = [] } = {}) {
         `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action, item.module))}</em>${jumpButton(item)}${undo ? undoItemButton(entry, item, entries) : ''}</li>`
     )).join('');
     if (items) return `<ul class="sp-activity-items">${items}</ul>`;
-    if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || '对齐失败')}</p>`;
+    if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || (isAdvanceEntry(entry) ? '推进失败' : '对齐失败'))}</p>`;
     if (entry.outcome === 'unchanged') return '<p class="sp-cfg-hint">API 跑过了，点和线都不用改</p>';
     return '<p class="sp-cfg-hint">没有条目变化</p>';
 }
@@ -115,7 +123,7 @@ function cardButtons(entry, entries) {
         : canUndoActivity(entry, entries)
             ? button('sp-activity-undo', '撤回')
             : '';
-    const retry = isAlignEntry(entry) ? button('sp-activity-retry', '重试') : '';
+    const retry = isAlignEntry(entry) || isAdvanceEntry(entry) ? button('sp-activity-retry', '重试') : '';
     const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
     const actions = `${undo}${retry}${quote}`;
     return actions ? `<div class="sp-activity-card-actions">${actions}</div>` : '';

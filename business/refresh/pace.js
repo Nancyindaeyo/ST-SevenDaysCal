@@ -22,6 +22,7 @@ export function collectPaceRows(snap = {}) {
 
     if (!snap.linesOn) push({ id: 'advance', label: '推进', text: '线关着', off: true });
     else if (snap.linesMode === 'manual') push({ id: 'advance', label: '推进', text: '只手动', off: true });
+    else if (snap.advanceFailed) push({ id: 'advance', label: '推进', text: '失败', due: true });
     else if (snap.pendingAdvance) push({ id: 'advance', label: '推进', text: '下一楼补', due: true });
     else if (snap.missingStamp) push({ id: 'advance', label: '推进', text: '缺时间戳', due: true });
     else if (snap.linesMode === 'days') push({ id: 'advance', label: '推进', text: '等日期变了' });

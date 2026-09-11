@@ -516,7 +516,7 @@ export function panelMarkup({
                                                 <label class="sp-mode-opt"><input type="radio" name="sp-lines-mode" value="manual" ${getLinesMode() === 'manual' ? 'checked' : ''}><span>只在我点「推进」时走</span></label>
                                             </div>
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-lines-advance-latest" ${getSettings().linesAdvanceIncludeLatest !== false ? 'checked' : ''}><span>手动推进时带上本楼正文</span></label>
-                                            <p class="sp-cfg-hint">推进只让还成立的未锁线往前演化，不管对错。走偏了靠上面的「按楼对齐」。对齐和推进撞上同一楼时，本楼先对齐，推进下一楼补。按楼推进不推荐和对齐叠用。</p>
+                                            <p class="sp-cfg-hint">推进只让还成立的未锁线往前演化，不管对错。走偏了靠上面的「按楼对齐」。对齐和推进撞上同一楼时，本楼先对齐，推进下一楼补。失败或日期已经换了却没推上时，【改】里可以重试自动推进，也可以只把还停在旧日的线手动推到今天——和线页上「缺后天再一起演化」不是同一件事。按楼推进不推荐和对齐叠用。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-outline-section">

@@ -28,6 +28,9 @@ test('days mode shows date wait unless an owed advance is pending', () => {
     const missing = collectPaceRows({ linesOn: true, linesMode: 'days', missingStamp: true });
     assert.equal(missing.find(row => row.id === 'advance').text, '缺时间戳');
     assert.equal(missing.find(row => row.id === 'advance').due, true);
+    const failedAdvance = collectPaceRows({ linesOn: true, linesMode: 'days', advanceFailed: true });
+    assert.equal(failedAdvance.find(row => row.id === 'advance').text, '失败');
+    assert.equal(failedAdvance.find(row => row.id === 'advance').due, true);
 });
 
 test('strip only paints live automations', () => {

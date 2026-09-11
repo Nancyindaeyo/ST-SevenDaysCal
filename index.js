@@ -232,7 +232,7 @@ import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
 import { parseLines as parseCanonicalLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
 import { buildLinesPrompt as buildCanonicalLinesPrompt } from './business/lines/prompt.js';
-import { createAdvanceStrategy, latestStampDay } from './business/lines/strategy.js';
+import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
 import { syncVectorGlyphTheme } from './business/lines/vectors/glyph.js';
 import { createOutlineFeature } from './business/outline/feature.js';
@@ -1513,6 +1513,7 @@ const activityFeature = createActivityFeature({
     },
     onPaint: () => paintPaceSoon(),
     missingLatestStamp,
+    needsAdvanceCatchup,
     fillLatestStamp: () => fillLatestStoryClock(),
     clockLabel: () => activityClockLabel({
         clock: latestStoryClock(),
@@ -1526,6 +1527,14 @@ const activityFeature = createActivityFeature({
         selected: ['point', 'lines'],
         reason: String(opts?.reason || ''),
         cause: opts?.cause || 'manual',
+    }),
+    readvance: opts => linesFeature.forceAdvance({
+        cause: opts?.cause || 'retry',
+        floorId: opts?.floorId,
+    }),
+    catchUpAdvance: opts => linesFeature.forceAdvance({
+        cause: opts?.cause || 'manual',
+        floorId: opts?.floorId,
     }),
     sendToSpace: async item => {
         if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
@@ -2631,6 +2640,7 @@ function readPaceSnapshot() {
         pendingAdvance: gates.pendingAdvance,
         pendingDashed: gates.pendingDashed,
         missingStamp: missingLatestStamp(),
+        advanceFailed: activityFeature.latestAdvanceAttempt?.()?.outcome === 'failed',
         advanceUsed: gates.advance.counter,
         advanceInterval: getLinesInterval(),
         outlineOn: settings.outlineJudgeEnabled === true,
@@ -2694,6 +2704,28 @@ function missingLatestStamp() {
     const latest = latestAiFloor(chat);
     if (!latest) return false;
     return !latestStampDay(chat, latest.index, parseStoryClockPure);
+}
+
+function needsAdvanceCatchup() {
+    if (!pluginEnabled() || getSettings().linesEnabled === false || getLinesMode() !== 'days') return false;
+    const chat = getContext()?.chat || [];
+    const latest = latestAiFloor(chat);
+    if (!latest) return false;
+    const latestDay = latestStampDay(chat, latest.index, parseStoryClockPure);
+    return advanceCatchupNeeded({
+        mode: getLinesMode(),
+        linesOn: getSettings().linesEnabled !== false,
+        missingStamp: !latestDay,
+        pendingAdvance: refreshController.stagger?.hasPendingAdvance?.() === true,
+        lastAdvanceFailed: activityFeature.latestAdvanceAttempt?.()?.outcome === 'failed',
+        latestFloorCrossed: !!latestDay && dayCrossedSincePreviousFloor({
+            chat,
+            latestIndex: latest.index,
+            latestDay,
+            parseClock: parseStoryClockPure,
+        }),
+        latestFloorAdvanced: !!activityFeature.latestAdvanceForFloor?.(latest.index),
+    });
 }
 
 async function fillLatestStoryClock() {

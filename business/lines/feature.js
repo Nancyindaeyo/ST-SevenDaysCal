@@ -163,6 +163,38 @@ export function createLinesFeature(env = {}) {
         const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">线</span><span class="sp-inline-count${view.empty ? ' sp-inline-empty' : ''}">${summaryText}</span>${controls}</summary>`;
         return `${summary}${body || dashedSub ? `<div class="sp-inline-body" data-lines-inject-text="${env.escapeAttr?.(view.injectText) || ''}">${body}${dashedSub}</div>` : ''}`;
     };
+    const advanceErrorText = result => {
+        const message = String(result?.error?.message || result?.error || '').trim();
+        if (message) return message.slice(0, 200);
+        if (result?.reason === 'busy') return '线正在生成，这次推进没跑成';
+        if (result?.reason === 'no-api') return '请先配置 API';
+        if (result?.reason === 'unavailable') return '这次推进没跑成';
+        return '线推进失败';
+    };
+    const recordAdvanceAttempt = (messageId, before, result, cause = 'auto') => {
+        if (!result || result.status === 'cancelled') return;
+        if (result.status === 'updated') {
+            env.onActivity?.({
+                source: 'advance',
+                cause,
+                floorId: messageId,
+                snapshot: { lines: before },
+                after: { lines: env.readRaw?.() || '' },
+            });
+            return;
+        }
+        if (result.status !== 'failed' && result.status !== 'skipped') return;
+        const note = advanceErrorText(result);
+        env.onActivity?.({
+            source: 'advance',
+            cause,
+            floorId: messageId,
+            outcome: 'failed',
+            error: note,
+            note,
+        });
+        if (cause === 'auto' && result.status === 'failed') env.toast?.('线自动推进失败，可在【改】里重试', true);
+    };
     const appendInlineBlock = async (messageId, shouldAdvance) => {
         const expectedChatId = env.chatId?.();
         const expectedEpoch = env.boundaryEpoch?.();
@@ -326,9 +358,7 @@ export function createLinesFeature(env = {}) {
         if (advance) lifecycle.lastAdvanceFloor = mid;
         const before = advance ? env.readRaw?.() || '' : '';
         const result = await appendInlineBlock(mid, advance);
-        if (advance && result?.status === 'updated') {
-            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
-        }
+        if (advance) recordAdvanceAttempt(mid, before, result, 'auto');
         if (!autoSuppressed && mode !== 'days') await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
     };
     const onDateAftermath = async ({ chatId = env.chatId?.(), messageId } = {}) => {
@@ -375,11 +405,21 @@ export function createLinesFeature(env = {}) {
         lifecycle.lastAdvanceFloor = mid;
         const before = env.readRaw?.() || '';
         const result = await appendInlineBlock(mid, true);
-        if (result?.status === 'updated') {
-            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
-        }
+        recordAdvanceAttempt(mid, before, result, 'auto');
         await env.tryDashed?.(mid, { blocked: true });
         return true;
+    };
+    const forceAdvance = async ({ cause = 'manual', floorId } = {}) => {
+        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return { status: 'skipped', reason: 'off' };
+        const chat = env.chat?.() || [];
+        const mid = Number.isInteger(Number(floorId)) && Number(floorId) >= 0 ? Number(floorId) : (chat.length - 1);
+        if (!Number.isInteger(mid) || mid < 0) return { status: 'skipped', reason: 'no-floor' };
+        env.consumeDeferredAdvance?.();
+        lifecycle.lastAdvanceFloor = mid;
+        const before = env.readRaw?.() || '';
+        const result = await appendInlineBlock(mid, true);
+        recordAdvanceAttempt(mid, before, result, cause);
+        return result || { status: 'skipped' };
     };
     const rerunFloorAdvance = async messageId => {
         const mid = Number(messageId);
@@ -391,9 +431,7 @@ export function createLinesFeature(env = {}) {
         }
         const before = env.readRaw?.() || '';
         const result = await appendInlineBlock(mid, true);
-        if (result?.status === 'updated') {
-            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
-        }
+        recordAdvanceAttempt(mid, before, result, 'reroll');
         return result || { status: 'skipped' };
     };
     const rerunDateFloorAdvance = async messageId => {
@@ -472,6 +510,7 @@ export function createLinesFeature(env = {}) {
         rerunSwipe,
         generate: (...args) => actions?.reroll?.(...args),
         advance: (...args) => actions?.advance?.(...args),
+        forceAdvance,
         reroll: (...args) => actions?.reroll?.(...args),
         deleteLine: (...args) => actions?.delete?.(...args),
         togglePin: (...args) => actions?.pin?.(...args),

@@ -10,7 +10,7 @@ import { createLinesInjectionController } from './injection.js';
 import { createSwipeLinesStore } from './swipe-store.js';
 import { createLinesActions } from './actions.js';
 import { mergePinned, editLineDescription, editLineFields } from './mutations.js';
-import { activeLines, buildLinesInjection, dayCrossedSincePreviousFloor, latestStampDay, previousStampDay, stampDayKey } from './strategy.js';
+import { activeLines, advanceCatchupNeeded, buildLinesInjection, dayCrossedSincePreviousFloor, latestStampDay, previousStampDay, stampDayKey } from './strategy.js';
 import { adultInjectionGuidance, adultModeForCharacter, drawAdultSelections, allocateAdultPools } from './adult.js';
 import { drawTickets } from './vectors/draw.js';
 import { serializeVectorCue } from './vectors/codec.js';
@@ -1075,7 +1075,8 @@ test('automatic line success writes recent activity and does not toast', async (
         await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
         assert.equal(harness.calls(), 1);
         assert.equal(harness.toasts.filter(value => /线已随剧情自动推进/.test(value)).length, 0, status);
-        assert.equal(harness.activities.length, status === 'updated' ? 1 : 0, status);
+        assert.equal(harness.activities.length, status === 'updated' || status === 'failed' || status === 'skipped' ? 1 : 0, status);
+        if (status === 'failed' || status === 'skipped') assert.equal(harness.activities[0].outcome, 'failed');
     }
 });
 
@@ -1096,13 +1097,24 @@ test('stamp helpers compare previous and latest floor days', () => {
     assert.equal(dayCrossedSincePreviousFloor({ chat: stampChat(['1-1', 'none']), latestIndex: 1, parseClock: stampClock }), false);
 });
 
+test('catch-up is due after a failed or deferred date advance', () => {
+    assert.equal(advanceCatchupNeeded({ mode: 'days', lastAdvanceFailed: true }), true);
+    assert.equal(advanceCatchupNeeded({ mode: 'days', pendingAdvance: true }), true);
+    assert.equal(advanceCatchupNeeded({ mode: 'days', latestFloorCrossed: true, latestFloorAdvanced: false }), true);
+    assert.equal(advanceCatchupNeeded({ mode: 'days', latestFloorCrossed: true, latestFloorAdvanced: true }), false);
+    assert.equal(advanceCatchupNeeded({ mode: 'days', missingStamp: true, lastAdvanceFailed: true }), false);
+    assert.equal(advanceCatchupNeeded({ mode: 'manual', lastAdvanceFailed: true }), false);
+});
+
 test('date aftermath uses the generation result and repeated same-floor CMR does not call the API twice', async () => {
     const failed = automaticLinesFeature('failed', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
     failed.feature.onMessageReceived({ messageId: 1, type: 'normal' });
     await failed.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await failed.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(failed.calls(), 1);
+    assert.equal(failed.activities[0]?.outcome, 'failed');
     assert.equal(failed.toasts.some(value => /线已随剧情自动推进/.test(value)), false);
+    assert.equal(failed.toasts.some(value => /可在【改】里重试/.test(value)), true);
 
     const replay = automaticLinesFeature('updated');
     replay.feature.onMessageReceived({ messageId: 0, type: 'normal' });
@@ -1189,6 +1201,15 @@ test('missing latest stamp or axis-only date change does not advance', async () 
     const axis = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
     await axis.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(axis.calls(), 0, '没有本楼落地凭证时，轴面板改日不得推进');
+});
+
+test('forceAdvance can catch up after the date already changed', async () => {
+    const harness = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
+    const result = await harness.feature.forceAdvance({ cause: 'manual' });
+    assert.equal(result.status, 'updated');
+    assert.equal(harness.calls(), 1);
+    assert.equal(harness.activities[0].cause, 'manual');
+    assert.equal(harness.lines(), 'evolved-1');
 });
 
 test('days reconcile still defers the first crossing advance', async () => {

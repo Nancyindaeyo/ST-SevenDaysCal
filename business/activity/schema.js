@@ -84,6 +84,10 @@ export function isAlignEntry(entry) {
     return entry?.source === 'align-auto' || entry?.source === 'align';
 }
 
+export function isAdvanceEntry(entry) {
+    return entry?.source === 'advance';
+}
+
 export function alignSourceOf(options = {}) {
     const cause = String(options.cause || '');
     if (options.auto === true || cause === 'reroll' || cause === 'retry' || cause === 'auto') return 'align-auto';

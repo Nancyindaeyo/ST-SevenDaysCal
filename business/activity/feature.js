@@ -1,6 +1,7 @@
 import { diffSnapshots, sameSnapshot } from './diff.js';
 import {
     canUndoActivity,
+    isAdvanceEntry,
     isAlignEntry,
     normalizeActivityEntry,
     remainingUndoItems,
@@ -67,6 +68,7 @@ export function createActivityFeature(env = {}) {
         $in?.('#sp-activity-clock')?.text?.(env.clockLabel?.() || '还没有故事日期');
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
         $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
+        $in?.('#sp-activity-advance')?.prop?.('hidden', env.needsAdvanceCatchup?.() !== true);
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
         syncPaceOpen();
         env.onPaint?.();
@@ -265,6 +267,46 @@ export function createActivityFeature(env = {}) {
         return result || { status: 'skipped' };
     };
 
+    const latestUndoableAdvance = floorId => list().find(item => {
+        if (!isAdvanceEntry(item) || item.undone || !item.snapshot) return false;
+        if (item.outcome === 'failed' || item.outcome === 'unchanged') return false;
+        if (!Number.isInteger(Number(floorId)) || Number(floorId) < 0) return true;
+        return Number(item.floorId) === Number(floorId);
+    }) || null;
+
+    const readvance = async ({ cause = 'retry', floorId } = {}) => {
+        const floor = Number.isInteger(Number(floorId)) ? Number(floorId) : watched.floorId;
+        const entry = latestUndoableAdvance(floor);
+        if (entry) {
+            const restored = await revertIfCurrent(entry);
+            if (restored.status === 'diverged' && cause === 'reroll') {
+                env.toast?.('之后又改过了，没法按新正文自动补推进。可在【改】里重试。', true);
+                return restored;
+            }
+        }
+        const result = await env.readvance?.({ cause, floorId: floor });
+        if (result?.status === 'failed') {
+            env.toast?.('按当前日期推进失败', true);
+            return result;
+        }
+        if (result?.status === 'cancelled') return result;
+        paint();
+        if (cause === 'retry' && result?.status === 'updated') env.toast?.('已按当前日期重新推进线');
+        return result || { status: 'skipped' };
+    };
+
+    const catchUpAdvance = async () => {
+        const result = await env.catchUpAdvance?.({ cause: 'manual' });
+        if (result?.status === 'failed') {
+            env.toast?.('手动推进失败', true);
+            return result;
+        }
+        if (result?.status === 'cancelled') return result;
+        paint();
+        if (result?.status === 'updated') env.toast?.('已把还停在旧日的线推到今天');
+        return result || { status: 'skipped' };
+    };
+
     const quoteToSpace = async id => {
         const entry = list().find(item => item.id === String(id));
         const quote = quoteTextForSpace(entry);
@@ -316,7 +358,14 @@ export function createActivityFeature(env = {}) {
             });
         });
         clickId('.sp-activity-quote', quoteToSpace);
-        click('.sp-activity-realign, .sp-activity-retry', () => { void realign({ cause: 'retry' }); });
+        click('.sp-activity-realign', () => { void realign({ cause: 'retry' }); });
+        click('.sp-activity-retry', function () {
+            const entry = list().find(item => item.id === String(env.$(this).attr('data-id')));
+            if (isAdvanceEntry(entry)) void readvance({ cause: 'retry', floorId: entry.floorId });
+            else void realign({ cause: 'retry' });
+        });
+        click('.sp-activity-readvance', () => { void readvance({ cause: 'retry' }); });
+        click('.sp-activity-catchup', () => { void catchUpAdvance(); });
         click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });
         click('#sp-activity-pace-strip [data-pace]', event => {
             const paceId = env.$(event.currentTarget).attr('data-pace');
@@ -349,10 +398,13 @@ export function createActivityFeature(env = {}) {
         revertLatestAlign,
         markFloorRestyle,
         realign,
+        readvance,
+        catchUpAdvance,
         quoteToSpace,
         jumpToItem,
         list,
         latestAlignAttempt: () => list().find(isAlignEntry) || null,
+        latestAdvanceAttempt: () => list().find(isAdvanceEntry) || null,
         bindUi,
         paint,
         syncPaceOpen,

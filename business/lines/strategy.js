@@ -41,6 +41,21 @@ export function dayCrossedSincePreviousFloor({ chat = [], latestIndex, latestDay
     return !!(latest && previous && latest !== previous);
 }
 
+// 日期已经换了，但这轮自动推进没落下：失败、对齐欠着、或跨日凭证用掉后没写成。
+export function advanceCatchupNeeded({
+    mode,
+    linesOn = true,
+    missingStamp = false,
+    pendingAdvance = false,
+    lastAdvanceFailed = false,
+    latestFloorCrossed = false,
+    latestFloorAdvanced = false,
+} = {}) {
+    if (linesOn === false || mode !== 'days' || missingStamp) return false;
+    if (pendingAdvance || lastAdvanceFailed) return true;
+    return latestFloorCrossed === true && latestFloorAdvanced !== true;
+}
+
 export function createAdvanceStrategy({ mode = 'turns', interval = 1, dayAnchor = null, previousDay = null, counter = 0 } = {}) {
     if (mode === 'manual') return { shouldAdvance: false, counter };
     if (mode === 'days') {
