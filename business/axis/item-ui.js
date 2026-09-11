@@ -25,9 +25,9 @@ export function createAxisItemUi(env = {}) {
             <span class="sp-alm-date-txt">${env.escapeHtml(env.dateLabel(it, ctx?.cal))}</span>
             <span class="sp-alm-when">${ymdHtml}<span class="sp-alm-wd">${env.escapeHtml(parts.weekday || '星期未记录')}</span>${spanTag}</span>
             ${batchOn ? '' : `<span class="sp-alm-acts">
-                <button class="sp-icon-btn sp-alm-pin" data-id="${it.id}" title="${it.pin ? '已锁定 · 生成时保留（点击解锁）' : '锁定 · 生成时保留'}"><i class="fa-solid ${it.pin ? 'fa-lock' : 'fa-lock-open'}"></i></button>
-                <button class="sp-icon-btn sp-alm-edit" data-id="${it.id}" title="编辑"><i class="fa-solid fa-pen"></i></button>
-                <button class="sp-icon-btn sp-alm-del" data-id="${it.id}" title="删除"><i class="fa-solid fa-trash"></i></button>
+                <button class="sp-icon-btn sp-alm-pin" data-id="${it.id}" title="${it.pin ? '已锁定 · 生成时保留（点击解锁）' : '锁定 · 生成时保留'}" aria-label="${it.pin ? '解锁此历项' : '锁定此历项'}"><i class="fa-solid ${it.pin ? 'fa-lock' : 'fa-lock-open'}" aria-hidden="true"></i></button>
+                <button class="sp-icon-btn sp-alm-edit" data-id="${it.id}" title="编辑" aria-label="编辑此历项"><i class="fa-solid fa-pen" aria-hidden="true"></i></button>
+                <button class="sp-icon-btn sp-alm-del" data-id="${it.id}" title="删除" aria-label="删除此历项"><i class="fa-solid fa-trash" aria-hidden="true"></i></button>
             </span>`}
         </div>
         <div class="sp-alm-meta"><span class="sp-alm-name">${env.escapeHtml(it.name)}</span><span class="sp-alm-type-tag">${meta.label}</span>${srcTag}${activeTag}</div>

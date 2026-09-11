@@ -12,6 +12,17 @@ function specOf(view) {
     return PANEL_VIEWS[view] ? view : 'schedule';
 }
 
+export function tabNavigationTarget(tabs, current, key) {
+    const list = Array.from(tabs || []);
+    if (!list.length) return null;
+    const index = Math.max(0, list.indexOf(current));
+    if (key === 'Home') return list[0];
+    if (key === 'End') return list.at(-1);
+    if (key === 'ArrowRight' || key === 'ArrowDown') return list[(index + 1) % list.length];
+    if (key === 'ArrowLeft' || key === 'ArrowUp') return list[(index - 1 + list.length) % list.length];
+    return null;
+}
+
 export function showPanelView($in, view) {
     const targetName = specOf(view);
     const target = PANEL_VIEWS[targetName];
@@ -20,8 +31,10 @@ export function showPanelView($in, view) {
         if (name === targetName) {
             if (spec.display === 'show') $el.show();
             else $el.css('display', spec.display);
+            $el.attr('aria-hidden', 'false');
         } else {
             $el.hide();
+            $el.attr('aria-hidden', 'true');
         }
     }
     if (target.subToggle) $in('#sp-sub-toggle').show();
@@ -30,10 +43,10 @@ export function showPanelView($in, view) {
 }
 
 export function setActiveViewTabs($in, $inAll, { main = 'schedule', sub = 'user' } = {}) {
-    $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-    $in(`.sp-side-tab.sp-view-btn[data-view="${main}"]`).addClass('sp-view-active');
-    $inAll('.sp-sub-btn').removeClass('sp-view-active');
-    $in(`.sp-sub-btn[data-view="${sub}"]`).addClass('sp-view-active');
+    $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+    $in(`.sp-side-tab.sp-view-btn[data-view="${main}"]`).addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
+    $inAll('.sp-sub-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+    $in(`.sp-sub-btn[data-view="${sub}"]`).addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
 }
 
 export function paintScheduleHome($in, $inAll, { sub = 'user', wraps = true } = {}) {

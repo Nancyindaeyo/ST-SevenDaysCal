@@ -6609,7 +6609,17 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     opacity: 0;
     transition: opacity 0.15s, background 0.15s, color 0.15s;
 }
-.sp-alm-item:hover .sp-alm-acts .sp-icon-btn { opacity: 1; }
+.sp-alm-item:hover .sp-alm-acts .sp-icon-btn,
+.sp-alm-item:focus-within .sp-alm-acts .sp-icon-btn { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+    .sp-alm-acts { gap: 2px; }
+    .sp-alm-acts .sp-icon-btn {
+        width: 40px;
+        height: 40px;
+        opacity: 1;
+        touch-action: manipulation;
+    }
+}
 /* 第三行：备注整行铺开 */
 .sp-alm-note { font-size: var(--sp-fs-76); color: var(--sp-subtle); line-height: 1.5; overflow-wrap: anywhere; padding-left: 20px; }
 /* 已锁定：锁钮不必 hover 也常亮主色，一眼看出「生成时保留」（对齐点/线锁定态语义）。 */

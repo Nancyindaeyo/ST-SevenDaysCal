@@ -50,24 +50,67 @@ export function createAxisTransactionController(env = {}) {
                 return error?.saveResult || { ok: false, reason: error?.message || 'write-failed' };
             }
         };
+        const persistAnchor = async (month, day, source = 'explicit', options = {}) => {
+            if (!key || typeof env.setAnchor !== 'function') return { ok: false, reason: 'missing-anchor-writer' };
+            try {
+                return await env.setAnchor(key, month, day, source, options, { ownerGuard: boundaryCurrent });
+            } catch (error) {
+                return error?.saveResult || { ok: false, reason: error?.message || 'anchor-write-failed' };
+            }
+        };
+        const rollback = async ({ calendar = false, almanac = false, anchor = false } = {}) => {
+            const results = {};
+            if (anchor && key) {
+                results.anchor = raw == null
+                    ? await persistAnchor(null, null)
+                    : await persistAnchor(raw.month, raw.day, raw.source || 'explicit', raw);
+            }
+            if (almanac) results.almanac = await persist(almKey, prevAlmanac);
+            if (calendar) results.calendar = await persist(calKey, prevCal);
+            return {
+                ok: Object.values(results).every(result => result?.ok === true),
+                results,
+            };
+        };
+        const rollbackFailed = state => ({
+            ok: false,
+            reason: 'rollback-failed',
+            error: '历法提交失败且回滚不完整，请刷新聊天后核实数据',
+            rollback: state.results,
+        });
         const calSaved = await persist(calKey, nextCal);
         if (!(calSaved?.ok === true)) return { ok: false, error: '当前聊天无法写入历法' };
         if (!boundaryCurrent()) {
-            await persist(calKey, prevCal);
+            const restored = await rollback({ calendar: true });
+            if (!restored.ok) return rollbackFailed(restored);
             return { ok: false, cancelled: true };
         }
         const almSaved = await persist(almKey, nextAlmanac);
         if (!(almSaved?.ok === true)) {
-            await persist(calKey, prevCal);
+            const restored = await rollback({ calendar: true });
+            if (!restored.ok) return rollbackFailed(restored);
             return { ok: false, error: '当前聊天无法写入历法' };
         }
         if (!boundaryCurrent()) {
-            await persist(almKey, prevAlmanac);
-            await persist(calKey, prevCal);
+            const restored = await rollback({ almanac: true, calendar: true });
+            if (!restored.ok) return rollbackFailed(restored);
             return { ok: false, cancelled: true };
         }
-        if (anchorConflict && key && latestAnchor && anchorUnchanged) { const fixedMonth = Math.min(Math.max(Number(latestAnchor.month) || 1, 1), env.monthCount(cal)); const fixedDay = Math.min(Math.max(Number(latestAnchor.day) || 1, 1), env.monthDays(cal, fixedMonth)); const result = action === 'delete' ? env.setAnchor?.(key, null) : env.setAnchor?.(key, fixedMonth, fixedDay); if (!result?.ok) return { ok: false, error: '当前聊天无法写入日期锚点' }; }
-        if (!boundaryCurrent()) return { ok: false, cancelled: true };
+        if (anchorConflict && key && latestAnchor && anchorUnchanged) {
+            const fixedMonth = Math.min(Math.max(Number(latestAnchor.month) || 1, 1), env.monthCount(cal));
+            const fixedDay = Math.min(Math.max(Number(latestAnchor.day) || 1, 1), env.monthDays(cal, fixedMonth));
+            const result = action === 'delete' ? await persistAnchor(null, null) : await persistAnchor(fixedMonth, fixedDay);
+            if (!result?.ok) {
+                const restored = await rollback({ anchor: true, almanac: true, calendar: true });
+                if (!restored.ok) return rollbackFailed(restored);
+                return { ok: false, reason: 'anchor-save-failed', error: '当前聊天无法写入日期锚点', rolledBack: true };
+            }
+        }
+        if (!boundaryCurrent()) {
+            const restored = await rollback({ anchor: anchorConflict && anchorUnchanged, almanac: true, calendar: true });
+            if (!restored.ok) return rollbackFailed(restored);
+            return { ok: false, cancelled: true };
+        }
         axisState._almanacCalMonth = null; axisState._almanacCalDay = null; axisState._almTodayEditing = false; env.syncAlmanac?.(); env.syncSchedule?.(); return { ok: true, cal };
     };
     const applyBound = async ({ notify = true, render = true } = {}) => {

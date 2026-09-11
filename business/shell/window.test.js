@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clampOutlineChatHeight, clampPanelDrag, clampPanelSize, mobileSheetFrame, runOpenSchedule } from './window.js';
+import { clampOutlineChatHeight, clampPanelDrag, clampPanelSize, createPanelWindow, mobileSheetFrame, runOpenSchedule } from './window.js';
 import { guessCharName, nextTaToggle, taTriggerLabel, taDrawerHtml } from './ta-drawer.js';
 
 test('panel drag keeps a 60px bottom gutter', () => {
@@ -19,6 +19,45 @@ test('outline chat height stays between 80 and 420', () => {
 
 test('mobile sheet follows the visual viewport including iOS offsetTop', () => {
     assert.deepEqual(mobileSheetFrame({ vh: 500, offsetTop: 80, safeTop: 10, safeBot: 20 }), { top: 110, height: 430 });
+});
+
+test('panel dispose removes window and visual viewport listeners', () => {
+    const windowListeners = new Map();
+    const viewportListeners = new Map();
+    const sheet = { style: {}, offsetWidth: 320, offsetHeight: 500 };
+    const root = { style: { display: 'block' } };
+    const win = {
+        innerHeight: 700,
+        innerWidth: 400,
+        visualViewport: {
+            height: 650,
+            offsetTop: 0,
+            addEventListener: (name, handler) => viewportListeners.set(name, handler),
+            removeEventListener: (name, handler) => { if (viewportListeners.get(name) === handler) viewportListeners.delete(name); },
+        },
+        addEventListener: (name, handler) => windowListeners.set(name, handler),
+        removeEventListener: (name, handler) => { if (windowListeners.get(name) === handler) windowListeners.delete(name); },
+        getComputedStyle: () => ({ top: '0', bottom: '0' }),
+        localStorage: { getItem: () => null },
+    };
+    const doc = {
+        getElementById: () => root,
+        createElement: () => ({ style: {} }),
+        body: { appendChild: () => {}, removeChild: () => {}, style: {} },
+    };
+    const panel = createPanelWindow({
+        $: () => ({ off: () => ({ on: () => {} }) }),
+        document: doc,
+        window: win,
+        isMobile: () => true,
+        sheet: () => sheet,
+    });
+    panel.position();
+    assert.deepEqual([...windowListeners.keys()].sort(), ['orientationchange', 'resize']);
+    assert.deepEqual([...viewportListeners.keys()].sort(), ['resize', 'scroll']);
+    panel.dispose();
+    assert.equal(windowListeners.size, 0);
+    assert.equal(viewportListeners.size, 0);
 });
 
 test('opening the panel restores last view before painting home', () => {

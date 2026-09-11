@@ -30,32 +30,32 @@ export function panelMarkup({
             <div class="sp-backdrop"></div>
             <div class="sp-sheet">
                 <aside class="sp-sidebar">
-                    <nav class="sp-sidebar-tabs" aria-label="主视图">
-                        <button class="sp-side-tab sp-view-btn sp-view-active" data-view="schedule">
+                    <nav class="sp-sidebar-tabs" aria-label="主视图" role="tablist" aria-orientation="vertical">
+                        <button id="sp-tab-schedule" class="sp-side-tab sp-view-btn sp-view-active" data-view="schedule" role="tab" aria-controls="sp-body" aria-selected="true" tabindex="0">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">点</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="almanac">
+                        <button id="sp-tab-almanac" class="sp-side-tab sp-view-btn" data-view="almanac" role="tab" aria-controls="sp-almanac-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="4" x2="8" y2="20"/><line x1="8" y1="8" x2="15" y2="8"/><line x1="8" y1="12" x2="15" y2="12"/><line x1="8" y1="16" x2="15" y2="16"/></svg></span>
                             <span class="sp-tab-label">轴</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="lines">
+                        <button id="sp-tab-lines" class="sp-side-tab sp-view-btn" data-view="lines" role="tab" aria-controls="sp-lines-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><circle cx="12" cy="4" r="2.2" fill="currentColor" stroke="none"/><circle cx="12" cy="20" r="2.2" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">线</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="outline">
+                        <button id="sp-tab-outline" class="sp-side-tab sp-view-btn" data-view="outline" role="tab" aria-controls="sp-outline-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L16.5 12 L12 21 L7.5 12 Z"/></svg></span>
                             <span class="sp-tab-label">面</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="space">
+                        <button id="sp-tab-space" class="sp-side-tab sp-view-btn" data-view="space" role="tab" aria-controls="sp-space-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="20"/></svg></span>
                             <span class="sp-tab-label">间</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="theater">
+                        <button id="sp-tab-theater" class="sp-side-tab sp-view-btn" data-view="theater" role="tab" aria-controls="sp-theater-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5 L13 12 L9 19 L5 12 Z"/><path d="M15 5 L19 12 L15 19 L11 12 Z" stroke-dasharray="2.5 2.5"/></svg></span>
                             <span class="sp-tab-label">棱</span>
                         </button>
-                        <button class="sp-side-tab sp-view-btn" data-view="anchor">
+                        <button id="sp-tab-anchor" class="sp-side-tab sp-view-btn" data-view="anchor" role="tab" aria-controls="sp-anchor-wrap" aria-selected="false" tabindex="-1">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">坐标</span>
                         </button>
@@ -77,9 +77,9 @@ export function panelMarkup({
                         <h1 class="sp-content-title" id="sp-content-title">点</h1>
                         <button class="sp-module-intro-btn" id="sp-module-intro-btn" title="这个模块是干嘛的？" aria-label="模块介绍"><i class="fa-regular fa-circle-question"></i></button>
                         <div class="sp-sub-toggle-wrap" id="sp-sub-toggle-wrap">
-                            <div class="sp-sub-toggle" id="sp-sub-toggle">
-                                <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user">我</button>
-                                <button class="sp-view-btn sp-sub-btn sp-ta-trigger" data-view="char" id="sp-ta-trigger"><span class="sp-ta-label">TA</span><i class="fa-solid fa-caret-down sp-ta-caret"></i></button>
+                            <div class="sp-sub-toggle" id="sp-sub-toggle" role="tablist" aria-label="点视角">
+                                <button class="sp-view-btn sp-sub-btn sp-view-active" data-view="user" role="tab" aria-controls="sp-body" aria-selected="true" tabindex="0">我</button>
+                                <button class="sp-view-btn sp-sub-btn sp-ta-trigger" data-view="char" id="sp-ta-trigger" role="tab" aria-controls="sp-body" aria-selected="false" tabindex="-1"><span class="sp-ta-label">TA</span><i class="fa-solid fa-caret-down sp-ta-caret"></i></button>
                             </div>
                             <div class="sp-ta-drawer" id="sp-ta-drawer" style="display:none"></div>
                         </div>
@@ -628,11 +628,11 @@ export function panelMarkup({
                     </div><!-- /sp-settings-overlay -->
 
                     <div class="sp-main">
-                        <div class="sp-body" id="sp-body">
+                        <div class="sp-body" id="sp-body" role="tabpanel" aria-labelledby="sp-tab-schedule" aria-hidden="false">
                             ${emptyBooksHtml()}
                         </div>
 
-                        <div class="sp-outline-wrap" id="sp-outline-wrap" style="display:none">
+                        <div class="sp-outline-wrap" id="sp-outline-wrap" role="tabpanel" aria-labelledby="sp-tab-outline" aria-hidden="true" style="display:none">
                             <div class="sp-schedule-header sp-outline-header">
                                 <span class="sp-outline-title">故事面</span>
                                 <span class="sp-schedule-label" id="sp-outline-node-count">0 个节点</span>
@@ -654,14 +654,14 @@ export function panelMarkup({
                             </div>
                         </div>
 
-                        <div class="sp-lines-wrap" id="sp-lines-wrap" style="display:none">
+                        <div class="sp-lines-wrap" id="sp-lines-wrap" role="tabpanel" aria-labelledby="sp-tab-lines" aria-hidden="true" style="display:none">
                             <div class="sp-lines-toolbar" id="sp-lines-toolbar"></div>
                             <div class="sp-lines-list" id="sp-lines-list">
                                 ${emptyBooksHtml()}
                             </div>
                         </div>
 
-                        <div class="sp-space-wrap sp-outline-chat" id="sp-space-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
+                        <div class="sp-space-wrap sp-outline-chat" id="sp-space-wrap" role="tabpanel" aria-labelledby="sp-tab-space" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-chat-msgs" id="sp-space-msgs"></div>
                             <div class="sp-space-composer">
                                 <div id="sp-space-quote" class="sp-space-quote" hidden></div>
@@ -674,15 +674,15 @@ export function panelMarkup({
                             </div>
                         </div>
 
-                        <div class="sp-theater-wrap" id="sp-theater-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
+                        <div class="sp-theater-wrap" id="sp-theater-wrap" role="tabpanel" aria-labelledby="sp-tab-theater" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-theater-body" id="sp-theater-body"></div>
                         </div>
 
-                        <div class="sp-anchor-wrap" id="sp-anchor-wrap" style="display:none;flex-direction:column;flex:1;min-height:0">
+                        <div class="sp-anchor-wrap" id="sp-anchor-wrap" role="tabpanel" aria-labelledby="sp-tab-anchor" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-anchor-body" id="sp-anchor-body"></div>
                         </div>
 
-                        <div class="sp-almanac-wrap" id="sp-almanac-wrap" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
+                        <div class="sp-almanac-wrap" id="sp-almanac-wrap" role="tabpanel" aria-labelledby="sp-tab-almanac" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
                     </div><!-- /sp-main -->
 
                 </div><!-- /sp-content-col -->

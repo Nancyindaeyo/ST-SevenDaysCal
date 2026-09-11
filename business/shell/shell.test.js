@@ -54,6 +54,7 @@ function fakeDom() {
         text(value) { title.text = value; return this; },
         addClass() { return this; },
         removeClass() { return this; },
+        attr() { return this; },
     });
     return { $in: node, display, title };
 }

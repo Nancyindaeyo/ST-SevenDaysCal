@@ -40,10 +40,52 @@ test('日期制推进在忙时记下，结束后再跑', async () => {
         },
     });
     const first = queue.run({ trigger: 'date', messageId: 1 });
-    const skipped = await queue.run({ trigger: 'date', messageId: 2 });
-    assert.equal(skipped.status, 'skipped');
+    const queued = queue.run({ trigger: 'date', messageId: 2 });
+    release({ status: 'updated' });
+    assert.equal((await first).status, 'updated');
+    assert.equal((await queued).status, 'updated');
+    assert.deepEqual(calls, [1, 2]);
+});
+
+test('日期制推进只补跑最新日期，并明确结算被覆盖的请求', async () => {
+    const calls = [];
+    let release;
+    const queue = createAdvanceQueue({
+        plan: () => ['lines'],
+        lines: options => {
+            calls.push(options.messageId);
+            if (options.messageId === 1) return new Promise(resolve => { release = resolve; });
+            return { status: 'updated' };
+        },
+    });
+    const first = queue.run({ trigger: 'date', messageId: 1 });
+    const second = queue.run({ trigger: 'date', messageId: 2 });
+    const third = queue.run({ trigger: 'date', messageId: 3 });
+    assert.deepEqual(await second, { status: 'skipped', reason: 'superseded', supersededBy: 3 });
     release({ status: 'updated' });
     await first;
-    await new Promise(resolve => setTimeout(resolve, 0));
-    assert.deepEqual(calls, [1, 2]);
+    assert.equal((await third).status, 'updated');
+    assert.deepEqual(calls, [1, 3]);
+});
+
+test('补跑异常转成失败结果并上报，不产生未处理拒绝', async () => {
+    const errors = [];
+    let release;
+    const queue = createAdvanceQueue({
+        plan: () => ['lines'],
+        lines: options => {
+            if (options.messageId === 1) return new Promise(resolve => { release = resolve; });
+            throw new Error('retry failed');
+        },
+        onError: (error, options) => errors.push([error.message, options.messageId]),
+    });
+    const first = queue.run({ trigger: 'date', messageId: 1 });
+    const retry = queue.run({ trigger: 'date', messageId: 2 });
+    release({ status: 'updated' });
+    await first;
+    const result = await retry;
+    assert.equal(result.status, 'failed');
+    assert.equal(result.error.message, 'retry failed');
+    assert.deepEqual(errors, [['retry failed', 2]]);
+    assert.equal(queue.busy, false);
 });

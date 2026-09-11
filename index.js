@@ -26,7 +26,7 @@ import { spaceMessagePlainText } from './business/space/schema.js';
 import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
-import { paintScheduleHome, showPanelView } from './business/shell/panel.js';
+import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
 import { createFab } from './business/shell/fab.js';
@@ -901,7 +901,14 @@ const axisGenerationController = createAxisGenerationController({
 const axisTransactionController = createAxisTransactionController({
     chatId: () => getContext().chatId, items: loadAlmanac, conflicts: calendarConflicts, charKey: () => charStableKey(getContext()), anchor: key => getSettings().dateAnchor?.[key],
     monthCount: cal => calMonthCount(cal), monthDays: (cal, month) => calMonthDays(cal, month), choose: options => customDialog.choose(options),
-    writeConfirmed: writeStoreConfirmed, getCalDescKey, getAlmanacKey, setAnchor: (key, month, day) => setDateAnchor(key, month, day),
+    writeConfirmed: writeStoreConfirmed,
+    getCalDescKey,
+    getAlmanacKey,
+    setAnchor: (_key, month, day, source = 'explicit', options = {}, persistenceOptions = {}) => (
+        month == null
+            ? chatAnchorRepository.clearConfirmed(persistenceOptions)
+            : chatAnchorRepository.setConfirmed(month, day, source, options, persistenceOptions)
+    ),
     syncAlmanac: syncLatestAlmanacBlock, syncSchedule: syncLatestScheduleBlock, pluginEnabled, readCal: () => readStore(getCalDescKey()), readAlmanac: () => readStore(getAlmanacKey()), readItems: () => readStore(getAlmanacKey())?.items,
     bindings: calendarTemplateBindings, bindingKey: calendarBindingKey, cards: currentCharacterCards, templates: loadCalendarTemplates, clone: cloneCalDesc, saveCal: saveCalDesc, saveSettings: saveSettingsDebounced,
     render: () => { if (axisState.almanacMode) renderAlmanacPanel(); }, notifyMode: () => getSettings().notifyMode, toast: showToast,
@@ -2073,6 +2080,15 @@ export function parseFontFamilyFromCss(cssText) {
 }
 
 jQuery(async () => {
+    const panelLifecycleKey = '__sevenDaysCalPanelCleanup';
+    globalThis[panelLifecycleKey]?.();
+    const cleanupPanelLifecycle = () => {
+        panelWindow.dispose();
+        jQuery(window).off('pagehide.sevenDaysCalPanel');
+        if (globalThis[panelLifecycleKey] === cleanupPanelLifecycle) delete globalThis[panelLifecycleKey];
+    };
+    globalThis[panelLifecycleKey] = cleanupPanelLifecycle;
+    jQuery(window).off('pagehide.sevenDaysCalPanel').on('pagehide.sevenDaysCalPanel', cleanupPanelLifecycle);
     const initialStorageLoad = loadExternalChat({ force: true });
     if (isExternalMode()) await initialStorageLoad;
     // 界面字号缩放：把持久化的 uiScale 写进 --sp-scale，令牌即刻按此缩放（早于注入 UI，防首帧闪错号）
@@ -2703,6 +2719,10 @@ const advanceQueue = createAdvanceQueue({
         }
         return linesFeature.actions.advance();
     },
+    onError: (error, options) => {
+        console.error('[SP date advance failed]', { error, options });
+        showToast('日期推进补跑失败，请检查存储或网络状态后重试', null, true);
+    },
 });
 function schedulePointNeedsSync(target = { view: 'user', charName: '' }, targetDate = null) {
     return anchorAftermath.pointNeedsSync(target, targetDate);
@@ -2760,8 +2780,8 @@ const panelHost = createPanelHost({
     setCharViewName: name => { charViewName = name; },
     getCharViewName: () => charViewName,
     markViewButtons(view) {
-        $inAll('.sp-view-btn').removeClass('sp-view-active');
-        $inAll(`.sp-view-btn[data-view="${view}"]`).addClass('sp-view-active');
+        $inAll('.sp-sub-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+        $inAll(`.sp-sub-btn[data-view="${view}"]`).addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
     },
     loadCachedSchedule() { pointState.cachedSchedule = loadCachedForCurrentChat(); },
     hasCachedSchedule: () => !!pointState.cachedSchedule,
@@ -2989,14 +3009,14 @@ function injectModal() {
             toggleTaDrawer,
             pointGenerating: () => pointState.isGenerating,
             markSideTab(view, $btn) {
-                $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active');
-                $btn.addClass('sp-view-active');
+                $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+                $btn.addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
                 _lastMainView = view;
                 syncRefreshBar(view);
             },
             markSubBtn(view, $btn) {
-                $inAll('.sp-sub-btn').removeClass('sp-view-active');
-                $btn.addClass('sp-view-active');
+                $inAll('.sp-sub-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+                $btn.addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
             },
             modes: () => ({ outline: outlineMode, lines: linesMode, space: spaceMode, theater: theaterMode, almanac: axisState.almanacMode }),
             setModes(next) {
@@ -3022,8 +3042,8 @@ function injectModal() {
             },
             paintAlmanac: () => renderAlmanacPanel(),
             paintSchedule() {
-                $inAll('.sp-sub-btn').removeClass('sp-view-active');
-                $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active');
+                $inAll('.sp-sub-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
+                $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
                 updateTaTriggerLabel();
                 if (bootstrapFeature?.busy) setBody(bootstrapFeature.progressHtml());
                 else if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
@@ -3039,6 +3059,16 @@ function injectModal() {
             currentView: () => currentView,
             setView,
         }, $(this));
+    });
+    $in('.sp-root').on('keydown', '[role="tab"]', function (event) {
+        const tablist = this.closest?.('[role="tablist"]');
+        if (!tablist) return;
+        const tabs = Array.from(tablist.children || []).filter(element => element.getAttribute?.('role') === 'tab' && !element.disabled);
+        const target = tabNavigationTarget(tabs, this, event.key);
+        if (!target) return;
+        event.preventDefault();
+        target.focus();
+        target.click();
     });
 
     bindApiFields({

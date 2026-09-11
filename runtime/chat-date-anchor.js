@@ -67,7 +67,15 @@ export function createChatAnchorRepository({ chatId, read, write, writeConfirmed
         if (!(stored === true || stored?.ok === true)) return stored || { ok: false, reason: 'write-failed' };
         return stored === true ? { ok: true, anchor: built.anchor } : { ...stored, anchor: built.anchor };
     };
-    const clear = () => { if (!id()) return { ok: false, reason: 'missing-chat' }; return persist({ schemaVersion: DATE_ANCHOR_SCHEMA, state: 'auto', chatId: id(), anchor: null }) ? { ok: true, tombstone: true } : { ok: false, reason: 'write-failed' }; };
+    const clearRecord = () => ({ schemaVersion: DATE_ANCHOR_SCHEMA, state: 'auto', chatId: id(), anchor: null });
+    const clear = () => { if (!id()) return { ok: false, reason: 'missing-chat' }; return persist(clearRecord()) ? { ok: true, tombstone: true } : { ok: false, reason: 'write-failed' }; };
+    const clearConfirmed = async (persistenceOptions = {}) => {
+        if (!id()) return { ok: false, reason: 'missing-chat' };
+        if (typeof writeConfirmed !== 'function') return clear();
+        const stored = await writeConfirmed(clearRecord(), persistenceOptions);
+        if (!(stored === true || stored?.ok === true)) return stored || { ok: false, reason: 'write-failed' };
+        return stored === true ? { ok: true, tombstone: true } : { ...stored, tombstone: true };
+    };
     const claim = (month, day, options = {}) => {
         const p = legacyPending(); if (!p) return { ok: false, reason: 'no-pending-legacy' };
         if (options.confirmed === false) return { ok: false, reason: 'cancelled', wrote: false };
@@ -84,7 +92,7 @@ export function createChatAnchorRepository({ chatId, read, write, writeConfirmed
         const record = { schemaVersion: DATE_ANCHOR_SCHEMA, state: 'set', chatId: id(), anchor: a, claimMarker: { schemaVersion: 1, identity: p.identity, ownerChatId: id(), claimedAt: Date.now() } };
         return persist(record) ? { ok: true, anchor: a, claimed: true, identity: p.identity, marker: record.claimMarker } : { ok: false, reason: 'write-failed' };
     };
-    return { get: () => local() || legacyPending() || null, pending: legacyPending, set, setConfirmed, auto: (m, d) => set(m, d, 'auto'), clear, claim, claimCalibration, cancel: () => ({ ok: true, wrote: false }) };
+    return { get: () => local() || legacyPending() || null, pending: legacyPending, set, setConfirmed, auto: (m, d) => set(m, d, 'auto'), clear, clearConfirmed, claim, claimCalibration, cancel: () => ({ ok: true, wrote: false }) };
 }
 
 export function isValidCalendarDescriptor(c) {

@@ -53,6 +53,7 @@ export function createPanelWindow(env = {}) {
     let resizeState = null;
     let resizeRAF = null;
     let viewportSyncBound = false;
+    let onViewportChange = null;
 
     function sheet() { return env.sheet?.() || env.inEl?.('.sp-sheet'); }
 
@@ -253,13 +254,31 @@ export function createPanelWindow(env = {}) {
     function bindViewportSync() {
         if (viewportSyncBound) return;
         viewportSyncBound = true;
-        const onViewportChange = () => syncMobile();
+        onViewportChange = () => syncMobile();
         win.addEventListener('resize', onViewportChange);
         win.addEventListener('orientationchange', onViewportChange);
         if (win.visualViewport) {
             win.visualViewport.addEventListener('resize', onViewportChange);
             win.visualViewport.addEventListener('scroll', onViewportChange);
         }
+    }
+
+    function unbindViewportSync() {
+        if (!viewportSyncBound || !onViewportChange) return;
+        win.removeEventListener('resize', onViewportChange);
+        win.removeEventListener('orientationchange', onViewportChange);
+        if (win.visualViewport) {
+            win.visualViewport.removeEventListener('resize', onViewportChange);
+            win.visualViewport.removeEventListener('scroll', onViewportChange);
+        }
+        viewportSyncBound = false;
+        onViewportChange = null;
+    }
+
+    function dispose() {
+        onDragEnd();
+        onResizeEnd();
+        unbindViewportSync();
     }
 
     function position() {
@@ -298,7 +317,7 @@ export function createPanelWindow(env = {}) {
     }
 
     return {
-        show, hide, position, syncMobile,
+        show, hide, position, syncMobile, dispose,
         onDragStart, onResizeStart,
         bindOutlineDivider, restoreOutlineChatHeight,
         bindDrag(handle) {
