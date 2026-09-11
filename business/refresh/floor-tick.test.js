@@ -40,3 +40,12 @@ test('ticker hydrate/reset keep lastFloor and counter in lockstep with ticks', (
     assert.deepEqual(ticker.state(), { lastFloor: 9, counter: 0 });
     assert.equal(ticker.tick(9, { interval: 1 }).reason, 'seen');
 });
+
+test('same-floor option heals lastFloor without incrementing the ticker', () => {
+    const ticker = createFloorTicker();
+    ticker.hydrate({ lastFloor: 4, counter: 2 });
+    assert.equal(ticker.tick(7, { interval: 3, sameFloor: true }).reason, 'seen');
+    assert.deepEqual(ticker.state(), { lastFloor: 7, counter: 2 });
+    assert.equal(ticker.tick(8, { interval: 3 }).status, 'due');
+    assert.deepEqual(ticker.state(), { lastFloor: 8, counter: 0 });
+});

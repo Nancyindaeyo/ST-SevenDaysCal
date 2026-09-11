@@ -1,7 +1,10 @@
-export function tickFloorGate({ lastFloor = -1, counter = 0, messageId, interval = 1, blocked = false } = {}) {
+export function tickFloorGate({ lastFloor = -1, counter = 0, messageId, interval = 1, blocked = false, sameFloor = false } = {}) {
     const mid = Number(messageId);
     if (!Number.isInteger(mid) || mid <= lastFloor) {
         return { status: 'skipped', reason: 'seen', lastFloor, counter };
+    }
+    if (sameFloor) {
+        return { status: 'skipped', reason: 'seen', lastFloor: mid, counter };
     }
     if (blocked) {
         return { status: 'skipped', reason: 'blocked', lastFloor: mid, counter };
@@ -28,8 +31,8 @@ export function createFloorTicker() {
             lastFloor = Number.isInteger(Number(state.lastFloor)) ? Number(state.lastFloor) : -1;
             counter = Math.max(0, Math.floor(Number(state.counter) || 0));
         },
-        tick(messageId, { interval = 1, blocked = false } = {}) {
-            const result = tickFloorGate({ lastFloor, counter, messageId, interval, blocked });
+        tick(messageId, { interval = 1, blocked = false, sameFloor = false } = {}) {
+            const result = tickFloorGate({ lastFloor, counter, messageId, interval, blocked, sameFloor });
             lastFloor = result.lastFloor;
             counter = result.counter;
             return result;

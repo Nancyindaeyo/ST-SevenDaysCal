@@ -34,6 +34,7 @@ export async function runChatChanged(h) {
     h.dashed?.resetError?.();
     if (previousChatId != null) h.lines?.clearAllSwipe?.(previousChatId);
     h.lines?.clearAllSwipe?.(h.chatId?.());
+    h.sameFloor?.clear?.();
     h.pace?.resetChat?.({ lastSeen });
     h.resetViewHome?.();
     h.coordinate?.onChatChanged?.({

@@ -166,6 +166,10 @@ export function createDashedModule(env = {}) {
         if (env.getSettings().dashedEnabled !== true) return { status: 'skipped' };
         const mid = Number(messageId);
         if (!Number.isInteger(mid) || mid <= autoFloor) return { status: 'skipped', reason: 'seen' };
+        if (env.sameFloor?.() === true) {
+            autoFloor = mid;
+            return { status: 'skipped', reason: 'seen' };
+        }
         const interval = getDashedAutoInterval(env.getSettings());
         if (blocked) {
             const peek = tickFloorGate({ lastFloor: autoFloor, counter: autoCount, messageId: mid, interval, blocked: false });

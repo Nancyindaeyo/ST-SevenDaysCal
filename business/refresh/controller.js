@@ -191,6 +191,10 @@ export function createRefreshController(env = {}) {
         const message = chat[messageId];
         if (!message || message.is_user || message.is_system) return { status: 'skipped' };
         if (messageId <= lastFloor) return { status: 'skipped', reason: 'seen' };
+        if (env.sameFloor?.() === true) {
+            lastFloor = messageId;
+            return { status: 'skipped', reason: 'seen' };
+        }
         lastFloor = messageId;
         if (env.isSuppressed?.(messageId)) return { status: 'skipped', reason: 'time-travel' };
         const interval = Math.max(1, Math.floor(Number(env.interval?.()) || 3));

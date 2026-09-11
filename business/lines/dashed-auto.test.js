@@ -31,6 +31,23 @@ test('auto floor gate skips seen, blocked, and unfinished intervals', async () =
     assert.equal(dashed.state().counter, 1);
 });
 
+test('same-floor reroll does not consume a dashed interval', async () => {
+    let pending = false;
+    const { createDashedModule } = await import('./dashed.js');
+    const dashed = createDashedModule({
+        getSettings: () => ({ dashedEnabled: true, dashedAutoInterval: 3 }),
+        sameFloor: () => pending,
+    });
+    assert.equal((await dashed.onAiFloor(1)).reason, 'interval');
+    pending = true;
+    assert.equal((await dashed.onAiFloor(3)).reason, 'seen');
+    assert.equal(dashed.state().lastFloor, 3);
+    assert.equal(dashed.state().counter, 1);
+    pending = false;
+    assert.equal((await dashed.onAiFloor(4)).reason, 'interval');
+    assert.equal(dashed.state().counter, 2);
+});
+
 test('blocked due floor defers dashed instead of drawing', async () => {
     const { createDashedModule } = await import('./dashed.js');
     let deferred = false;

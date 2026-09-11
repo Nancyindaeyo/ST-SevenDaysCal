@@ -149,6 +149,25 @@ test('reroll on an align floor requests a replacement align', async () => {
     assert.equal((await controller.onRerollAlign(0)).reason, 'already');
 });
 
+test('pending same-floor reroll does not consume an align interval even if lastFloor was pulled back', async () => {
+    let pending = true;
+    const host = env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 3,
+        sameFloor: () => pending,
+        context: () => ({ chatId: 'a', chat: [{ is_user: true, mes: '问' }, { is_user: true, mes: '再问' }, { is_user: false, mes: '重 roll 后的正文。' }] }),
+    });
+    const controller = createRefreshController(host);
+    controller.hydrate({ lastFloor: 0, counter: 1 });
+    assert.equal((await controller.onAiFloor(2)).reason, 'seen');
+    assert.deepEqual(controller.state().counter, 1);
+    assert.equal(controller.state().lastFloor, 2);
+    pending = false;
+    assert.equal((await controller.onAiFloor(2)).reason, 'seen');
+    assert.equal(controller.state().counter, 1);
+});
+
 test('reroll skips floors that were not the align floor', async () => {
     const controller = createRefreshController(env({
         enabled: () => true,

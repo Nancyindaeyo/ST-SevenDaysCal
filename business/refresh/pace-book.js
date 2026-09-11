@@ -68,7 +68,7 @@ export function createPaceBook(env = {}) {
     };
     const consumeFloor = (name, messageId, opts = {}) => {
         const ticker = name === 'date' ? date : name === 'ledgerCapture' ? ledgerCapture : ledgerJudge;
-        const tick = ticker.tick(messageId, opts);
+        const tick = ticker.tick(messageId, { ...opts, sameFloor: opts.sameFloor === true || env.sameFloor?.() === true });
         if (tick.reason === 'interval') remember();
         return tick.status === 'due';
     };

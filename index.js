@@ -13,6 +13,7 @@ import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK } from './business/theater/c
 import { refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
+import { createSameFloorGate } from './business/refresh/same-floor.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
 import { createAdvanceQueue } from './business/refresh/advance-queue.js';
 import { createActivityFeature } from './business/activity/feature.js';
@@ -1475,6 +1476,7 @@ const activityFeature = createActivityFeature({
     },
     openItem: item => openActivityItem(item),
 });
+const sameFloorGate = createSameFloorGate();
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
 const linesFeature = createLinesFeature({
     jumpHint: () => SP_JUMP_HINT_LINES,
@@ -1549,6 +1551,7 @@ const linesFeature = createLinesFeature({
         logDiagnostic: diagnostic => console.warn('[SP dashed failure]', diagnostic),
         refreshPanel: () => {}, refreshInline: () => {},
         deferDashed: () => refreshController.stagger.deferDashed(),
+        sameFloor: () => sameFloorGate.pending(),
     },
     dashedEnabled: () => getSettings().dashedEnabled === true,
     generationEnv: {
@@ -1628,6 +1631,7 @@ const outlineFeature = createOutlineFeature({
     onActivity: entry => activityFeature.record(entry),
     logDiagnostic: diagnostic => console.warn('[SP outline failure]', diagnostic),
     emptyOutlineHtml: () => booksEmptyHtml('outline'),
+    sameFloor: () => sameFloorGate.pending(),
 });
 let bootstrapFeature = null;
 function bootstrapStatus(result) {
@@ -1766,6 +1770,7 @@ const refreshController = createRefreshController({
     snapshotModules: names => activityFeature.capture(names),
     onActivity: entry => activityFeature.record(entry),
     floorSignature: _floorSig,
+    sameFloor: () => sameFloorGate.pending(),
     onPatched: () => {
         const saved = readStore(getCacheKey('user', ''));
         if (saved?.raw) {
@@ -1790,6 +1795,7 @@ const paceBook = createPaceBook({
     outline: outlineFeature.judge,
     dashed: linesFeature.dashed,
     linesLifecycle: linesFeature.lifecycle,
+    sameFloor: () => sameFloorGate.pending(),
     paintSoon: () => paintPaceSoon(),
 });
 function syncRefreshBar(view = _lastMainView) {
@@ -2192,6 +2198,7 @@ jQuery(async () => {
         pace: paceBook,
         get coordinate() { return coordinateRuntime?.feature; },
         refresh: refreshController,
+        sameFloor: sameFloorGate,
         beat: beatFeature,
         clearTravelUi() {
             timeTravel.resetSelection();
@@ -2289,6 +2296,7 @@ jQuery(async () => {
             syncLatestAlmanacBlock,
             syncLatestScheduleBlock,
             refresh: refreshController,
+            sameFloor: sameFloorGate,
             beat: beatFeature,
             activity: activityFeature,
             floorSig: _floorSig,

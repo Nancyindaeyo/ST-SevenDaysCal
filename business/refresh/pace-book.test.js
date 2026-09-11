@@ -89,3 +89,17 @@ test('consumeFloor persists unfinished intervals, not blocked or seen floors', (
     assert.equal(book.date.state().counter, 0);
     assert.equal(paints(), 2);
 });
+
+test('consumeFloor treats a same-floor reroll as seen and heals lastFloor', () => {
+    let pending = true;
+    const book = createPaceBook({
+        latestFloor: () => 4,
+        sameFloor: () => pending,
+    });
+    book.date.hydrate({ lastFloor: 2, counter: 1 });
+    assert.equal(book.consumeFloor('date', 5, { interval: 3 }), false);
+    assert.deepEqual(book.date.state(), { lastFloor: 5, counter: 1 });
+    pending = false;
+    assert.equal(book.consumeFloor('date', 6, { interval: 3 }), false);
+    assert.equal(book.date.state().counter, 2);
+});

@@ -84,14 +84,22 @@ export function createChatFloorHandlers(h) {
         genStart: (genType, _opts, dryRun) => {
             h.refreshStoryClockInjection?.();
             h.lines?.onGenerationStarted?.({ genType, dryRun });
-            if (!dryRun && (genType === 'regenerate' || genType === 'swipe')) h.refresh?.abort?.('reroll');
+            if (!dryRun && (genType === 'regenerate' || genType === 'swipe')) {
+                h.refresh?.abort?.('reroll');
+                h.sameFloor?.mark?.(genType);
+            }
         },
         streamTok: () => { h.lines?.onToken?.(); },
         genEnd: () => {
             h.lines?.onGenerationEnded?.({ stopped: false });
         },
         genStopped: () => {
+            h.sameFloor?.clear?.();
             h.lines?.onGenerationEnded?.({ stopped: true });
+        },
+        sameFloorSettle: messageId => {
+            if (!isLatestChatFloor(h.getContext?.().chat, messageId)) return;
+            h.sameFloor?.consume?.();
         },
         outlineJudge: messageId => { h.outline?.onCharacterMessage?.(messageId); h.rememberPace?.(); },
         // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
@@ -187,6 +195,7 @@ export function bindChatFloorListeners({ eventSource, event_types: et, store, h 
         { key: 'ledgerCapture', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerCapture },
         { key: 'ledgerJudge', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerJudge },
         { key: 'ledgerInjectRescore', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerInjectRescore },
+        { key: 'sameFloorSettle', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.sameFloorSettle },
         { key: 'rename', type: et.CHAT_RENAMED, handler: handlers.rename },
     ]);
     return handlers;

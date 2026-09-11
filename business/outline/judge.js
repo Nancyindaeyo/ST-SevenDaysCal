@@ -20,6 +20,7 @@ export function createOutlineJudge({
     onActivity,
     logDiagnostic,
     isEditing = () => false,
+    sameFloor,
 } = {}) {
     let owner = null;
     let busy = false;
@@ -213,6 +214,7 @@ export function createOutlineJudge({
             messageId,
             interval: interval(),
             blocked: isAutomationSuppressed?.(messageId, automationModule) === true,
+            sameFloor: sameFloor?.() === true,
         });
         lastJudgedMessageId = tick.lastFloor;
         messageCounter = tick.counter;

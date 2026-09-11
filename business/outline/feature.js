@@ -67,6 +67,7 @@ export function createOutlineFeature(env = {}) {
         onActivity: env.onActivity,
         logDiagnostic: env.logDiagnostic,
         isEditing: () => editing,
+        sameFloor: env.sameFloor,
         onCursorChanged: ({ target }) => { if (ui.isOutlineMode()) refreshPanel(target); },
     });
     const generation = createOutlineGeneration({

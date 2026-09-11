@@ -208,6 +208,25 @@ test('regenerate aborts in-flight align', () => {
     assert.equal(dry.calls.includes('refresh.abort'), false);
 });
 
+test('regenerate marks same-floor and settle consumes it on the latest floor', () => {
+    const marks = [];
+    const h = floorHost({
+        sameFloor: {
+            mark: type => marks.push(['mark', type]),
+            consume: () => marks.push(['consume']),
+            clear: () => marks.push(['clear']),
+        },
+    });
+    const handlers = createChatFloorHandlers(h);
+    handlers.genStart('regenerate', {}, false);
+    handlers.sameFloorSettle(1);
+    assert.deepEqual(marks, [['mark', 'regenerate']]);
+    handlers.sameFloorSettle(2);
+    assert.deepEqual(marks, [['mark', 'regenerate'], ['consume']]);
+    handlers.genStopped();
+    assert.ok(marks.some(item => item[0] === 'clear'));
+});
+
 test('same-floor render asks refresh to realign', async () => {
     const h = floorHost({
         refresh: {
