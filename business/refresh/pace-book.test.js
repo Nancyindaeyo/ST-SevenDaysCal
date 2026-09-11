@@ -39,12 +39,13 @@ function fakeBook() {
 test('pace book persist/hydrate round-trips date and ledger gates', () => {
     const first = fakeBook();
     first.book.date.hydrate({ lastFloor: 4, counter: 2 });
-    first.book.ledgerCapture.hydrate({ lastFloor: 4, counter: 1 });
+    first.book.ledgerCapture.hydrate({ lastFloor: 4, counter: 1, lastDueFloor: 4 });
     first.book.ledgerJudge.hydrate({ lastFloor: 3, counter: 3 });
     first.book.persist();
     const saved = first.getSaved();
     assert.equal(saved.date.counter, 2);
     assert.equal(saved.ledgerCapture.counter, 1);
+    assert.equal(saved.ledgerCapture.lastDueFloor, 4);
     assert.equal(saved.advance.lastFloor, 4);
 
     const second = fakeBook();
@@ -63,6 +64,7 @@ test('pace book persist/hydrate round-trips date and ledger gates', () => {
     restored.hydrate();
     assert.equal(restored.date.state().counter, 2);
     assert.equal(restored.ledgerCapture.state().lastFloor, 4);
+    assert.equal(restored.ledgerCapture.state().lastDueFloor, 4);
     assert.equal(second.refresh.last.pendingAdvance, true);
     assert.equal(second.linesLifecycle.counter, 1);
 });
@@ -98,7 +100,7 @@ test('consumeFloor treats a same-floor reroll as seen and heals lastFloor', () =
     });
     book.date.hydrate({ lastFloor: 2, counter: 1 });
     assert.equal(book.consumeFloor('date', 5, { interval: 3 }), false);
-    assert.deepEqual(book.date.state(), { lastFloor: 5, counter: 1 });
+    assert.deepEqual(book.date.state(), { lastFloor: 5, counter: 1, lastDueFloor: -1 });
     pending = false;
     assert.equal(book.consumeFloor('date', 6, { interval: 3 }), false);
     assert.equal(book.date.state().counter, 2);

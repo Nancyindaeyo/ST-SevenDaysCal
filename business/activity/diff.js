@@ -157,5 +157,6 @@ export function sameSnapshot(current, expected) {
         const then = JSON.stringify(expected.dashed.map(item => [item.id, item.text]));
         if (now !== then) return false;
     }
+    if (expected.ledger && JSON.stringify(current?.ledger || null) !== JSON.stringify(expected.ledger)) return false;
     return true;
 }

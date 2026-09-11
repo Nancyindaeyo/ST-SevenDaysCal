@@ -26,6 +26,7 @@ export function createOutlineJudge({
     let busy = false;
     let lastJudgedMessageId = -1;
     let messageCounter = 0;
+    let lastAutoRunFloor = -1;
 
     const owns = candidate => owner === candidate;
     const finish = candidate => {
@@ -55,7 +56,7 @@ export function createOutlineJudge({
         onCursorChanged?.({ target: candidate.target, raw, cursor });
     };
 
-    const runAdvance = async () => {
+    const runAdvance = async (messageId = null) => {
         const diagnostic = createGenerationDiagnosticScope('outline-judge', { background: true });
         if (busy && owner?.controller?.signal?.aborted) {
             owner = null;
@@ -107,6 +108,7 @@ export function createOutlineJudge({
             if (!shouldAdvanceOutline(answer)) {
                 diagnostic.committed({ reasonCode: 'outline-no-change' });
                 finish(task);
+                onActivity?.({ source: 'outline', floorId: messageId, outcome: 'unchanged', note: '本轮判定无需推进面' });
                 return { status: 'unchanged' };
             }
             let stored;
@@ -123,6 +125,7 @@ export function createOutlineJudge({
             try {
                 onActivity?.({
                     source: 'outline',
+                    floorId: messageId,
                     items: [{ module: 'outline', title: next.title || `节点 ${cursor + 1}`, action: 'cursor' }],
                     snapshot: { outline: { raw: saved.raw, cursor } },
                     after: { outline: { raw: saved.raw, cursor: cursor + 1 } },
@@ -219,13 +222,15 @@ export function createOutlineJudge({
         lastJudgedMessageId = tick.lastFloor;
         messageCounter = tick.counter;
         if (tick.status !== 'due') return false;
-        void runAdvance();
+        lastAutoRunFloor = Number(messageId);
+        void runAdvance(messageId);
         return true;
     };
     const onChatChanged = ({ lastSeen = -1 } = {}) => {
         abort();
         lastJudgedMessageId = Number.isFinite(Number(lastSeen)) ? Number(lastSeen) : -1;
         messageCounter = 0;
+        lastAutoRunFloor = -1;
     };
     const resetCounter = () => { messageCounter = 0; };
     const hydrate = (state = {}) => {
@@ -233,6 +238,7 @@ export function createOutlineJudge({
         const floor = state.lastFloor ?? state.lastJudgedMessageId;
         messageCounter = Math.max(0, Math.floor(Number(used) || 0));
         if (Number.isInteger(Number(floor))) lastJudgedMessageId = Number(floor);
+        if (Number.isInteger(Number(state.lastDueFloor))) lastAutoRunFloor = Number(state.lastDueFloor);
     };
     const canRelocate = () => {
         const target = repository.capture();
@@ -250,6 +256,6 @@ export function createOutlineJudge({
         abort,
         getInterval: interval,
         get busy() { return busy; },
-        state: () => ({ busy, lastJudgedMessageId, messageCounter, lastFloor: lastJudgedMessageId, counter: messageCounter }),
+        state: () => ({ busy, lastJudgedMessageId, messageCounter, lastFloor: lastJudgedMessageId, counter: messageCounter, lastDueFloor: lastAutoRunFloor }),
     });
 }

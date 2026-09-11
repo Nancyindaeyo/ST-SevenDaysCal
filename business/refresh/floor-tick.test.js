@@ -30,14 +30,14 @@ test('floor gate skips seen floors, holds the counter when blocked, then fires o
 test('ticker hydrate/reset keep lastFloor and counter in lockstep with ticks', () => {
     const ticker = createFloorTicker();
     ticker.hydrate({ lastFloor: 2, counter: 1 });
-    assert.deepEqual(ticker.state(), { lastFloor: 2, counter: 1 });
+    assert.deepEqual(ticker.state(), { lastFloor: 2, counter: 1, lastDueFloor: -1 });
 
     assert.equal(ticker.tick(3, { interval: 3 }).reason, 'interval');
     ticker.resetCounter();
-    assert.deepEqual(ticker.state(), { lastFloor: 3, counter: 0 });
+    assert.deepEqual(ticker.state(), { lastFloor: 3, counter: 0, lastDueFloor: -1 });
 
     ticker.reset({ lastFloor: 9 });
-    assert.deepEqual(ticker.state(), { lastFloor: 9, counter: 0 });
+    assert.deepEqual(ticker.state(), { lastFloor: 9, counter: 0, lastDueFloor: -1 });
     assert.equal(ticker.tick(9, { interval: 1 }).reason, 'seen');
 });
 
@@ -45,7 +45,7 @@ test('same-floor option heals lastFloor without incrementing the ticker', () => 
     const ticker = createFloorTicker();
     ticker.hydrate({ lastFloor: 4, counter: 2 });
     assert.equal(ticker.tick(7, { interval: 3, sameFloor: true }).reason, 'seen');
-    assert.deepEqual(ticker.state(), { lastFloor: 7, counter: 2 });
+    assert.deepEqual(ticker.state(), { lastFloor: 7, counter: 2, lastDueFloor: -1 });
     assert.equal(ticker.tick(8, { interval: 3 }).status, 'due');
-    assert.deepEqual(ticker.state(), { lastFloor: 8, counter: 0 });
+    assert.deepEqual(ticker.state(), { lastFloor: 8, counter: 0, lastDueFloor: 8 });
 });

@@ -170,7 +170,7 @@ export function renderActivityList(entries = []) {
     if (!entries.length) {
         return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">自动对齐、线推进、面判定、间引导和手动刷新成功后会记在这里，方便反悔。对齐的理由也写在卡片上，可以拿到间里聊。失败和无变化也会记一笔，方便确认 API 跑过了。</p></div>`;
     }
-    return `<ol class="sp-activity-list">${entries.map(entry => {
+    return `<ol class="sp-activity-list">${entries.slice(0, 3).map(entry => {
         const stale = entry.stale && !entry.undone
             ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';

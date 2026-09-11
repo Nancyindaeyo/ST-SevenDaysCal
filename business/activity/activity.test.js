@@ -38,8 +38,8 @@ test('store prepends per chat and caps', () => {
     assert.equal(store.list('b').length, 0);
 });
 
-test('activity log keeps three recent cards; line complete is 收束 not delete', () => {
-    assert.equal(ACTIVITY_CAP, 3);
+test('activity log retains enough replay records but renders three recent cards', () => {
+    assert.equal(ACTIVITY_CAP, 24);
     assert.equal(actionLabel('complete', 'point'), '完成并删除');
     assert.equal(actionLabel('complete', 'lines'), '收束');
     const memory = new Map();
@@ -51,10 +51,10 @@ test('activity log keeps three recent cards; line complete is 收束 not delete'
         },
     });
     for (let i = 1; i <= 5; i++) store.prepend('a', { id: String(i), source: 'align', items: [{ module: 'lines', title: `线${i}`, action: 'complete' }] });
-    assert.deepEqual(store.list('a').map(item => item.id), ['5', '4', '3']);
-    memory.set('k:old', JSON.stringify(Array.from({ length: 8 }, (_, i) => ({ id: `old${i}`, source: 'align' }))));
+    assert.deepEqual(store.list('a').map(item => item.id), ['5', '4', '3', '2', '1']);
+    memory.set('k:old', JSON.stringify(Array.from({ length: 30 }, (_, i) => ({ id: `old${i}`, source: 'align' }))));
     store.clearMemory('old');
-    assert.equal(store.list('old').length, 3);
+    assert.equal(store.list('old').length, 24);
     const html = renderActivityList([{
         id: 'x', source: 'align', items: [{ module: 'lines', title: '旧线', action: 'complete' }],
     }]);
@@ -156,6 +156,8 @@ test('activity cards expose per-item undo', () => {
 test('same snapshot helper and list html include undo', () => {
     assert.equal(sameSnapshot({ point: 'a' }, { point: 'a' }), true);
     assert.equal(sameSnapshot({ point: 'a' }, { point: 'b' }), false);
+    assert.equal(sameSnapshot({ ledger: { entries: [{ id: 'L1' }], seq: 1 } }, { ledger: { entries: [{ id: 'L1' }], seq: 1 } }), true);
+    assert.equal(sameSnapshot({ ledger: { entries: [], seq: 1 } }, { ledger: { entries: [{ id: 'L1' }], seq: 1 } }), false);
     const html = renderActivityList([{
         id: '1', ts: Date.now(), source: 'guide', undone: false,
         items: [{ module: 'point', title: '体检', action: 'complete' }],

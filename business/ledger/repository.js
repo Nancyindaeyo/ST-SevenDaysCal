@@ -164,6 +164,39 @@ export function listEntries({ includeClosed = false } = {}) {
     return m.entries.filter(e => includeClosed || e.状态 !== '已了结');
 }
 
+export function snapshotLedgerState() {
+    const current = ledger();
+    return cloneState(current || freshMeta());
+}
+
+export async function replaceLedgerStateAtomic(snapshot, owner = null) {
+    const m = ledger(true);
+    const ctx = getContext?.();
+    if (!m || !ctx || owner?.guard?.() === false) return { ok: false, reason: 'stale-before-save' };
+    const input = snapshot && typeof snapshot === 'object' ? snapshot : freshMeta();
+    const entries = Array.isArray(input.entries) ? input.entries.map(entry => normalizeEntry(entry, String(entry?.id || ''))) : [];
+    const seq = Number.isInteger(Number(input.seq)) ? Number(input.seq) : entries.reduce((max, entry) => Math.max(max, Number(String(entry.id).slice(1)) || 0), 0);
+    if (!validLedgerIdentity(entries, seq)) return { ok: false, reason: 'invalid-ledger-snapshot' };
+    const before = cloneState(m);
+    m.entries = entries;
+    m.seq = seq;
+    m.version = SCHEMA_VERSION;
+    try {
+        const saved = await persistAwaitable(ctx, { target: owner?.target, ownerGuard: owner?.guard });
+        if (saved && (saved.ok !== true || saved.commitState === 'unknown')) {
+            throw Object.assign(new Error(saved.reason || 'ledger-save-unconfirmed'), { saveResult: saved });
+        }
+        if (owner?.guard?.() === false) return { ok: false, stale: true, reason: 'stale-after-save' };
+        return saved && typeof saved === 'object' ? saved : { ok: true, commitState: 'confirmed' };
+    } catch (error) {
+        return compensateOrFail(persistAwaitable, ctx, owner?.target, before, () => {
+            m.entries = before.entries;
+            m.seq = before.seq;
+            m.version = before.version;
+        }, error);
+    }
+}
+
 export function getEntry(id) {
     const m = ledger();
     if (!m) return null;

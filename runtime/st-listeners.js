@@ -50,10 +50,9 @@ export function createChatFloorHandlers(h) {
             h.syncLatestAlmanacBlock?.();
             h.syncLatestScheduleBlock?.();
             const mid = Number(messageId);
-            const tick = await h.refresh?.onAiFloor?.(mid);
+            await h.refresh?.onAiFloor?.(mid);
             h.beat?.onAiFloor?.(mid);
             h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
-            if (tick?.reason === 'seen') await h.refresh?.onRerollAlign?.(mid);
             await h.lines?.onCharacterRendered?.({ messageId: mid, type, autoSuppressed: h.isAutomationSuppressed?.(mid, modules.LINES) });
             h.rememberPace?.();
         },
@@ -72,19 +71,11 @@ export function createChatFloorHandlers(h) {
             if (!info?.pendingGeneration) {
                 const mid = Number(mesId);
                 h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
-                await h.refresh?.onRerollAlign?.(mid);
+                await h.rerunFloorAutomations?.(mid);
             }
         },
-        edited: async (mesId) => {
+        edited: (mesId) => {
             h.lines?.onEdited?.({ mesId });
-            if (!h.pluginEnabled?.()) return;
-            const mid = Number(mesId);
-            if (!isLatestChatFloor(h.getContext?.().chat, mid) || h.refresh?.didReconcile?.(mid) !== true) return;
-            h.relandStoryClockAnchor?.();
-            h.syncLatestAlmanacBlock?.();
-            h.syncLatestScheduleBlock?.();
-            h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
-            await h.refresh?.onRerollAlign?.(mid);
         },
         sent: (insertAt) => {
             h.lines?.onSent?.({ insertAt });
@@ -105,8 +96,9 @@ export function createChatFloorHandlers(h) {
             h.sameFloor?.clear?.();
             h.lines?.onGenerationEnded?.({ stopped: true });
         },
-        sameFloorSettle: messageId => {
+        sameFloorSettle: async messageId => {
             if (!isLatestChatFloor(h.getContext?.().chat, messageId)) return;
+            if (h.sameFloor?.pending?.()) await h.rerunFloorAutomations?.(Number(messageId));
             h.sameFloor?.consume?.();
         },
         outlineJudge: messageId => { h.outline?.onCharacterMessage?.(messageId); h.rememberPace?.(); },
@@ -143,7 +135,7 @@ export function createChatFloorHandlers(h) {
                 interval: h.getLedgerCaptureInterval?.(),
                 blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_CAPTURE),
             })) return;
-            h.runLedgerCaptureStep?.();
+            h.runLedgerCaptureStep?.(false, { automationFloor: Number(messageId) });
             h.rememberPace?.();
         },
         ledgerJudge: async (messageId) => {
@@ -155,7 +147,7 @@ export function createChatFloorHandlers(h) {
                 interval: h.getLedgerJudgeInterval?.(),
                 blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_JUDGE),
             })) return;
-            h.runLedgerJudgeStep?.();
+            h.runLedgerJudgeStep?.(false, { automationFloor: Number(messageId) });
             h.rememberPace?.();
         },
         ledgerInjectRescore: async (messageId) => {

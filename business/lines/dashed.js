@@ -130,7 +130,7 @@ export function createDashedModule(env = {}) {
     const readMeta = () => env.readStore(key()) || {};
     const readTheme = () => String(readMeta().theme || env.getSettings?.()?.dashedTheme || '');
     const keep = () => normalizeDashedKeepCount(env.getSettings().dashedKeepCount);
-    let autoFloor = -1, autoCount = 0;
+    let autoFloor = -1, autoCount = 0, lastAutoRunFloor = -1;
     const commit = (items, ts = now()) => { const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false); const theme = readTheme(); if (result.items.length) return { ...result, ok: env.writeStore(key(), { items: result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) })), ts, theme }) === true }; env.writeStore(key(), { items: [], ts, theme }); return { ...result, ok: true }; };
     const commitConfirmed = async (items, ts, ownerGuard) => {
         const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false);
@@ -140,13 +140,14 @@ export function createDashedModule(env = {}) {
         return { ...result, ok: saved === true || saved?.ok === true, stale: saved?.stale === true, saveResult: saved && typeof saved === 'object' ? saved : null };
     };
     const refresh = () => { env.refreshPanel?.(); env.refreshInline?.(); };
-    const state = () => ({ busy, error: panelError, autoCount, autoFloor, counter: autoCount, lastFloor: autoFloor });
-    const resetAuto = () => { autoCount = 0; autoFloor = -1; };
+    const state = () => ({ busy, error: panelError, autoCount, autoFloor, counter: autoCount, lastFloor: autoFloor, lastDueFloor: lastAutoRunFloor });
+    const resetAuto = () => { autoCount = 0; autoFloor = -1; lastAutoRunFloor = -1; };
     const hydrate = (next = {}) => {
         const used = next.counter ?? next.autoCount;
         const floor = next.lastFloor ?? next.autoFloor;
         autoCount = Math.max(0, Math.floor(Number(used) || 0));
         autoFloor = Number.isInteger(Number(floor)) ? Number(floor) : -1;
+        lastAutoRunFloor = Number.isInteger(Number(next.lastDueFloor)) ? Number(next.lastDueFloor) : -1;
     };
     async function run(options = {}) {
         if (busy) return; const manual = options.manual === true, reroll = manual || options.reroll === true; const diagnostic = createGenerationDiagnosticScope('dashed', { background: !manual }); const selected = resolveDashedTopics(options, { theme: readTheme(), random }); const requested = options.count || selected.length || (options.nearText ? 1 : 2); const count = dashedTargetCount(requested, { min: options.nearText ? 1 : 2 }); const chatId = env.chatId(); const ctrl = controller = new AbortController(); busy = true; panelError = ''; refresh();
@@ -161,6 +162,22 @@ export function createDashedModule(env = {}) {
     function toolbarHtml({ onEvents, lineBusy, generationBusy }) {
         const dashedBusy = busy ? ' sp-refresh-busy' : '';
         return `<div class="sp-lines-toolbar-inner"><div class="sp-lines-sheet-toggle"><button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">平行事件</button><button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">冷知识</button></div><div class="sp-lines-tools">${onEvents ? `<button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="打开刷新账本" aria-label="打开刷新账本"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button><button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="推进：缺的后天会先补上，再演化平行事件" aria-label="推进"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>` : `<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="新增冷知识" aria-label="新增冷知识"${busy ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}</div></div>`;
+    }
+    async function rerunAutoFloor(messageId, { latestStory = '', reroll = true } = {}) {
+        const mid = Number(messageId);
+        if (!Number.isInteger(mid) || lastAutoRunFloor !== mid) return { status: 'skipped', reason: 'not-due' };
+        const before = read();
+        const startedAt = Date.now();
+        const result = await run({ auto: true, reroll, floorId: mid, nearText: true, latestStory });
+        const after = read();
+        env.markActivityFloor?.('dashed', mid, {
+            outcome: result?.status === 'updated' && result?.added ? 'updated' : result?.status === 'failed' ? 'failed' : 'unchanged',
+            note: result?.status === 'updated' && !result?.added ? '本轮没有新增冷知识' : '',
+            snapshot: result?.added ? { dashed: before } : null,
+            after: result?.added ? { dashed: after } : null,
+            since: startedAt,
+        });
+        return result;
     }
     async function onAiFloor(messageId, { blocked = false, owed = false, latestStory = '' } = {}) {
         if (env.getSettings().dashedEnabled !== true) return { status: 'skipped' };
@@ -188,7 +205,8 @@ export function createDashedModule(env = {}) {
         autoFloor = tick.lastFloor;
         autoCount = tick.counter;
         if (tick.status !== 'due') return { status: 'skipped', reason: tick.reason };
-        return run({ auto: true, nearText: true, latestStory });
+        lastAutoRunFloor = mid;
+        return rerunAutoFloor(mid, { latestStory, reroll: false });
     }
-    return { run, onAiFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrate, hydrateAuto: hydrate, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
+    return { run, onAiFloor, rerunAutoFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrate, hydrateAuto: hydrate, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
 }

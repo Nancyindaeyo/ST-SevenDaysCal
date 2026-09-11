@@ -15,6 +15,7 @@ import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createSameFloorGate } from './business/refresh/same-floor.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
+import { createFloorAutomationRerunner } from './business/refresh/reroll.js';
 import { createAdvanceQueue } from './business/refresh/advance-queue.js';
 import { createActivityFeature } from './business/activity/feature.js';
 import { activityClockLabel } from './business/activity/ui.js';
@@ -703,7 +704,26 @@ const reconcileLedgerSources = async (owner = null) => {
     try { return await ledger.reconcileEntriesAtomic(sources, getContext()?.chat?.length || 0, owner); }
     catch (error) { logSourceError(error, error.planSummary); return { changed: false, summary: error.planSummary || {}, phase: error.phase || 'source-save-failed', error }; }
 };
-const runLedgerCaptureStep = (manual = false, travelContext = null) => ledgerCaptureController.run(manual, travelContext);
+const runLedgerCaptureStep = async (manual = false, travelContext = null) => {
+    const floorId = Number(travelContext?.automationFloor);
+    const tracked = Number.isInteger(floorId);
+    const before = tracked ? ledger.snapshotLedgerState() : null;
+    const result = await ledgerCaptureController.run(manual, travelContext);
+    if (tracked) {
+        const after = ledger.snapshotLedgerState();
+        const changed = JSON.stringify(before) !== JSON.stringify(after);
+        activityFeature.record({
+            source: 'ledger-capture',
+            floorId,
+            outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
+            note: changed ? '' : '本轮刻度标注没有改动',
+            items: changed ? [{ module: 'ledger', title: '按本楼正文更新刻度标注', action: 'edit' }] : [],
+            snapshot: changed ? { ledger: before } : null,
+            after: changed ? { ledger: after } : null,
+        });
+    }
+    return result;
+};
 const ledgerInjectionController = createLedgerInjectionController({
     context: getContext,
     enabled: injectEnabled,
@@ -748,7 +768,26 @@ const ledgerJudgeController = createLedgerJudgeController({
     refreshInline: refreshInlineWindow,
     render: () => { if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel(); },
 });
-const runLedgerJudgeStep = (manual = false, travelContext = null) => ledgerJudgeController.run(manual, travelContext);
+const runLedgerJudgeStep = async (manual = false, travelContext = null) => {
+    const floorId = Number(travelContext?.automationFloor);
+    const tracked = Number.isInteger(floorId);
+    const before = tracked ? ledger.snapshotLedgerState() : null;
+    const result = await ledgerJudgeController.run(manual, travelContext);
+    if (tracked) {
+        const after = ledger.snapshotLedgerState();
+        const changed = JSON.stringify(before) !== JSON.stringify(after);
+        activityFeature.record({
+            source: 'ledger-judge',
+            floorId,
+            outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
+            note: changed ? '' : '本轮刻度现状没有改动',
+            items: changed ? [{ module: 'ledger', title: '按本楼正文更新刻度现状', action: 'edit' }] : [],
+            snapshot: changed ? { ledger: before } : null,
+            after: changed ? { ledger: after } : null,
+        });
+    }
+    return result;
+};
 const ledgerInlineRenderer = createLedgerInlineRenderer({
     settings: getSettings,
     calendar: loadCalDesc,
@@ -1432,6 +1471,7 @@ const activityFeature = createActivityFeature({
     readLines: () => readStore(getLinesCacheKey())?.raw || '',
     readOutline: () => ({ raw: outlineFeature?.readRaw?.() || '', cursor: outlineFeature?.readSnapshot?.()?.cursor || 0 }),
     readDashed: () => linesFeature?.dashed?.read?.() || [],
+    readLedger: () => ledger.snapshotLedgerState(),
     writePoint: async raw => {
         const key = getCacheKey('user', '');
         const saved = readStore(key) || {};
@@ -1450,6 +1490,16 @@ const activityFeature = createActivityFeature({
         return true;
     },
     writeDashed: items => linesFeature.dashed.commit(items),
+    writeLedger: async state => {
+        const chatId = getContext()?.chatId;
+        const result = await ledger.replaceLedgerStateAtomic(state, {
+            target: getLedgerTarget(),
+            guard: () => getContext()?.chatId === chatId,
+        });
+        if (result?.ok !== true) throw Object.assign(new Error(result?.reason || 'ledger-restore-failed'), { saveResult: result });
+        refreshLedgerInjection();
+        return true;
+    },
     onRestored: () => {
         const saved = readStore(getCacheKey('user', ''));
         if (saved?.raw) {
@@ -1526,6 +1576,7 @@ const linesFeature = createLinesFeature({
         });
     },
     pluginEnabled, getSettings, getMode: getLinesMode, getInterval: getLinesInterval,
+    deferSameFloorDateAftermath: () => true,
     floorSignature: _floorSig, messageText: mid => getContext().chat?.[mid]?.mes,
     chat: () => getContext().chat, lastAssistant: () => snapshotLastAssistant(getContext().chat),
     dayAnchor: () => { try { const md = almTodayAnchor(); return md && Number.isFinite(+md.month) && Number.isFinite(+md.day) ? `${+md.month}-${+md.day}` : null; } catch { return null; } },
@@ -1560,6 +1611,7 @@ const linesFeature = createLinesFeature({
         uuid: () => globalThis.crypto?.randomUUID?.(), now: () => Date.now(), random: () => Math.random(),
         toast: (message, error) => showToast(message, null, error), escapeHtml, escapeAttr,
         onActivity: entry => activityFeature.record(entry),
+        markActivityFloor: (source, floorId, patch) => activityFeature.markLatestSourceFloor(source, floorId, patch),
         logDiagnostic: diagnostic => console.warn('[SP dashed failure]', diagnostic),
         refreshPanel: () => {}, refreshInline: () => {},
         deferDashed: () => refreshController.stagger.deferDashed(),
@@ -2306,6 +2358,39 @@ jQuery(async () => {
             if (getSettings().notifyMode === 'full') showToast('角色默认历法没有自动应用成功', null, true);
         });
     } catch (err) { console.warn('[SP store] 首屏迁移失败', safeDiagnosticLog('storage', 'save', err)); }
+    const floorAutomationRerunner = createFloorAutomationRerunner({
+        chatId: () => getContext()?.chatId,
+        latestFloor: () => (getContext()?.chat?.length || 0) - 1,
+        floorSignature: _floorSig,
+        plans: mid => [
+            getSettings().ledgerReconcileReroll !== false && refreshController.didReconcile(mid)
+                ? { source: 'align', label: '自动对齐', restore: () => activityFeature.revertLatestAlign(mid), run: () => refreshController.onRerollAlign(mid) }
+                : null,
+            linesFeature.lifecycle.lastAdvanceFloor === mid
+                ? {
+                    source: 'advance',
+                    label: '线推进',
+                    restore: () => activityFeature.replayFloorSource('advance', mid),
+                    run: () => getLinesMode() === 'days' ? linesFeature.rerunDateFloorAdvance(mid) : linesFeature.rerunFloorAdvance(mid),
+                }
+                : null,
+            linesFeature.dashed.state().lastDueFloor === mid
+                ? { source: 'dashed', label: '冷知识', restore: () => activityFeature.replayFloorSource('dashed', mid), run: () => linesFeature.dashed.rerunAutoFloor(mid, { latestStory: cleanText(latestAiFloor(getContext().chat)?.text || '') }) }
+                : null,
+            outlineFeature.judge.state().lastDueFloor === mid
+                ? { source: 'outline', label: '面判定', restore: () => activityFeature.replayFloorSource('outline', mid), run: () => outlineFeature.judge.runAdvance(mid) }
+                : null,
+            paceBook.ledgerCapture.state().lastDueFloor === mid
+                ? { source: 'ledger-capture', label: '刻度标注', restore: () => activityFeature.replayFloorSource('ledger-capture', mid), run: () => runLedgerCaptureStep(false, { automationFloor: mid, reroll: true }) }
+                : null,
+            paceBook.ledgerJudge.state().lastDueFloor === mid
+                ? { source: 'ledger-judge', label: '刻度现状', restore: () => activityFeature.replayFloorSource('ledger-judge', mid), run: () => runLedgerJudgeStep(false, { automationFloor: mid, reroll: true }) }
+                : null,
+        ].filter(Boolean),
+        toast: (message, error) => showToast(message, null, error),
+        remember: rememberPace,
+    });
+    const rerunFloorAutomations = messageId => floorAutomationRerunner.run(messageId);
     bindChatFloorListeners({
         eventSource,
         event_types,
@@ -2327,6 +2412,7 @@ jQuery(async () => {
             sameFloor: sameFloorGate,
             beat: beatFeature,
             activity: activityFeature,
+            rerunFloorAutomations,
             floorSig: _floorSig,
             rememberPace,
             isAutomationSuppressed,

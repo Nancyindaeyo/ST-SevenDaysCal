@@ -35,6 +35,7 @@ export function createActivityFeature(env = {}) {
             snapshot.outline = { raw: String(outline.raw || ''), cursor: Number(outline.cursor) || 0 };
         }
         if (names.includes('dashed')) snapshot.dashed = env.readDashed?.() || [];
+        if (names.includes('ledger')) snapshot.ledger = env.readLedger?.() || null;
         return snapshot;
     };
     const restore = async snapshot => {
@@ -42,6 +43,7 @@ export function createActivityFeature(env = {}) {
         if (snapshot?.lines != null) await env.writeLines?.(snapshot.lines);
         if (snapshot?.outline) await env.writeOutline?.(snapshot.outline);
         if (snapshot?.dashed) await env.writeDashed?.(snapshot.dashed);
+        if (snapshot?.ledger) await env.writeLedger?.(snapshot.ledger);
     };
     const syncPaceOpen = () => {
         const $overlay = $in?.('#sp-activity-overlay');
@@ -192,6 +194,31 @@ export function createActivityFeature(env = {}) {
         return revertIfCurrent(entry);
     };
 
+    const latestSourceForFloor = (source, floorId) => list().find(item => (
+        item.source === source
+        && Number(item.floorId) === Number(floorId)
+        && !item.undone
+    )) || null;
+
+    const markLatestSourceFloor = (source, floorId, patch = {}) => {
+        const since = Number(patch.since) || 0;
+        const { since: _since, ...details } = patch;
+        const entry = list().find(item => item.source === source && item.floorId == null && !item.undone && item.ts >= since);
+        if (entry) {
+            store.prepend(chatId(), { ...entry, ...details, floorId });
+            paint();
+            return entry.id;
+        }
+        return record({ source, floorId, ...details });
+    };
+
+    const replayFloorSource = async (source, floorId) => {
+        const entry = latestSourceForFloor(source, floorId);
+        if (!entry) return { status: 'empty' };
+        if (!entry.snapshot) return { status: 'unchanged', entry };
+        return revertIfCurrent(entry);
+    };
+
     const markFloorRestyle = ({ floorId, signature } = {}) => {
         const id = Number(floorId);
         const sig = String(signature || '');
@@ -316,6 +343,9 @@ export function createActivityFeature(env = {}) {
         restore,
         latestAdvanceForFloor,
         replayFloorAdvance,
+        latestSourceForFloor,
+        markLatestSourceFloor,
+        replayFloorSource,
         revertLatestAlign,
         markFloorRestyle,
         realign,

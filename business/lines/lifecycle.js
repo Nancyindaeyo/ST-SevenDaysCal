@@ -6,6 +6,7 @@ export function createLinesLifecycle() {
     let rerollExcludedAssistant = null;
     let streamUntil = 0;
     let counter = 0;
+    let lastAdvanceFloor = -1;
     let lastDay = null;
     let pendingFloor = null;
     let confirmedFloor = null;
@@ -17,6 +18,7 @@ export function createLinesLifecycle() {
         get rerollExcludedAssistant() { return rerollExcludedAssistant; },
         get streamUntil() { return streamUntil; },
         get counter() { return counter; },
+        get lastAdvanceFloor() { return lastAdvanceFloor; },
         get lastDay() { return lastDay; },
         get pendingFloor() { return pendingFloor; },
         get confirmedFloor() { return confirmedFloor; },
@@ -27,6 +29,7 @@ export function createLinesLifecycle() {
         set rerollExcludedAssistant(value) { rerollExcludedAssistant = value; },
         set streamUntil(value) { streamUntil = Number(value) || 0; },
         set counter(value) { counter = Number(value) || 0; },
+        set lastAdvanceFloor(value) { lastAdvanceFloor = Number.isInteger(Number(value)) ? Number(value) : -1; },
         set lastDay(value) { lastDay = value == null ? null : String(value); },
         set pendingFloor(value) { pendingFloor = value || null; },
         set confirmedFloor(value) { confirmedFloor = value || null; },
@@ -37,7 +40,7 @@ export function createLinesLifecycle() {
             lastDay = normalized;
             return !!decision?.shouldAdvance;
         },
-        resetChat({ lastSeen = -1, lastDay: initialDay = null } = {}) { lastSeenMaxMesId = Number(lastSeen); pendingSwipeGen = null; floorTextSig = Object.create(null); pendingReroll = false; rerollExcludedAssistant = null; streamUntil = 0; counter = 0; lastDay = initialDay == null ? null : String(initialDay); pendingFloor = null; confirmedFloor = null; },
+        resetChat({ lastSeen = -1, lastDay: initialDay = null } = {}) { lastSeenMaxMesId = Number(lastSeen); pendingSwipeGen = null; floorTextSig = Object.create(null); pendingReroll = false; rerollExcludedAssistant = null; streamUntil = 0; counter = 0; lastAdvanceFloor = -1; lastDay = initialDay == null ? null : String(initialDay); pendingFloor = null; confirmedFloor = null; },
         registerFloor(value) { if (pendingFloor) return false; pendingFloor = value || null; return !!pendingFloor; },
         consumeFloor(messageId, chatId) { if (!pendingFloor || Number(pendingFloor.messageId) !== Number(messageId) || String(pendingFloor.chatId) !== String(chatId)) return null; const value = pendingFloor; pendingFloor = null; return value; },
         holdConfirmedFloor(value) { confirmedFloor = value || null; return confirmedFloor; },

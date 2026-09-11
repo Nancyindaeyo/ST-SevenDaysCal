@@ -301,8 +301,8 @@ export function createLinesFeature(env = {}) {
             lifecycle.consumePendingReroll();
             lifecycle.consumePendingSwipe(mid);
             lifecycle.consumeFloor(mid, env.chatId?.());
-            // 同楼重 roll / 新 swipe 不当新楼清终态，但日期制仍要认换日：先占住本楼，等戳落地再推进。
-            if (!autoSuppressed && env.getMode?.() === 'days') {
+            // 旧宿主没有统一重跑事务时仍保留原日期善后；新宿主会等所有模块按逆序撤回后统一重跑。
+            if (!autoSuppressed && env.getMode?.() === 'days' && env.deferSameFloorDateAftermath?.() !== true) {
                 lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
             }
             await appendInlineBlock(mid, false);
@@ -323,6 +323,7 @@ export function createLinesFeature(env = {}) {
             else advance = wouldAdvance;
         }
         if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.()) advance = true;
+        if (advance) lifecycle.lastAdvanceFloor = mid;
         const before = advance ? env.readRaw?.() || '' : '';
         const result = await appendInlineBlock(mid, advance);
         if (advance && result?.status === 'updated') {
@@ -371,6 +372,7 @@ export function createLinesFeature(env = {}) {
             await env.tryDashed?.(mid, { blocked: true });
             return false;
         }
+        lifecycle.lastAdvanceFloor = mid;
         const before = env.readRaw?.() || '';
         const result = await appendInlineBlock(mid, true);
         if (result?.status === 'updated') {
@@ -378,6 +380,27 @@ export function createLinesFeature(env = {}) {
         }
         await env.tryDashed?.(mid, { blocked: true });
         return true;
+    };
+    const rerunFloorAdvance = async messageId => {
+        const mid = Number(messageId);
+        if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid) return { status: 'skipped', reason: 'not-due' };
+        const existing = env.latestFloorAdvance?.(mid);
+        if (existing) {
+            const restored = await env.replayFloorAdvance?.(mid);
+            if (restored?.status === 'diverged' || restored?.status === 'failed') return restored;
+        }
+        const before = env.readRaw?.() || '';
+        const result = await appendInlineBlock(mid, true);
+        if (result?.status === 'updated') {
+            env.onActivity?.({ source: 'advance', floorId: mid, snapshot: { lines: before }, after: { lines: env.readRaw?.() || '' } });
+        }
+        return result || { status: 'skipped' };
+    };
+    const rerunDateFloorAdvance = async messageId => {
+        const mid = Number(messageId);
+        if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid) return { status: 'skipped', reason: 'not-due' };
+        lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
+        return onDateAftermath({ chatId: env.chatId?.(), messageId: mid });
     };
     const onSwiped = async ({ mesId, info } = {}) => {
         if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return;
@@ -455,7 +478,7 @@ export function createLinesFeature(env = {}) {
         get sheet() { return sheet; },
         setSheet: value => { if (value === 'events' || value === 'dashed') sheet = value; return sheet; },
         renderLines, inlineHtml, appendInlineBlock, syncInline, commitGenerationResult, cleanupOwner, abortGeneration,
-        onMessageReceived, onCharacterRendered, onDateAftermath, onSwiped, onEdited, onSent, onGenerationStarted, onToken, onGenerationEnded,
+        onMessageReceived, onCharacterRendered, onDateAftermath, rerunFloorAdvance, rerunDateFloorAdvance, onSwiped, onEdited, onSent, onGenerationStarted, onToken, onGenerationEnded,
         isStreaming: () => Date.now() < lifecycle.streamUntil,
         resetCounter: () => { lifecycle.counter = 0; },
         setLastDay: value => { lifecycle.lastDay = value; },

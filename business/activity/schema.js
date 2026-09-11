@@ -1,4 +1,4 @@
-export const ACTIVITY_CAP = 3;
+export const ACTIVITY_CAP = 24;
 export const ALIGN_ROUND_CAP = 3;
 
 export const ACTIVITY_SOURCES = Object.freeze({
@@ -13,6 +13,8 @@ export const ACTIVITY_SOURCES = Object.freeze({
     'date-align': '点日期对齐',
     fill: '点窗口补齐',
     bootstrap: '开局生成',
+    'ledger-capture': '刻度标注',
+    'ledger-judge': '刻度现状',
 });
 
 export const ACTIVITY_CAUSES = Object.freeze({
@@ -45,6 +47,7 @@ export const ACTIVITY_MODULES = Object.freeze({
     lines: '线',
     outline: '面',
     dashed: '冷知识',
+    ledger: '刻度',
 });
 
 export function activityId(now = Date.now(), random = Math.random) {
@@ -72,7 +75,8 @@ export function normalizeActivitySnapshot(raw) {
     if (raw.outline && typeof raw.outline === 'object') {
         snapshot.outline = { raw: String(raw.outline.raw || ''), cursor: Math.max(0, Math.floor(Number(raw.outline.cursor) || 0)) };
     }
-    if (Array.isArray(raw.dashed)) snapshot.dashed = raw.dashed.map(item => ({ id: String(item?.id || ''), text: String(item?.text || '') }));
+    if (Array.isArray(raw.dashed)) snapshot.dashed = JSON.parse(JSON.stringify(raw.dashed));
+    if (raw.ledger && typeof raw.ledger === 'object') snapshot.ledger = JSON.parse(JSON.stringify(raw.ledger));
     return Object.keys(snapshot).length ? snapshot : null;
 }
 

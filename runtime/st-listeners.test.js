@@ -62,6 +62,7 @@ function floorHost(over = {}) {
         },
         beat: { onAiFloor: () => calls.push('beat.onAiFloor'), syncFloor: () => calls.push('beat.sync') },
         activity: { markFloorRestyle: () => calls.push('activity.restyle') },
+        rerunFloorAutomations: async () => calls.push('rerunFloorAutomations'),
         floorSig: () => 'sig',
         rememberPace: () => calls.push('remember'),
         isAutomationSuppressed: () => false,
@@ -227,21 +228,23 @@ test('regenerate marks same-floor and settle consumes it on the latest floor', (
     assert.ok(marks.some(item => item[0] === 'clear'));
 });
 
-test('same-floor render asks refresh to realign', async () => {
+test('same-floor settle reruns all due floor automations', async () => {
     const h = floorHost({
+        sameFloor: { pending: () => true, consume: () => h.calls.push('sameFloor.consume') },
         refresh: {
             onAiFloor: async () => { h.calls.push('refresh.onAiFloor'); return { status: 'skipped', reason: 'seen' }; },
-            onRerollAlign: async () => h.calls.push('refresh.onRerollAlign'),
             abort() {},
         },
     });
     await createChatFloorHandlers(h).char(2, 'new');
+    await createChatFloorHandlers(h).sameFloorSettle(2);
     assert.ok(h.calls.includes('refresh.onAiFloor'));
-    assert.ok(h.calls.includes('refresh.onRerollAlign'));
+    assert.ok(h.calls.includes('rerunFloorAutomations'));
+    assert.ok(h.calls.includes('sameFloor.consume'));
     assert.ok(h.calls.includes('activity.restyle'));
 });
 
-test('editing the latest align floor relands its timestamp and realigns', async () => {
+test('editing a floor only updates line edit state and never reruns automations', async () => {
     const h = floorHost({
         refresh: {
             didReconcile: id => id === 2,
@@ -252,6 +255,14 @@ test('editing the latest align floor relands its timestamp and realigns', async 
     });
     await createChatFloorHandlers(h).edited(2);
     assert.ok(h.calls.includes('lines.onEdited'));
-    assert.ok(h.calls.includes('activity.restyle'));
-    assert.ok(h.calls.includes('refresh.onRerollAlign'));
+    assert.ok(!h.calls.includes('activity.restyle'));
+    assert.ok(!h.calls.includes('refresh.onRerollAlign'));
+    assert.ok(!h.calls.includes('rerunFloorAutomations'));
+});
+
+test('switching to a stored swipe reruns due automations without waiting for render', async () => {
+    const h = floorHost();
+    await createChatFloorHandlers(h).swiped(2, { pendingGeneration: false, nextSwipeId: 1 });
+    assert.ok(h.calls.includes('lines.onSwiped'));
+    assert.ok(h.calls.includes('rerunFloorAutomations'));
 });

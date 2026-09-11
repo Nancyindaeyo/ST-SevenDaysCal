@@ -20,21 +20,25 @@ export function tickFloorGate({ lastFloor = -1, counter = 0, messageId, interval
 export function createFloorTicker() {
     let lastFloor = -1;
     let counter = 0;
+    let lastDueFloor = -1;
     return {
-        state: () => ({ lastFloor, counter }),
+        state: () => ({ lastFloor, counter, lastDueFloor }),
         reset({ lastFloor: floor = -1 } = {}) {
             lastFloor = Number.isInteger(Number(floor)) ? Number(floor) : -1;
             counter = 0;
+            lastDueFloor = -1;
         },
         resetCounter() { counter = 0; },
         hydrate(state = {}) {
             lastFloor = Number.isInteger(Number(state.lastFloor)) ? Number(state.lastFloor) : -1;
             counter = Math.max(0, Math.floor(Number(state.counter) || 0));
+            lastDueFloor = Number.isInteger(Number(state.lastDueFloor)) ? Number(state.lastDueFloor) : -1;
         },
         tick(messageId, { interval = 1, blocked = false, sameFloor = false } = {}) {
             const result = tickFloorGate({ lastFloor, counter, messageId, interval, blocked, sameFloor });
             lastFloor = result.lastFloor;
             counter = result.counter;
+            if (result.status === 'due') lastDueFloor = result.lastFloor;
             return result;
         },
     };

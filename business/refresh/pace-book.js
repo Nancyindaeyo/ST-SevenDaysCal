@@ -7,6 +7,7 @@ function gateOf(state = {}, lastFloorKeys = ['lastFloor'], counterKeys = ['count
     return {
         lastFloor: Number.isInteger(Number(lastFloor)) ? Number(lastFloor) : -1,
         counter: Math.max(0, Math.floor(Number(counter) || 0)),
+        lastDueFloor: Number.isInteger(Number(state.lastDueFloor)) ? Number(state.lastDueFloor) : -1,
     };
 }
 
@@ -22,7 +23,7 @@ export function createPaceBook(env = {}) {
         const lines = env.linesLifecycle || {};
         return {
             align: gateOf(align),
-            advance: gateOf(lines, ['lastSeenMaxMesId', 'lastFloor'], ['counter']),
+            advance: { ...gateOf(lines, ['lastSeenMaxMesId', 'lastFloor'], ['counter']), lastDueFloor: Number.isInteger(Number(lines.lastAdvanceFloor)) ? Number(lines.lastAdvanceFloor) : -1 },
             outline: gateOf(outline, ['lastFloor', 'lastJudgedMessageId'], ['counter', 'messageCounter']),
             dashed: gateOf(dashed, ['lastFloor', 'autoFloor'], ['counter', 'autoCount']),
             date: date.state(),
@@ -54,6 +55,7 @@ export function createPaceBook(env = {}) {
         if (env.linesLifecycle) {
             env.linesLifecycle.counter = saved.advance.counter;
             env.linesLifecycle.lastSeenMaxMesId = saved.advance.lastFloor;
+            env.linesLifecycle.lastAdvanceFloor = saved.advance.lastDueFloor;
         }
         env.outline?.hydrate?.(saved.outline);
         env.dashed?.hydrate?.(saved.dashed);

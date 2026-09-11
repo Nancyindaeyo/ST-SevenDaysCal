@@ -12,6 +12,7 @@ function gate(raw = {}) {
     return {
         lastFloor: asInt(raw?.lastFloor, -1),
         counter: asCount(raw?.counter),
+        lastDueFloor: asInt(raw?.lastDueFloor, -1),
     };
 }
 
@@ -36,7 +37,11 @@ export function clampPaceToLatest(raw = {}, latestFloor = -1) {
     const saved = normalizePaceState(raw);
     return {
         ...saved,
-        ...mapGates(saved, item => ({ ...item, lastFloor: Math.max(item.lastFloor, latest) })),
+        ...mapGates(saved, item => ({
+            ...item,
+            lastFloor: Math.max(item.lastFloor, latest),
+            lastDueFloor: item.lastDueFloor === latest ? latest : -1,
+        })),
         lastReconcileFloor: saved.lastReconcileFloor === latest ? latest : -1,
     };
 }
