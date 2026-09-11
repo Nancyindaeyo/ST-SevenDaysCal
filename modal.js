@@ -19,6 +19,21 @@ function normalizeTextareaRows(value) {
     return Number.isFinite(rows) ? Math.min(12, Math.max(1, rows)) : 3;
 }
 
+export function dialogTabTarget(focusable, active, shiftKey, containsActive = true) {
+    const items = Array.isArray(focusable) ? focusable : [];
+    if (!items.length) return undefined;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (!containsActive || (shiftKey && active === first) || (!shiftKey && active === last)) return shiftKey ? last : first;
+    return null;
+}
+
+function deepestActiveElement(root) {
+    let active = root?.activeElement || null;
+    while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+    return active;
+}
+
 // 通用决策弹窗只管理自身遮罩和 Promise 生命周期；业务判断与持久化留给调用方。
 // removeOverlay（可选）：注入"移除已存在 overlay"的实现——宿主迁入 shadow 后，light DOM 的
 // $() 查不到 overlay，由调用方提供（如 () => $in('#sp-addon-dialog').remove()）。
@@ -43,6 +58,15 @@ export function createDialogManager({ $, mount, getRootClass = () => '', subscri
     function mountDialog($overlay, resolve, { onClose } = {}) {
         let done = false;
         let unsubscribe = () => {};
+        const overlayElement = $overlay[0];
+        const previousFocus = deepestActiveElement(overlayElement?.ownerDocument);
+        const dialog = overlayElement?.querySelector?.('[role="dialog"]') || null;
+        const descriptions = [...(overlayElement?.querySelectorAll?.('.sp-dialog-body, .sp-dialog-note') || [])];
+        descriptions.forEach((element, index) => { if (!element.id) element.id = `sp-dialog-description-${index}`; });
+        if (dialog) {
+            dialog.tabIndex = -1;
+            if (descriptions.length) dialog.setAttribute('aria-describedby', descriptions.map(element => element.id).join(' '));
+        }
         const finish = value => {
             if (done) return false;
             done = true;
@@ -51,6 +75,7 @@ export function createDialogManager({ $, mount, getRootClass = () => '', subscri
             finally {
                 unsubscribe();
                 $overlay.remove();
+                if (previousFocus?.isConnected !== false) previousFocus?.focus?.();
                 resolve(value);
             }
             return true;
@@ -59,9 +84,24 @@ export function createDialogManager({ $, mount, getRootClass = () => '', subscri
         activeCancel = externalClose;
         $overlay.on('click', function (event) { if (event.target === this) externalClose(); });
         $overlay.on('keydown', event => {
-            if (event.key !== 'Escape') return;
-            event.preventDefault();
-            externalClose();
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                externalClose();
+                return;
+            }
+            if (event.key !== 'Tab') return;
+            const focusable = [...(overlayElement?.querySelectorAll?.('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])') || [])];
+            if (!focusable.length) {
+                event.preventDefault();
+                dialog?.focus?.();
+                return;
+            }
+            const active = deepestActiveElement(overlayElement?.getRootNode?.()) || deepestActiveElement(overlayElement?.ownerDocument);
+            const target = dialogTabTarget(focusable, active, event.shiftKey, overlayElement?.contains?.(active));
+            if (target) {
+                event.preventDefault();
+                target.focus?.();
+            }
         });
         $overlay.addClass(String(getRootClass() || ''));
         mount.appendChild($overlay[0]);

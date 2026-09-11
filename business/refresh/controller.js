@@ -17,7 +17,8 @@ export function latestAiFloor(chat = []) {
 }
 
 function writeRejected(saved) {
-    return saved && typeof saved === 'object' && saved.ok === false;
+    if (saved === true) return false;
+    return !saved || typeof saved !== 'object' || saved.ok !== true || saved.stale === true;
 }
 
 export function createRefreshController(env = {}) {
@@ -125,13 +126,19 @@ export function createRefreshController(env = {}) {
             const point = selected.includes('point') && pointRaw ? applyPointPatches(pointRaw, parsed.patches, { feedback: options.feedback, calendar: env.calendar?.() }) : { changed: false, raw: pointRaw, skippedLocks: [] };
             const lines = selected.includes('lines') && linesRaw ? applyLinePatches(linesRaw, parsed.patches, { feedback: options.feedback }) : { changed: false, raw: linesRaw, skippedLocks: [] };
             const ownerGuard = () => ownerStillHere(token, ownerChatId);
-            if (point.changed) {
-                const saved = await env.writePointRaw?.(point.raw, { ownerGuard });
+            if (point.changed && lines.changed) {
+                if (typeof env.writeBatchRaw !== 'function') return { status: 'cancelled', reason: 'atomic-write-unavailable' };
+                const saved = await env.writeBatchRaw({ point: point.raw, lines: lines.raw }, { ownerGuard });
                 if (writeRejected(saved) || !ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: saved?.reason || 'chat-changed' };
-            }
-            if (lines.changed) {
-                const saved = await env.writeLinesRaw?.(lines.raw, { ownerGuard });
-                if (writeRejected(saved) || !ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: saved?.reason || 'chat-changed' };
+            } else {
+                if (point.changed) {
+                    const saved = await env.writePointRaw?.(point.raw, { ownerGuard });
+                    if (writeRejected(saved) || !ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: saved?.reason || 'chat-changed' };
+                }
+                if (lines.changed) {
+                    const saved = await env.writeLinesRaw?.(lines.raw, { ownerGuard });
+                    if (writeRejected(saved) || !ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: saved?.reason || 'chat-changed' };
+                }
             }
             diagnostic.accepted({ phase: 'validation', reasonCode: parsed.unchanged ? 'reconcile-unchanged' : 'reconcile-patched' });
             const summary = summarizeReconcile({ point, lines, note: parsed.note });

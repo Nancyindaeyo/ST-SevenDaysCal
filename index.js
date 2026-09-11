@@ -53,14 +53,15 @@ import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
 import * as store from './store.js';
-import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfirmed, removeStore } from './store.js';
+import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfirmed, writeStoreBatchConfirmed, removeStore } from './store.js';
 import * as ledger from './business/ledger/repository.js';
 import { createBestEffortMetadataSaver, createTargetMetadataSaver, dispatchTargetMetadataWithRefresh } from './runtime/target-metadata-save.js';
 import * as theaterDeviceCache from './runtime/theater-device-cache.js';
 import { createTheaterHostPorts } from './runtime/theater-host-ports.js';
 import { selectVisibleChatHistory } from './business/lines/history.js';
 import * as snapshot from './snapshot.js';
-import { createDialogManager, normalizeConfirmOptions } from './modal.js';
+import { createDialogManager } from './modal.js';
+import { PLUGIN_VERSION } from './version.js';
 import { createAutomationGate } from './automation-gate.js';
 import { createDateCoordinator } from './date-coordinator.js';
 import {
@@ -99,7 +100,7 @@ import {
 import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
 import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfaceParticipant } from './runtime/chat-surface.js';
 import { createInlineHost } from './runtime/inline-host.js';
-import { createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
+import { backupExportWarnings, createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
 import { axisState } from './business/axis/state.js';
 import {
@@ -441,8 +442,6 @@ function createTheaterHostFeature() {
 // Declare them before any bind/create call can evaluate the dependency.
 let _spShadow = null;
 let _spDialogShadow = null;
-let _activeSpConfirmCancel = null;
-let _activeStoreConflictFinish = null;
 const $in  = (sel) => { const el = _spShadow?.querySelector(sel); return el ? $(el) : $(); };
 const inEl = (sel) => _spShadow?.querySelector(sel) ?? null;
 const $inAll = (sel) => $(Array.from(_spShadow?.querySelectorAll(sel) ?? []));
@@ -525,6 +524,8 @@ const pointActions = createPointActions({
     getCacheKey: (...args) => getCacheKey(...args),
     readStore,
     writeStore,
+    writeStoreConfirmed,
+    logError: (...args) => console.error(...args),
     renderSchedule,
     loadCalendar: loadCalDesc,
     parseCalendar,
@@ -1763,6 +1764,15 @@ const refreshController = createRefreshController({
         const saved = readStore(key) || {};
         return writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() }, options);
     },
+    writeBatchRaw: async ({ point, lines }, options = {}) => {
+        const pointKey = getCacheKey('user', '');
+        const linesKey = getLinesCacheKey();
+        const ts = Date.now();
+        return writeStoreBatchConfirmed([
+            { desc: pointKey, value: { ...(readStore(pointKey) || {}), raw: point, ts } },
+            { desc: linesKey, value: { ...(readStore(linesKey) || {}), raw: lines, ts } },
+        ], options);
+    },
     regenPoint: travel => pointController.triggerGenerate(travel),
     regenLines: travel => linesFeature.actions.reroll(travel),
     regenDashed: opts => linesFeature.dashed.run(opts),
@@ -1928,8 +1938,6 @@ function syncMobileViewport() { panelWindow.syncMobile(); }
 function closePanel() {
     coordinateRuntime?.feature?.close?.();
     theaterFeature.onPanelClosed();
-    _activeSpConfirmCancel?.();
-    _activeStoreConflictFinish?.('defer');
     removeDialogOverlays();
     customDialog.cancelActive();
     panelWindow.hide();
@@ -2202,8 +2210,7 @@ jQuery(async () => {
         beat: beatFeature,
         clearTravelUi() {
             timeTravel.resetSelection();
-            _activeSpConfirmCancel?.();
-            _activeStoreConflictFinish?.('defer');
+            customDialog.cancelActive();
         },
         removeDialogOverlays,
         clearAutomationClaims,
@@ -3314,45 +3321,8 @@ async function memoryPreCheckConfirm() {
     });
 }
 
-// Simple modal confirm — returns Promise<boolean>.
-// Auto-resolves(false) on CHAT_CHANGED or when the panel closes, so callers
-// awaiting the promise won't hang.
 function spConfirm(options, fallbackBody) {
-    const { title = '', body = '', note, confirmText = '确定', cancelText = '取消' } = normalizeConfirmOptions(options, fallbackBody);
-    return new Promise(resolve => {
-        _activeSpConfirmCancel?.();
-        $dialog('#sp-confirm').remove();
-        let done = false;
-        const finish = (v) => {
-            if (done) return;
-            done = true;
-            if (_activeSpConfirmCancel === cancel) _activeSpConfirmCancel = null;
-            $ov.remove();
-            eventSource.removeListener?.(event_types.CHAT_CHANGED, onExternalClose);
-            resolve(v);
-        };
-        const cancel = () => finish(false);
-        const onExternalClose = () => finish(false);
-        const $ov = $(`<div id="sp-confirm" class="sp-confirm-overlay">
-            <div class="sp-confirm-sheet">
-                <div class="sp-confirm-head">${escapeHtml(title)}</div>
-                <div class="sp-confirm-body">${escapeHtml(body).replace(/\n/g, '<br>')}</div>
-                ${note ? `<div class="sp-confirm-note">${escapeHtml(note)}</div>` : ''}
-                <div class="sp-confirm-actions">
-                    <button class="sp-confirm-cancel">${escapeHtml(cancelText)}</button>
-                    <button class="sp-confirm-ok">${escapeHtml(confirmText)}</button>
-                </div>
-            </div>
-        </div>`);
-        $ov.find('.sp-confirm-ok').on('click', () => finish(true));
-        $ov.find('.sp-confirm-cancel').on('click', () => finish(false));
-        $ov.on('click', function (e) { if (e.target === this) finish(false); });
-        // 独立弹窗宿主不随 #sp-modal-root 隐藏；空宿主 pointer-events:none，实际遮罩自行开启交互。
-        $ov.addClass(`sp-root sp-${currentTheme}`);
-        _spDialogShadow.appendChild($ov[0]);
-        _activeSpConfirmCancel = cancel;
-        eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
-    });
+    return customDialog.confirm(options, fallbackBody);
 }
 
 // ─── 跨设备存储冲突弹窗（迁移检测到云端/本机各一份不同数据）──────────────────────
@@ -3367,44 +3337,22 @@ function fmtStoreSide(sum) {
     return `含 ${labels}　·　最近改动 ${when}`;
 }
 
-function showStoreConflictDialog(mig) {
+async function showStoreConflictDialog(mig) {
     if (!mig || mig.status !== 'conflict') return;
-    // 冲突可能在主面板关闭时由 CHAT_CHANGED 触发，必须使用始终可用的独立弹窗宿主。
-    _activeStoreConflictFinish?.('defer');
-    $dialog('#sp-store-conflict').remove();
-    let done = false;
-    const finish = (choice) => {
-        if (done) return;
-        done = true;
-        if (_activeStoreConflictFinish === finish) _activeStoreConflictFinish = null;
-        $ov.remove();
-        eventSource.removeListener?.(event_types.CHAT_CHANGED, onExternalClose);
-        if (choice === 'cloud')      store.discardLegacy(mig.legacy);
-        else if (choice === 'local') { store.applyLegacyOverCloud(mig.legacy); reloadAfterConflict(); }
-        // choice === 'defer' → 什么都不动，下次进本 chat 再弹
-    };
-    // 换 chat 视为「暂不决定」——绝不趁机替用户改数据
-    const onExternalClose = () => finish('defer');
-    const $ov = $(`<div id="sp-store-conflict" class="sp-confirm-overlay">
-        <div class="sp-confirm-sheet">
-            <div class="sp-confirm-head">构画数据冲突</div>
-            <div class="sp-confirm-body">这个聊天在别的设备/浏览器也编辑过构画（点线面间），云端和本机各有一份、内容不同。保留哪一份？<br><br>
-                <b>云端（跟聊天走）</b>：${escapeHtml(fmtStoreSide(mig.cloud))}<br>
-                <b>本机（这台浏览器）</b>：${escapeHtml(fmtStoreSide(mig.local))}</div>
-            <div class="sp-confirm-note">只影响构画自己的点线面间，不动记忆 / 棱 / 其他插件。点窗外＝暂不决定，下次再问。</div>
-            <div class="sp-confirm-actions">
-                <button class="sp-confirm-cancel" data-choice="local">保留本机</button>
-                <button class="sp-confirm-ok" data-choice="cloud">保留云端</button>
-            </div>
-        </div>
-    </div>`);
-    $ov.find('[data-choice="cloud"]').on('click', () => finish('cloud'));
-    $ov.find('[data-choice="local"]').on('click', () => finish('local'));
-    $ov.on('click', function (e) { if (e.target === this) finish('defer'); });
-    $ov.addClass(`sp-root sp-${currentTheme}`);
-    _spDialogShadow.appendChild($ov[0]);
-    _activeStoreConflictFinish = finish;
-    eventSource.on(event_types.CHAT_CHANGED, onExternalClose);
+    const choice = await customDialog.choose({
+        title: '构画数据冲突',
+        body: `这个聊天在别的设备/浏览器也编辑过构画（点线面间），云端和本机各有一份、内容不同。保留哪一份？\n\n云端（跟聊天走）：${fmtStoreSide(mig.cloud)}\n本机（这台浏览器）：${fmtStoreSide(mig.local)}`,
+        note: '只影响构画自己的点线面间，不动记忆 / 棱 / 其他插件。点窗外或按 Esc＝暂不决定，下次再问。',
+        choices: [
+            { value: 'local', label: '保留本机' },
+            { value: 'cloud', label: '保留云端', primary: true },
+        ],
+    });
+    if (choice === 'cloud') store.discardLegacy(mig.legacy);
+    else if (choice === 'local') {
+        store.applyLegacyOverCloud(mig.legacy);
+        reloadAfterConflict();
+    }
 }
 
 // 冲突「保留本机」善后：localStorage 已覆盖进 metadata 并清空，重跑一遍 CHAT_CHANGED 逻辑
@@ -4115,7 +4063,7 @@ async function startCurrentChatMigration() {
 function createGouhuaBackupController(onProgress) {
     const coordPorts = createCoordinateHostPorts({ context: () => getContext() });
     return createBackupController({
-        pluginVersion: '3.6.9.1',
+        pluginVersion: PLUGIN_VERSION,
         getContext,
         getSettings,
         saveSettings: () => stSaveSettings(),
@@ -4156,7 +4104,9 @@ async function exportGouhuaBackup() {
         const pack = await controller.exportPack();
         controller.download(pack);
         overlay.close();
-        showToast('构画迁移包已导出');
+        const warnings = backupExportWarnings(pack);
+        if (warnings.length) showToast(`迁移包已导出，但不完整：${warnings.join('；')}。请勿把它当作完整备份。`, null, true);
+        else showToast('构画迁移包已完整导出');
     } catch (error) {
         overlay.close();
         showToast(`导出失败：${error?.message || '未知错误'}`, null, true);

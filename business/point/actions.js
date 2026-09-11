@@ -8,6 +8,22 @@ export function createPointActions(env) {
     let editToken = null;
     const eventIdentity = event => JSON.stringify(['type', 'title', 'desc', 'time', 'location', 'npcAction', 'pin', 'adult'].map(key => event?.[key] ?? null));
     const participantCurrent = participant => !participant || env.sameParticipantIdentity?.(participant, env.captureParticipantIdentity?.()) !== false;
+    const saveConfirmed = async (key, value, ownerGuard) => {
+        try {
+            if (typeof env.writeStoreConfirmed === 'function') {
+                const saved = await env.writeStoreConfirmed(key, value, { ownerGuard });
+                return saved === true || (saved?.ok === true && saved?.commitState === 'confirmed' && saved?.stale !== true);
+            }
+            return env.writeStore?.(key, value) === true;
+        } catch (error) {
+            env.logError?.('[SP point save failed]', error);
+            return false;
+        }
+    };
+    const saveFailed = () => {
+        env.showToast('保存失败，数据未修改；请检查存储状态后重试', null, true);
+        return false;
+    };
     const restoreActiveDay = dayKey => {
         const tabs = env.inShadow?.('#sp-body .sp-tab'); if (!tabs?.length) return;
         let found = false;
@@ -16,16 +32,20 @@ export function createPointActions(env) {
     };
     const rerender = (raw, saved, view) => { const html = env.renderSchedule(raw, saved.userName || '用户', view, env.loadCalendar()); env.setCached(html); env.setBody(html); return html; };
     async function togglePin(dayKey, eventIndex) {
+        const chatId = env.chatId?.(); const participant = env.captureParticipantIdentity?.() || null;
         const key = env.getCacheKey(env.currentView(), env.currentChar()); const saved = env.readStore(key); const raw = saved?.raw || '';
         if (!raw) { env.showToast('待办已失效，请刷新面板', null, true); return; }
         const result = env.togglePointPinRaw(raw, dayKey, eventIndex, env.loadCalendar());
         if (!result.ok) { env.showToast('这个点已不存在，请刷新面板', null, true); return; }
-        env.writeStore(key, { raw: result.raw, userName: saved.userName || '用户', ts: Date.now() });
+        const ownerGuard = () => (!env.chatId || env.chatId() === chatId) && participantCurrent(participant);
+        if (!await saveConfirmed(key, { raw: result.raw, userName: saved.userName || '用户', ts: Date.now() }, ownerGuard)) return saveFailed();
         rerender(result.raw, saved, env.currentView()); restoreActiveDay(dayKey); env.syncLatestScheduleBlock();
         env.showToast(result.pinned ? '已锁定这个点' : '已解锁这个点');
+        return true;
     }
     async function alignStartDate() {
         if (editing || env.editing?.() || env.isBusy?.()) return env.showToast('点正在生成或编辑中，稍候再对齐日期', null, true);
+        const chatId = env.chatId?.(); const participant = env.captureParticipantIdentity?.() || null;
         const view = env.currentView();
         const charName = view === 'char' ? String(env.currentChar() || '').trim() : '';
         const key = env.getCacheKey(view, charName);
@@ -36,7 +56,8 @@ export function createPointActions(env) {
         const calendar = env.loadCalendar();
         const result = (env.alignStartDate || alignPointStartDate)(raw, today, calendar);
         if (!result.changed) return env.showToast('点上的日期已经是剧情今天');
-        env.writeStore(key, { ...saved, raw: result.raw, ts: Date.now() });
+        const ownerGuard = () => (!env.chatId || env.chatId() === chatId) && participantCurrent(participant);
+        if (!await saveConfirmed(key, { ...saved, raw: result.raw, ts: Date.now() }, ownerGuard)) return saveFailed();
         rerender(result.raw, saved, view);
         env.syncLatestScheduleBlock();
         env.onActivity?.({
@@ -65,6 +86,7 @@ export function createPointActions(env) {
     }
     async function editDescription(dayKey, eventIndex, target = {}) {
         if (editing || env.editing?.() || env.isBusy?.()) return false;
+        const chatId = env.chatId?.(); const participant = env.captureParticipantIdentity?.() || null;
         const view = target.view === 'char' ? 'char' : 'user'; const charName = view === 'char' ? String(target.charName || '').trim() : '';
         const key = env.getCacheKey(view, charName); const saved = env.readStore(key); const raw = saved?.raw || ''; const calendar = env.loadCalendar(); const parsed = env.parseCalendar(raw, calendar);
         const events = dayKey === 'future' ? parsed.future?.events : parsed.days?.[Number(dayKey)]?.events; const event = events?.[Number(eventIndex)];
@@ -109,7 +131,8 @@ export function createPointActions(env) {
             nextRaw = moved.raw;
             savedDay = moved.dayKey;
         }
-        env.writeStore(key, { ...saved, raw: nextRaw, ts: Date.now() });
+        const ownerGuard = () => (!env.chatId || env.chatId() === chatId) && participantCurrent(participant);
+        if (!await saveConfirmed(key, { ...saved, raw: nextRaw, ts: Date.now() }, ownerGuard)) return saveFailed();
         rerender(nextRaw, saved, view);
         restoreActiveDay(savedDay);
         env.syncLatestScheduleBlock();
@@ -138,7 +161,8 @@ export function createPointActions(env) {
         if (!latestEvents?.[latestEventIndex] || eventIdentity(latestEvents[latestEventIndex]) !== targetIdentity) return false;
         if ((env.chatId && env.chatId() !== chatId) || !participantCurrent(participant)) return false;
         const result = env.deletePointEventRaw(latestRaw, latestDayIndex, latestEventIndex, latestCalendar); if (!result.ok) return false;
-        env.writeStore(key, { ...latest, raw: result.raw, userName: latest.userName || saved.userName || '用户', ts: Date.now() });
+        const ownerGuard = () => (!env.chatId || env.chatId() === chatId) && participantCurrent(participant);
+        if (!await saveConfirmed(key, { ...latest, raw: result.raw, userName: latest.userName || saved.userName || '用户', ts: Date.now() }, ownerGuard)) return saveFailed();
         if (env.currentView() === view && (view !== 'char' || env.currentChar() === charName)) { rerender(result.raw, latest, view); restoreActiveDay(latestDayIndex); }
         env.syncLatestScheduleBlock(); env.showToast('已删除这个点');
         return true;

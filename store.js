@@ -144,9 +144,9 @@ function confirmedSaveError(saved, fallback = 'store-save-unconfirmed') {
     });
 }
 
-// AI 生成链专用的可确认保存口。普通 UI/迁移仍继续使用同步 writeStore，避免把全插件
-// 存储 API 粗暴异步化。生产宿主绑定固定目标 metadata saver；测试或旧宿主只能在
-// saveMetadata 明确返回 Promise 时，把 Promise resolve 当作本次调用完成确认。
+// Safety-critical operations use confirmed persistence. Background cache updates keep the
+// synchronous writeStore API to avoid a plugin-wide async migration. Production binds a
+// target-specific metadata saver; legacy hosts can only confirm a returned Promise.
 let confirmedMetadataPersistence = null;
 export function bindStoreMetadataPersistence(adapter = null) {
     confirmedMetadataPersistence = adapter && typeof adapter.commit === 'function' ? adapter : null;
@@ -277,6 +277,101 @@ export async function writeDataConfirmed(kind, view, charName, value, options = 
                 if (!rootExisted && value == null && Object.keys(target.data).length === 0) delete metadata[STORE_KEY];
             }
             if (!ownerGuard() || !keyUnchanged) return { ...saved, stale: true, reason: 'committed-but-stale' };
+            return saved;
+        } catch (error) {
+            if (!error.saveResult) {
+                const status = Number(error?.status ?? error?.statusCode ?? error?.httpStatus);
+                error.saveResult = { ok: false, reason: Number.isInteger(status) ? `http-${status}` : 'saveMetadata-rejected', ...(Number.isInteger(status) ? { status } : {}), commitState: 'not-dispatched', dispatched: false };
+            }
+            error.phase ||= 'save';
+            throw error;
+        }
+    });
+}
+
+export async function writeBatchConfirmed(entries, options = {}) {
+    const changes = new Map();
+    for (const item of Array.isArray(entries) ? entries : []) {
+        if (!item?.kind) continue;
+        changes.set(subKey(item.kind, item.view, item.charName), item.value);
+    }
+    if (!changes.size) return { ok: false, reason: 'empty-batch', commitState: 'not-dispatched', dispatched: false };
+    const ctx = getContext?.();
+    const chatId = String(ctx?.chatId || '');
+    if (!ctx || !chatId || !ctx.chatMetadata) return { ok: false, reason: 'missing-chat', commitState: 'not-dispatched', dispatched: false };
+    const metadata = ctx.chatMetadata;
+    const externalGuard = typeof options.ownerGuard === 'function' ? options.ownerGuard : () => getContext?.()?.chatId === chatId;
+    const ownerGuard = () => getContext?.()?.chatMetadata === metadata && externalGuard();
+    if (!ownerGuard()) return { ok: false, reason: 'stale-before-save', commitState: 'not-dispatched', dispatched: false };
+
+    const snapshot = data => new Map([...changes.keys()].map(key => [
+        key,
+        Object.prototype.hasOwnProperty.call(data, key)
+            ? { had: true, value: cloneStoreValue(data[key]) }
+            : { had: false, value: undefined },
+    ]));
+    const apply = (data, values = changes) => {
+        for (const [key, value] of values) {
+            if (value == null) delete data[key];
+            else data[key] = value;
+        }
+    };
+    const restore = (data, before) => {
+        for (const [key, state] of before) {
+            if (state.had) data[key] = state.value;
+            else delete data[key];
+        }
+    };
+    const unchanged = (data, before) => [...before].every(([key, state]) => {
+        const had = Object.prototype.hasOwnProperty.call(data, key);
+        return had === state.had && (!had || JSON.stringify(data[key]) === JSON.stringify(state.value));
+    });
+
+    if (isExternalMode()) {
+        const s = store(true);
+        if (!s) return { ok: false, reason: 'external-not-ready', commitState: 'not-dispatched', dispatched: false };
+        const before = snapshot(s.data);
+        apply(s.data);
+        try {
+            const saved = await persistConfirmed(ctx, { ...options, ownerGuard });
+            if (saved?.commitState === 'unknown') return saved;
+            if (saved?.ok !== true || saved?.commitState !== 'confirmed') throw Object.assign(new Error(saved?.reason || 'store-save-unconfirmed'), { phase: 'save', saveResult: saved });
+            return saved;
+        } catch (error) {
+            restore(s.data, before);
+            error.phase ||= 'save';
+            throw error;
+        }
+    }
+
+    return serializeConfirmedMetadata(metadata, async () => {
+        if (!ownerGuard()) return { ok: false, reason: 'stale-before-save', commitState: 'not-dispatched', dispatched: false };
+        const rootExisted = Object.prototype.hasOwnProperty.call(metadata, STORE_KEY);
+        const liveRoot = metadata[STORE_KEY];
+        const liveData = liveRoot?.data && typeof liveRoot.data === 'object' ? liveRoot.data : {};
+        const before = snapshot(liveData);
+        const stagedRoot = liveRoot && typeof liveRoot === 'object' ? cloneStoreValue(liveRoot) : freshStore();
+        if (!stagedRoot.data || typeof stagedRoot.data !== 'object') stagedRoot.data = {};
+        stagedRoot.version = SCHEMA_VERSION;
+        apply(stagedRoot.data);
+        const stagedContext = { ...ctx, chatMetadata: { ...metadata, [STORE_KEY]: stagedRoot } };
+        try {
+            const saved = await persistConfirmed(stagedContext, { ...options, ownerGuard, liveMetadata: metadata });
+            if (saved?.ok !== true || saved?.commitState !== 'confirmed') {
+                throw Object.assign(new Error(saved?.reason || 'store-save-unconfirmed'), { phase: 'save', saveResult: saved || null });
+            }
+            const currentRoot = metadata[STORE_KEY];
+            const currentData = currentRoot?.data && typeof currentRoot.data === 'object' ? currentRoot.data : {};
+            const batchUnchanged = unchanged(currentData, before);
+            if (batchUnchanged) {
+                let target = currentRoot;
+                if (!target || typeof target !== 'object') target = metadata[STORE_KEY] = freshStore();
+                if (!target.data || typeof target.data !== 'object') target.data = {};
+                target.version = SCHEMA_VERSION;
+                apply(target.data);
+                if (!rootExisted && [...changes.values()].every(value => value == null) && Object.keys(target.data).length === 0) delete metadata[STORE_KEY];
+            }
+            if (!ownerGuard() || !batchUnchanged) return { ...saved, stale: true, reason: 'committed-but-stale' };
             return saved;
         } catch (error) {
             if (!error.saveResult) {
@@ -716,4 +811,7 @@ export function keyDesc(kind, view, charName) {
 export function readStore(desc)         { return desc ? readData(desc.kind, desc.view, desc.charName) : null; }
 export function writeStore(desc, value) { return !!(desc && writeData(desc.kind, desc.view, desc.charName, value)); }
 export function writeStoreConfirmed(desc, value, options = {}) { return desc ? writeDataConfirmed(desc.kind, desc.view, desc.charName, value, options) : Promise.resolve({ ok: false, reason: 'missing-key', commitState: 'not-dispatched', dispatched: false }); }
+export function writeStoreBatchConfirmed(entries, options = {}) {
+    return writeBatchConfirmed((Array.isArray(entries) ? entries : []).map(item => ({ ...item, ...(item.desc || {}) })), options);
+}
 export function removeStore(desc)       { if (desc) removeData(desc.kind, desc.view, desc.charName); }

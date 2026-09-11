@@ -64,6 +64,45 @@ test('chat change aborts align before it writes', async () => {
     assert.equal(host.writes.length, 0);
 });
 
+test('point and lines align use one confirmed batch and never partially write', async () => {
+    const batches = [];
+    const host = env({
+        readLinesRaw: () => `<storylines_widget>
+Line: 柳的调查|延展|今天|world|false|false
+Desc: 旧描述
+</storylines_widget>`,
+        callApi: async () => `<reconcile_patch>
+note: 同步修改
+point: complete|体检
+line: stall|柳的调查
+</reconcile_patch>`,
+        writeBatchRaw: async (values, options) => {
+            assert.equal(options.ownerGuard(), true);
+            batches.push(values);
+            return { ok: false, reason: 'simulated-batch-failure' };
+        },
+    });
+    const result = await createRefreshController(host).align({ selected: ['point', 'lines'] });
+    assert.deepEqual(result, { status: 'cancelled', reason: 'simulated-batch-failure' });
+    assert.equal(batches.length, 1);
+    assert.equal(host.writes.length, 0);
+    assert.doesNotMatch(batches[0].point, /体检/);
+    assert.match(batches[0].lines, /true\|false/);
+});
+
+test('point and lines align fails closed when no atomic writer exists', async () => {
+    const host = env({
+        readLinesRaw: () => `<storylines_widget>
+Line: 柳的调查|延展|今天|world|false|false
+Desc: 旧描述
+</storylines_widget>`,
+        callApi: async () => 'point: complete|体检\nline: stall|柳的调查',
+    });
+    const result = await createRefreshController(host).align({ selected: ['point', 'lines'] });
+    assert.deepEqual(result, { status: 'cancelled', reason: 'atomic-write-unavailable' });
+    assert.equal(host.writes.length, 0);
+});
+
 test('align prompt tells the model to refill today when Day 1 is short', async () => {
     let prompt = '';
     const host = env({

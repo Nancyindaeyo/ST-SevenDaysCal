@@ -388,7 +388,7 @@ export function persistExternalRoots({ confirmed = false, ownerGuard = () => tru
     const data = cleanCurrentData(active.current?.data);
     const operation = enqueue(state => saveCurrentNow(state, data, ownerGuard), { mergePending: state => mergePendingCurrent(state, data, ownerGuard) });
     if (!confirmed) operation.catch(() => {});
-    return confirmed ? operation : true;
+    return operation;
 }
 
 export function externalOwnKeyBytes(key) {

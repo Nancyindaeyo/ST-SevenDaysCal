@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+    backupExportWarnings,
     applyLocalStorage,
     applyOwnRoots,
     applySettingsPatch,
@@ -101,6 +102,54 @@ test('summarize mentions secrets and chat counts', () => {
     assert.match(text, /其它聊天账本：1/);
     assert.match(text, /坐标收藏：2/);
     assert.match(text, /白鳥/);
+});
+
+test('partial export warnings make every silently substituted asset explicit', () => {
+    const pack = {
+        skipped: {
+            chatsFailed: 2,
+            coordinatesFailed: 1,
+            excerptsFailed: 1,
+        },
+    };
+    assert.deepEqual(backupExportWarnings(pack), [
+        '2 份聊天读取失败',
+        '坐标收藏读取失败',
+        '坐标摘抄读取失败',
+    ]);
+    assert.deepEqual(backupExportWarnings({ skipped: {} }), []);
+});
+
+test('controller records chat, coordinate, and excerpt read failures in the exported pack', async () => {
+    const ctx = {
+        chatId: 'now',
+        characterId: 0,
+        characters: [{ name: '柳', avatar: 'liu.png', chat: 'now' }],
+        groups: [],
+        chatMetadata: {},
+        getRequestHeaders: () => ({ 'Content-Type': 'application/json' }),
+    };
+    const pack = await createBackupController({
+        getContext: () => ctx,
+        getSettings: () => ({}),
+        localStorage: mockStorage({}),
+        getChatRoot: () => null,
+        fetch: async (url, options) => mockFetch(url, options, {
+            chats: { 'liu.png': [{ file_name: 'now.jsonl' }, { file_name: 'missing.jsonl' }] },
+            chatFiles: {},
+        }),
+        readJson: async () => { throw new Error('coordinate storage unavailable'); },
+        loadWorldInfo: async () => null,
+    }).exportPack();
+    assert.deepEqual(pack.skipped, {
+        chatsFailed: 1,
+        externalChats: 0,
+        coordinatesFailed: 1,
+        excerptsFailed: 1,
+    });
+    assert.equal(pack.coordinates.items.length, 0);
+    assert.equal(pack.excerpts.items.length, 0);
+    assert.equal(backupExportWarnings(pack).length, 3);
 });
 
 test('controller exports current chat via getChatRoot and skips foreign metadata', async () => {

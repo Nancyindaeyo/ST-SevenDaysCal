@@ -130,7 +130,18 @@ export function summarizeBackup(pack) {
     ];
     if (pack.skipped?.chatsFailed) lines.push(`导出时未能读取的聊天：${pack.skipped.chatsFailed}`);
     if (pack.skipped?.externalChats) lines.push(`已迁出白鳥、未写入聊天文件的账本：${pack.skipped.externalChats}（当前打开的那份仍在包里）`);
+    if (pack.skipped?.coordinatesFailed) lines.push('坐标收藏导出失败：迁移包中的坐标快照为空');
+    if (pack.skipped?.excerptsFailed) lines.push('坐标摘抄导出失败：迁移包中的摘抄为空');
     return lines.join('\n');
+}
+
+export function backupExportWarnings(pack) {
+    const warnings = [];
+    const chatFailures = Math.max(0, Number(pack?.skipped?.chatsFailed) || 0);
+    if (chatFailures) warnings.push(`${chatFailures} 份聊天读取失败`);
+    if (pack?.skipped?.coordinatesFailed) warnings.push('坐标收藏读取失败');
+    if (pack?.skipped?.excerptsFailed) warnings.push('坐标摘抄读取失败');
+    return warnings;
 }
 
 export function parseBackupText(text) {
@@ -414,7 +425,7 @@ export function createBackupController(ports = {}) {
                 coordinates: null,
                 excerpts: null,
                 worldbooks: [],
-                skipped: { chatsFailed: 0, externalChats: 0 },
+                skipped: { chatsFailed: 0, externalChats: 0, coordinatesFailed: 0, excerptsFailed: 0 },
             };
 
             progress(ports, { phase: 'chats', done: 0, total: 0, message: '正在枚举聊天…' });
@@ -441,9 +452,9 @@ export function createBackupController(ports = {}) {
 
             progress(ports, { phase: 'coordinates', message: '正在导出坐标…' });
             try { pack.coordinates = await exportCoordinates(ports); }
-            catch { pack.coordinates = { index: emptyIndex(), items: [] }; }
+            catch { pack.coordinates = { index: emptyIndex(), items: [] }; pack.skipped.coordinatesFailed = 1; }
             try { pack.excerpts = await exportExcerpts(ports); }
-            catch { pack.excerpts = emptyExcerpts(); }
+            catch { pack.excerpts = emptyExcerpts(); pack.skipped.excerptsFailed = 1; }
 
             progress(ports, { phase: 'worldbooks', message: '正在导出构画世界书…' });
             pack.worldbooks = await exportWorldbooks(ports);
