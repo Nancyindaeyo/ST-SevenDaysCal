@@ -489,6 +489,7 @@ q::after {
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-wrap: wrap;
     gap: 8px;
     padding: 6px 0;
     border-top: 1px solid color-mix(in oklab, var(--sp-divider) 70%, transparent);
@@ -2428,6 +2429,8 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-tab-active     { background: var(--sp-chip-bg) !important; color: var(--sp-primary) !important; border-color: var(--sp-primary) !important; }
 .sp-tab-num        { font-family: 'Roboto Mono', monospace; font-size: var(--sp-fs-65); font-weight: 500; line-height: 1; white-space: nowrap; }
 .sp-tab-wd         { font-size: var(--sp-fs-60); opacity: 0.8; line-height: 1; }
+.sp-tab-today      { box-shadow: inset 0 -2px 0 var(--sp-primary); }
+.sp-tab-today-label { font-size: var(--sp-fs-60); font-weight: 700; line-height: 1; color: var(--sp-primary); }
 .sp-point-date-align {
     display: flex;
     align-items: center;
@@ -2442,7 +2445,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     line-height: 1.4;
 }
 .sp-point-date-align span { min-width: 0; }
-.sp-align-point-date {
+.sp-point-date-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.sp-align-point-date,
+.sp-roll-point-date {
     flex: 0 0 auto;
     padding: 4px 10px;
     border: 1px solid var(--sp-primary);
@@ -2452,6 +2457,10 @@ select.sp-input { appearance: none; cursor: pointer; }
     font-size: var(--sp-fs-65);
     cursor: pointer;
 }
+.sp-roll-point-date { color: var(--sp-on-primary); background: var(--sp-primary); }
+.sp-past-panel { overflow-y: auto; }
+.sp-past-day + .sp-past-day { margin-top: 14px; }
+.sp-past-day h4 { margin: 0 0 8px; color: var(--sp-on-surface-variant); font-size: var(--sp-fs-65); }
 .sp-align-point-date:hover { background: var(--sp-chip-bg); }
 
 /* ─── Days sliding track ─────────────────────────────────────────────────────── */

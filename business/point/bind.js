@@ -1,7 +1,9 @@
 export function pointDeleteTarget(day, ev, { view, charName } = {}) {
     const idx = Number(ev);
     if (!Number.isInteger(idx)) return null;
-    return { day: day === 'future' ? 'future' : Number(day), idx, view, charName };
+    const dayKey = day === 'future' || /^past:\d+$/.test(String(day)) ? String(day) : Number(day);
+    if (typeof dayKey === 'number' && !Number.isInteger(dayKey)) return null;
+    return { day: dayKey, idx, view, charName };
 }
 
 export function panelPointDeleteContext(currentView, charViewName) {
@@ -15,7 +17,7 @@ export function chatPointDeleteContext() {
 export function pointTabIndex(rawDay, total) {
     if (!Number.isInteger(total) || total < 1) return null;
     const raw = String(rawDay || '').trim().toLowerCase();
-    const idx = raw === 'future' ? total - 1 : Number(raw);
+    const idx = raw === 'future' ? total - 1 : raw === 'past' ? 0 : Number(raw);
     if (!Number.isInteger(idx) || idx < 0 || idx >= total) return null;
     return idx;
 }
@@ -45,10 +47,15 @@ export function bindPointPanel(env = {}) {
         e.stopPropagation();
         env.alignStartDate?.();
     });
+    $in('#sp-body').on('click', '.sp-roll-point-date', function (e) {
+        e.stopPropagation();
+        env.rollToToday?.();
+    });
     $in('#sp-body').on('click', '.sp-tab', function () {
         const $track = $(this).closest('#sp-body').find('.sp-days-track').first();
         const total = Number($track.attr('data-total'));
-        const idx = pointTabIndex($(this).attr('data-day'), total);
+        const explicit = Number($(this).attr('data-index'));
+        const idx = Number.isInteger(explicit) ? explicit : pointTabIndex($(this).attr('data-day'), total);
         if (idx == null) return;
         env.$inAll('.sp-tab').removeClass('sp-tab-active');
         $(this).addClass('sp-tab-active');

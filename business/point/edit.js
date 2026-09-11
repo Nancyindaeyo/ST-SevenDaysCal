@@ -1,12 +1,13 @@
 import { normalizeEditableText, validatePointDescription } from '../utils/text-edit.js';
 
 function eventBlocks(raw) {
-    const source = String(raw || ''); const lines = source.split('\n'); const blocks = []; let current = null; let day = null; let future = false; let dayIndex = -1;
+    const source = String(raw || ''); const lines = source.split('\n'); const blocks = []; let current = null; let day = null; let future = false; let dayIndex = -1; let pastIndex = -1;
     const flush = end => { if (current) { current.end = end; blocks.push({ ...current, day, future }); current = null; } };
     lines.forEach((line, index) => {
         const text = line.trim();
         const dayMatch = /^(?:Day\s*:?\s*(\d+)|第([一二三四五六七\d]+)天)/i.exec(text);
         if (dayMatch) { flush(index); dayIndex++; day = dayIndex; future = false; return; }
+        if (/^PastDay\s*:/i.test(text)) { flush(index); pastIndex++; day = `past:${pastIndex}`; future = false; return; }
         if (/^(?:Future\s*:|未来\s*:)/i.test(text)) { flush(index); day = 'future'; future = true; return; }
         if (/^Event\s*:/i.test(text)) { flush(index); current = { start: index, end: index + 1 }; return; }
         if (/^<\/(?:calendar|schedule)_widget>/i.test(text)) { flush(index); return; }
@@ -15,10 +16,10 @@ function eventBlocks(raw) {
     flush(lines.length);
     const activeDays = new Map();
     for (const block of blocks) {
-        if (block.day === 'future' || activeDays.has(block.day)) continue;
+        if (block.day === 'future' || String(block.day).startsWith('past:') || activeDays.has(block.day)) continue;
         activeDays.set(block.day, activeDays.size);
     }
-    return { lines, blocks: blocks.map(block => ({ ...block, day: block.day === 'future' ? 'future' : activeDays.get(block.day) })) };
+    return { lines, blocks: blocks.map(block => ({ ...block, day: block.day === 'future' || String(block.day).startsWith('past:') ? block.day : activeDays.get(block.day) })) };
 }
 
 export function editPointDescription(raw, dayKey, eventIndex, value) {
@@ -27,7 +28,7 @@ export function editPointDescription(raw, dayKey, eventIndex, value) {
 
 export function editPointFields(raw, dayKey, eventIndex, values = {}) {
     const desc = normalizeEditableText(values.desc ?? '');
-    const parsed = eventBlocks(raw); const targetDay = dayKey === 'future' ? 'future' : Number(dayKey);
+    const parsed = eventBlocks(raw); const targetDay = dayKey === 'future' || String(dayKey).startsWith('past:') ? String(dayKey) : Number(dayKey);
     const block = parsed.blocks.filter(item => item.day === targetDay)[Number(eventIndex)]; if (!block) return { ok: false, reason: 'not-found', raw };
     const first = parsed.lines[block.start]; const indent = first.match(/^\s*/)?.[0] || ''; const fields = first.trim().replace(/^Event\s*:\s*/i, '').split('|');
     if (fields.length < 4) return { ok: false, reason: 'malformed', raw };

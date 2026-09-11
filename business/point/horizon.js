@@ -51,7 +51,7 @@ export function appendHorizonDays(existingRaw, fillRaw, calendar = null, horizon
     return {
         changed: true,
         added,
-        raw: serializeCalendar(kept, existing.future, existing.startDate, calendar, existing.startDateToken),
+        raw: serializeCalendar(kept, existing.future, existing.startDate, calendar, existing.startDateToken, existing.pastDays),
     };
 }
 

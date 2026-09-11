@@ -29,7 +29,7 @@ export function parseManualActionItem($item) {
 }
 
 export function pointMenuDay(day) {
-    return day === 'future' ? 'future' : Number(day);
+    return day === 'future' || /^past:\d+$/.test(String(day)) ? String(day) : Number(day);
 }
 
 export function outlineMenuIndex(action, idx) {

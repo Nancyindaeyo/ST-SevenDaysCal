@@ -13,6 +13,7 @@ import { escapeHtml, escapeAttr } from '../../utils/dom.js';
 import { weatherChipHtml } from '../../utils/format.js';
 import * as store from '../../store.js';
 import { renderActionMenu } from '../utils/action-menu.js';
+import { pointTodayDayIndex } from './shift.js';
 
 let env = null;
 export function bindPointRender(e) { env = e; }
@@ -87,10 +88,11 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     const parsed = parseCalendar(raw, calendar);
     const days = parsed.allDays?.length ? parsed.allDays : parsed.days;
     const populatedDays = (parsed.days || []).length;
-    const { future, startDate } = parsed;
+    const { future, startDate, pastDays = [] } = parsed;
     const hasFuture = future && future.events.length > 0;
+    const hasPast = pastDays.some(day => day.events?.length);
 
-    const totalTabs = days.length + (hasFuture ? 1 : 0);
+    const totalTabs = days.length + (hasPast ? 1 : 0) + (hasFuture ? 1 : 0);
     const chipCls   = perspective === 'char' ? 'sp-char-chip' : 'sp-user-chip';
 
     // 点后台同步在飞时，点刷新圆圈置灰禁点（同步会后台重写点，此刻手动刷新会跟它抢 store）
@@ -112,7 +114,7 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     // Parse failed (AI leaked prompt / malformed output) — still render header
     // so the user has a refresh button to reroll. Otherwise they get stuck
     // staring at raw garbage with no way to try again.
-    if (days.length === 0 && !hasFuture) {
+    if (days.length === 0 && !hasFuture && !hasPast) {
         return header + `<div class="sp-raw">${escapeHtml(raw).replace(/\n/g, '<br>')}</div>`;
     }
 
@@ -120,14 +122,30 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     const today = env?.almTodayAnchor?.();
     const startMd = asCalendarDate(startDate, calendar);
     const todayMd = today && Number.isInteger(Number(today.month)) && Number.isInteger(Number(today.day))
-        ? { month: Number(today.month), day: Number(today.day) }
+        ? { year: Number.isInteger(Number(today.year)) ? Number(today.year) : undefined, month: Number(today.month), day: Number(today.day) }
         : null;
+    const todayDayIndex = todayMd ? pointTodayDayIndex(raw, todayMd, calendar) : null;
+    const preferredIndex = todayDayIndex == null ? (hasPast ? 1 : 0) : (hasPast ? 1 : 0) + todayDayIndex;
+    const activeIndex = Math.max(0, Math.min(totalTabs - 1, preferredIndex));
     const needsAlign = startMd && todayMd && (startMd.month !== todayMd.month || startMd.day !== todayMd.day);
     const alignHtml = needsAlign ? `<div class="sp-point-date-align">
-        <span>点上今天是 ${escapeHtml(formatPointDate(startMd.month, startMd.day, ctx.cal, true) || '')}，剧情是 ${escapeHtml(formatPointDate(todayMd.month, todayMd.day, ctx.cal, true) || '')}</span>
-        <button type="button" class="sp-align-point-date">对齐日期</button>
+        <span>窗口从 ${escapeHtml(formatPointDate(startMd.month, startMd.day, ctx.cal, true) || '')} 开始，剧情今天是 ${escapeHtml(formatPointDate(todayMd.month, todayMd.day, ctx.cal, true) || '')}</span>
+        <span class="sp-point-date-actions">
+            <button type="button" class="sp-align-point-date" title="只整体改日期标签，事项跟随原槽位">整体平移</button>
+            <button type="button" class="sp-roll-point-date" title="过去事项保留到「过去」，后续日期向前滚动">滚动至今日</button>
+        </span>
     </div>` : '';
-    const tabs = days.map((_, i) => {
+    const tabs = [];
+    const panels = [];
+    if (hasPast) {
+        tabs.push(`<button class="sp-tab" data-day="past" data-index="0"><span class="sp-tab-num">过去</span><span class="sp-tab-wd">${pastDays.reduce((sum, day) => sum + (day.events?.length || 0), 0)} 条</span></button>`);
+        panels.push(`<div class="sp-day-panel sp-past-panel" style="width:calc(100%/${totalTabs})">${pastDays.map((past, pi) => {
+            const label = formatPointDate(past.date?.month, past.date?.day, ctx.cal) || '日期未知';
+            const events = (past.events || []).map((ev, ei) => renderEvent(ev, `past:${pi}`, ei, past.weather, past.temp, label)).join('');
+            return `<section class="sp-past-day"><h4>${escapeHtml(label)}</h4>${weatherChipHtml(past.weather, past.temp)}${events}</section>`;
+        }).join('')}</div>`);
+    }
+    tabs.push(...days.map((_, i) => {
         let numLabel = String(i + 1);
         let wdLabel = '';
         if (startDate) {
@@ -135,16 +153,18 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
             wdLabel  = wd == null ? '星期未记录' : ALM_WEEKDAYS[wd];
             numLabel = formatPointDate(month, day, ctx.cal, true) || '日期未知';
         }
-        return `<button class="sp-tab${i === 0 ? ' sp-tab-active' : ''}" data-day="${i}">
+        const isToday = i === todayDayIndex;
+        const tabIndex = (hasPast ? 1 : 0) + i;
+        return `<button class="sp-tab${tabIndex === activeIndex ? ' sp-tab-active' : ''}${isToday ? ' sp-tab-today' : ''}" data-day="${i}" data-index="${tabIndex}">
             <span class="sp-tab-num">${escapeHtml(numLabel)}</span>
-            ${wdLabel ? `<span class="sp-tab-wd">${escapeHtml(wdLabel)}</span>` : ''}
+            ${isToday ? '<span class="sp-tab-today-label">今天</span>' : (wdLabel ? `<span class="sp-tab-wd">${escapeHtml(wdLabel)}</span>` : '')}
         </button>`;
-    });
-    if (hasFuture) tabs.push(`<button class="sp-tab${days.length === 0 ? ' sp-tab-active' : ''}" data-day="future">
+    }));
+    if (hasFuture) tabs.push(`<button class="sp-tab${activeIndex === totalTabs - 1 && !days.length ? ' sp-tab-active' : ''}" data-day="future" data-index="${totalTabs - 1}">
         <span class="sp-tab-num">未来</span>
     </button>`);
 
-    const panels = days.map((day, di) => {
+    panels.push(...days.map((day, di) => {
         let dateLabel = `第${di + 1}天`;
         if (startDate) {
             const { month, day: dd, wd } = scheduleDayLabel(di, startDate, ctx);
@@ -152,7 +172,7 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
             dateLabel = dateText ? `${dateText} · ${wd == null ? '星期未记录' : ALM_WEEKDAYS[wd]}` : '日期未知';
         }
         return `<div class="sp-day-panel" style="width:calc(100%/${totalTabs})">${weatherChipHtml(day.weather, day.temp)}${day.events.length ? day.events.map((ev, ei) => renderEvent(ev, di, ei, day.weather, day.temp, dateLabel)).join('') : '<div class="sp-event-empty">这天没有安排</div>'}</div>`;
-    });
+    }));
     if (hasFuture) panels.push(
         `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', '未来')).join('')}</div>`
     );
@@ -162,5 +182,5 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
         <pre class="sp-debug-raw">${escapeHtml(raw)}</pre></details>` : '';
 
     return `${header}${alignHtml}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>
-        <div class="sp-days-wrap"><div class="sp-days-track" data-total="${totalTabs}" style="width:${totalTabs * 100}%">${panels.join('')}</div></div>${debug}`;
+        <div class="sp-days-wrap"><div class="sp-days-track" data-total="${totalTabs}" style="width:${totalTabs * 100}%;transform:translateX(-${activeIndex * 100 / totalTabs}%)">${panels.join('')}</div></div>${debug}`;
 }

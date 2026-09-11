@@ -502,8 +502,8 @@ export function panelMarkup({
                                             <hr class="sp-mem-divider">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile" ${getSettings().ledgerReconcileEnabled === true ? 'checked' : ''}><span>点/线按楼对齐正文</span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-reconcile-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLedgerReconcileInterval()))}"><span>条 AI 回复对齐一次</span><span class="sp-pace-remain" data-pace-remain="align"></span></label>
-                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile-reroll" ${getSettings().ledgerReconcileReroll !== false ? 'checked' : ''}><span>重 roll 对齐楼时，按新正文再对齐一次</span></label>
-                                            <p class="sp-cfg-hint">默认关。每隔几楼用最新正文改走偏的点和线（完成/推迟/改描述，线也可以收束或暂缓），不整表重做。今天事项做完空了，有正文依据会补回当天名额。【改】重试也是再对齐，不是重做整张表。冷知识和面不自动改。成功、无变化、失败都记在「改」；失败可按最新楼重试。对齐楼被重 roll 时默认再对齐一次，不当新楼。时旅那一层两边都不跑。</p>
+                                            <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile-reroll" ${getSettings().ledgerReconcileReroll !== false ? 'checked' : ''}><span>重 roll／编辑对齐楼时，按新正文再对齐一次</span></label>
+                                            <p class="sp-cfg-hint">默认关。每隔几楼用最新正文改走偏的点和线（完成/推迟/改描述，线也可以收束或暂缓），不整表重做。今天事项做完空了，有正文依据会补回真实的今日日期槽。【改】重试也是再对齐，不是重做整张表。冷知识和面不自动改。成功、无变化、失败都记在「改」；失败可按最新楼重试。对齐楼被重 roll、切 swipe 或编辑时默认再对齐一次，不当新楼。时旅那一层两边都不跑。</p>
                                         </div>
                                     </details>
                                     <details class="sp-settings-section" id="sp-pace-lines-section">

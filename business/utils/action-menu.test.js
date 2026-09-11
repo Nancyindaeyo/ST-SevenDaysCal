@@ -11,6 +11,7 @@ import { isAdultRevealKey } from './adult-reveal.js';
 
 test('point menu future stays a token, otherwise a number', () => {
     assert.equal(pointMenuDay('future'), 'future');
+    assert.equal(pointMenuDay('past:2'), 'past:2');
     assert.equal(pointMenuDay('2'), 2);
 });
 

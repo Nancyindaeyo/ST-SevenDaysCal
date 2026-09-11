@@ -11,6 +11,7 @@ function env(over = {}) {
         setChatId(next) { chatId = next; },
         context: () => ({ chatId, name1: '甲', name2: '乙', chat: [{ is_user: false, mes: '今天去体检了。' }] }),
         loadConfig: () => ({ url: 'http://x', key: 'k' }),
+        today: () => ({ month: 3, day: 1 }),
         cleanText: text => text,
         readPointRaw: () => `<calendar_widget>
 StartDate: 2024-03-01
@@ -115,6 +116,27 @@ test('align prompt tells the model to refill today when Day 1 is short', async (
     assert.equal(result.status, 'updated');
     assert.match(prompt, /今天（Day 1）还空 2 个名额/);
     assert.match(host.writes[0].raw, /场地协调/);
+});
+
+test('align prompt targets the actual today slot after the timestamp advances', async () => {
+    let prompt = '';
+    const host = env({
+        today: () => ({ month: 3, day: 2 }),
+        readPointRaw: () => `<calendar_widget>
+StartDate: 2024-03-01
+Day: 1
+Event: main|昨天|已经过去|上午|旧地||false
+Day: 2
+Event: main|今天事项|仍在进行|下午|新地||false
+</calendar_widget>`,
+        callApi: async (_ctx, text) => {
+            prompt = text;
+            return 'note: 与正文一致';
+        },
+    });
+    await createRefreshController(host).align({ selected: ['point'] });
+    assert.match(prompt, /今天（Day 2）还空 2 个名额/);
+    assert.match(prompt, /point: add\|Day 2\|/);
 });
 
 test('auto align omits lines when lines are off', async () => {

@@ -13,6 +13,7 @@ function locatePoints(raw) {
     const hits = [];
     const days = parsed.allDays || parsed.days || [];
     days.forEach((day, dayIndex) => (day.events || []).forEach((event, eventIndex) => hits.push({ event, dayIndex, eventIndex, future: false })));
+    (parsed.pastDays || []).forEach((day, pastIndex) => (day.events || []).forEach((event, eventIndex) => hits.push({ event, pastIndex, eventIndex, past: true, future: false })));
     (parsed.future?.events || []).forEach((event, eventIndex) => hits.push({ event, dayIndex: 'future', eventIndex, future: true }));
     return { parsed, hits };
 }
@@ -23,6 +24,11 @@ function pointIndex(hits, item) {
 
 function insertPoint(parsed, snapshotHit) {
     const clone = { ...snapshotHit.event };
+    if (snapshotHit.past) {
+        const day = parsed.pastDays?.[snapshotHit.pastIndex];
+        if (day) day.events.splice(Math.min(snapshotHit.eventIndex, day.events.length), 0, clone);
+        return;
+    }
     if (snapshotHit.future) {
         parsed.future ||= { events: [] };
         parsed.future.events.push(clone);
@@ -34,7 +40,11 @@ function insertPoint(parsed, snapshotHit) {
 }
 
 function removePoint(parsed, hit) {
-    const bucket = hit.future ? parsed.future?.events : (parsed.allDays || parsed.days || [])[hit.dayIndex]?.events;
+    const bucket = hit.future
+        ? parsed.future?.events
+        : hit.past
+            ? parsed.pastDays?.[hit.pastIndex]?.events
+            : (parsed.allDays || parsed.days || [])[hit.dayIndex]?.events;
     if (bucket) bucket.splice(hit.eventIndex, 1);
 }
 
@@ -52,12 +62,12 @@ export function restorePointItem(currentRaw, snapshotRaw, afterRaw, item) {
             return { changed: false, raw: currentRaw };
         }
         removePoint(current.parsed, current.hits[currentIndex]);
-        return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken) };
+        return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken, current.parsed.pastDays) };
     }
     if (afterIndex < 0) {
         if (currentIndex >= 0) return { changed: false, raw: currentRaw };
         insertPoint(current.parsed, snapshot.hits[snapIndex]);
-        return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken) };
+        return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken, current.parsed.pastDays) };
     }
     if (currentIndex < 0) return { changed: false, raw: currentRaw };
     if (fingerprintBookItem(current.hits[currentIndex].event, POINT_KEYS) !== fingerprintBookItem(after.hits[afterIndex].event, POINT_KEYS)) {
@@ -65,7 +75,7 @@ export function restorePointItem(currentRaw, snapshotRaw, afterRaw, item) {
     }
     removePoint(current.parsed, current.hits[currentIndex]);
     insertPoint(current.parsed, snapshot.hits[snapIndex]);
-    return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken) };
+    return { changed: true, raw: serializeCalendar(current.parsed.allDays || current.parsed.days, current.parsed.future, current.parsed.startDate, null, current.parsed.startDateToken, current.parsed.pastDays) };
 }
 
 export function restoreLineItem(currentRaw, snapshotRaw, afterRaw, item) {

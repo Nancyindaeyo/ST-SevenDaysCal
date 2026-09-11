@@ -8,6 +8,7 @@ function pointTitles(raw) {
     const parsed = parseCalendar(String(raw || ''));
     const days = parsed.allDays || parsed.days || [];
     const events = [];
+    for (const day of parsed.pastDays || []) for (const event of day.events || []) events.push(event);
     for (const day of days) for (const event of day.events || []) events.push(event);
     for (const event of parsed.future?.events || []) events.push(event);
     return events;

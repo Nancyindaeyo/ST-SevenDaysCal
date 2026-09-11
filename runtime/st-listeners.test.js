@@ -240,3 +240,18 @@ test('same-floor render asks refresh to realign', async () => {
     assert.ok(h.calls.includes('refresh.onRerollAlign'));
     assert.ok(h.calls.includes('activity.restyle'));
 });
+
+test('editing the latest align floor relands its timestamp and realigns', async () => {
+    const h = floorHost({
+        refresh: {
+            didReconcile: id => id === 2,
+            onRerollAlign: async () => h.calls.push('refresh.onRerollAlign'),
+            onAiFloor: async () => ({ status: 'skipped' }),
+            abort() {},
+        },
+    });
+    await createChatFloorHandlers(h).edited(2);
+    assert.ok(h.calls.includes('lines.onEdited'));
+    assert.ok(h.calls.includes('activity.restyle'));
+    assert.ok(h.calls.includes('refresh.onRerollAlign'));
+});

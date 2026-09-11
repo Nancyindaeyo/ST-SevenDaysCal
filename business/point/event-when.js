@@ -40,6 +40,8 @@ export function composeEventWhen({ year, month, day, clock } = {}, { withDate = 
 
 export function eventTabDate(parsed, dayKey, calendar = null) {
     if (dayKey === 'future') return null;
+    const past = /^past:(\d+)$/.exec(String(dayKey));
+    if (past) return parsed?.pastDays?.[Number(past[1])]?.date || null;
     const start = asStart(parsed?.startDate, calendar);
     const slot = parsed?.days?.[Number(dayKey)];
     if (!start || !slot) return null;
@@ -52,6 +54,8 @@ export function dayKeyForMonthDay(parsed, month, day, calendar = null) {
     const m = Number(month);
     const d = Number(day);
     if (!Number.isInteger(m) || !Number.isInteger(d)) return null;
+    const pastIndex = (parsed?.pastDays || []).findIndex(item => item?.date?.month === m && item?.date?.day === d);
+    if (pastIndex >= 0) return `past:${pastIndex}`;
     const start = asStart(parsed?.startDate, calendar);
     if (!start) return 'future';
     const days = parsed?.days || [];

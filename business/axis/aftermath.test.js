@@ -50,15 +50,15 @@ test('锚点善后不再自动滚点', () => {
     assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
 });
 
-test('换日把用户点前移一格并记进改', () => {
+test('手动滚动把用户点前移一格、保留过去并记进改', () => {
     const { host, calls, store } = makeHost();
     assert.equal(host.shiftPointsToToday(), true);
     assert.match(store.get('user'), /StartDate: 2024-04-15/);
     assert.equal(calls[0][0], 'write');
     const record = calls.find(call => call[0] === 'record')[1];
     assert.equal(record.source, 'shift');
-    assert.equal(record.note, '格子前移 1 天');
-    assert.deepEqual(record.items.map(item => item.action), ['complete', 'postpone']);
+    assert.equal(record.note, '窗口滚动 1 天，过期事项已保留在「过去」');
+    assert.deepEqual(record.items.map(item => item.action), ['archive', 'archive']);
 });
 
 test('同一天不写 store；TA 视角才会动 TA 账', () => {

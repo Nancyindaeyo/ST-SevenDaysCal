@@ -2,6 +2,7 @@ import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError
 import { itemsFromPatches } from '../activity/diff.js';
 import { alignSourceOf, floorUnchangedNote } from '../activity/schema.js';
 import { pointDayEventGap } from '../point/horizon.js';
+import { pointTodayDayIndex } from '../point/shift.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
 import { normalizeRefreshSelection } from './bar.js';
@@ -109,6 +110,8 @@ export function createRefreshController(env = {}) {
             const linesRaw = selected.includes('lines') ? String(env.readLinesRaw?.() || '') : '';
             if (!pointRaw && !linesRaw) return { status: 'skipped', reason: 'empty' };
             const before = snapshotSelected(selected);
+            const todayDayIndex = pointRaw ? pointTodayDayIndex(pointRaw, env.today?.(), env.calendar?.()) : null;
+            const todayDayNumber = todayDayIndex == null ? 1 : todayDayIndex + 1;
             const prompt = buildReconcilePrompt({
                 userName: ctx.name1 || '用户',
                 charName: ctx.name2 || '角色',
@@ -118,7 +121,8 @@ export function createRefreshController(env = {}) {
                 reason: options.reason,
                 feedback: options.feedback,
                 promptAddon: options.promptAddon,
-                todayGap: pointRaw ? pointDayEventGap(pointRaw, 0, env.calendar?.()) : 0,
+                todayGap: pointRaw && todayDayIndex != null ? pointDayEventGap(pointRaw, todayDayIndex, env.calendar?.()) : 0,
+                todayDayNumber,
             });
             const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'ledger-reconcile', diagnosticSink: diagnostic.sink, fullMemory: false });
             if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: 'chat-changed' };

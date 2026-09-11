@@ -212,6 +212,7 @@ import { createPointController } from './business/point/controller.js';
 import { appendHorizonDays, planAdvanceSteps } from './business/point/horizon.js';
 import { createPointInlineRenderer } from './business/point/inline.js';
 import { pointTicketPlan } from './business/point/adult.js';
+import { shiftPointCalendar } from './business/point/shift.js';
 import { bindLedgerSelect, selectLedgerForInject } from './business/ledger/select.js';
 import { bindLedgerDate, ledgerDaysSince, ledgerDueInfo, listJudgeableLedger, fmtLedgerForJudge } from './business/ledger/date.js';
 import { bindLedgerSchema, splitCnList, normGist, parseLedgerCapture as parseLedgerCaptureSchema, parseLedgerJudge as parseLedgerJudgeSchema } from './business/ledger/schema.js';
@@ -531,6 +532,7 @@ const pointActions = createPointActions({
     parseCalendar,
     togglePointPinRaw,
     deletePointEventRaw,
+    rollToToday: shiftPointCalendar,
     movePointEvent,
     editPointDescription,
     editPointFields: (raw, day, index, values) => editPointFields(raw, day, index, values),
@@ -548,6 +550,7 @@ const pointActions = createPointActions({
     captureParticipantIdentity,
     sameParticipantIdentity,
     today: almTodayAnchor,
+    fillAfterRoll: () => pointController.fillHorizon(false),
     onActivity: entry => activityFeature.record(entry),
 });
 const applyPointWidget = createPointWidgetActions({
@@ -646,6 +649,7 @@ const pointInlineRenderer = createPointInlineRenderer({
     makeInjectBtn,
     buildPointInjectText,
     cleanText,
+    today: almTodayAnchor,
 });
 const parseJudgedDate = parseJudgedDatePure;
 
@@ -1215,7 +1219,7 @@ const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" f
 const MODULE_INTROS = {
     schedule:
         _iLede('「点」从故事里的“今天”开始，为我／TA 安排接下来 3 天的事项，并把更远的事另列在“未来”；它不是人物此刻状态卡。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；是否出现、格式完整与时间合理取决于模型是否遵循提示词和主楼剧情质量，缺失或不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('默认不会随日期自动重排，也不会塞给主楼。想更新用顶上的「刷新账本」；卡住下一楼时打开「本轮拍」。后台对齐、推进的结果记在侧栏「改」。设置 → 跟剧情走 里可打开「点/线按楼对齐」。') +
+        _iSub('时间戳换日后会自动把对应日期标成“今天”，不会暗改事项。需要改窗口时可选「整体平移」；要保留原日期则用「滚动至今日」，过期事项会进入“过去”。想重做内容用顶上的「刷新账本」；后台对齐、推进的结果记在侧栏「改」。') +
         _iKey('fa-rotate-right', '生成／刷新', '按最新剧情重做未锁事项；新结果会覆盖旧的未锁数据') +
         _iKey('fa-thumbtack',    '固定 TA',    '只把当前 TA 留在 TA▾ 抽屉，方便下次查看；不是锁定事项') +
         _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条点的操作都收在这里') +
@@ -1752,6 +1756,7 @@ const refreshController = createRefreshController({
     callApi: callCustomApi,
     calendar: loadCalDesc,
     cleanText,
+    today: almTodayAnchor,
     pluginEnabled,
     enabled: () => getSettings().ledgerReconcileEnabled === true,
     rerollEnabled: () => getSettings().ledgerReconcileReroll !== false,
@@ -2656,7 +2661,7 @@ async function fillLatestStoryClock() {
 }
 
 // ─── 共享锚点善后 ───────────────────────────────────────────────────────────
-// 任何一处改「今天」锚点后都走这里。格子前移 / 刷楼内框与轴 / 日期制线换日：business/axis/aftermath.js。
+// 任何一处改「今天」锚点后都走这里。今日游标 / 刷楼内框与轴 / 日期制线换日：business/axis/aftermath.js。
 const anchorAftermath = createAnchorAftermath({
     today: almTodayAnchor,
     calendar: loadCalDesc,
@@ -2901,6 +2906,7 @@ function injectModal() {
         deleteEvent: triggerDeletePointEvent,
         abort: abortScheduleGen,
         alignStartDate: () => pointActions.alignStartDate(),
+        rollToToday: () => pointActions.rollToToday(),
     });
     $in('.sp-sheet').on('click', '#sp-gen-books-now', () => void bootstrapFeature.start());
     $in('.sp-sheet').on('click', '#sp-bootstrap-retry', () => void bootstrapFeature.retry());

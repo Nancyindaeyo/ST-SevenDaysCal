@@ -234,6 +234,7 @@ export function createActivityFeature(env = {}) {
         if (result?.status === 'cancelled') return result;
         clearRestyle();
         paint();
+        if (cause === 'reroll' && result?.status === 'updated') env.toast?.('已按这楼的新正文重新对齐点和线');
         return result || { status: 'skipped' };
     };
 

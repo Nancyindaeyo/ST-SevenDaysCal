@@ -75,8 +75,16 @@ export function createChatFloorHandlers(h) {
                 await h.refresh?.onRerollAlign?.(mid);
             }
         },
-        edited: (mesId) => {
+        edited: async (mesId) => {
             h.lines?.onEdited?.({ mesId });
+            if (!h.pluginEnabled?.()) return;
+            const mid = Number(mesId);
+            if (!isLatestChatFloor(h.getContext?.().chat, mid) || h.refresh?.didReconcile?.(mid) !== true) return;
+            h.relandStoryClockAnchor?.();
+            h.syncLatestAlmanacBlock?.();
+            h.syncLatestScheduleBlock?.();
+            h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
+            await h.refresh?.onRerollAlign?.(mid);
         },
         sent: (insertAt) => {
             h.lines?.onSent?.({ insertAt });

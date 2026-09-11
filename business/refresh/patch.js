@@ -149,7 +149,7 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
             applied.push(pointApplied(hit.event, 'stall'));
         }
     }
-    return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken), changed, skippedLocks, applied };
+    return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken, parsed.pastDays), changed, skippedLocks, applied };
 }
 
 export function applyLinePatches(raw, patches, { feedback = '' } = {}) {

@@ -2,15 +2,17 @@ import { shiftPointCalendar } from '../point/shift.js';
 import { pointScheduleNeedsDateSync } from '../point/controller.js';
 
 function shiftItems(result) {
-    return [
-        ...result.completed.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'complete', ref: event.id })),
-        ...result.lockedMoved.map(event => ({ module: 'point', title: String(event.title || '').slice(0, 40), action: 'postpone', ref: event.id })),
-    ];
+    return (result.archived || []).map(event => ({
+        module: 'point',
+        title: String(event.title || '').slice(0, 40),
+        action: 'archive',
+        ref: event.id,
+    }));
 }
 
 // 锚点善后：任何一处改「今天」后统一走这里。
 // 刷楼内框/点面板/轴；日期制线在这里看换日。
-// 点上的日期标签不对时，由面板「对齐日期」改 StartDate（事项不动）。不再自动滚点删除。
+// 点会按锚点标出真实今日；窗口起点不同时由用户选择整体平移或滚动至今日。
 export function createAnchorAftermath(env = {}) {
     function shiftPointsToToday() {
         try {
@@ -32,7 +34,7 @@ export function createAnchorAftermath(env = {}) {
                         snapshot: { point: raw },
                         after: { point: result.raw },
                         items: shiftItems(result),
-                        note: `格子前移 ${result.delta} 天`,
+                        note: `窗口滚动 ${result.delta} 天，过期事项已保留在「过去」`,
                     });
                 }
                 return true;

@@ -37,6 +37,7 @@ export const ACTIVITY_ACTIONS = Object.freeze({
     continue: '续写',
     replace: '整份替换',
     advance: '往前演化',
+    archive: '移入过去',
 });
 
 export const ACTIVITY_MODULES = Object.freeze({
