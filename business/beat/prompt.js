@@ -8,15 +8,14 @@ const ANGLE_HINT = {
     space: '顺着间里刚说的方向；若间没有方向，则换路径、仍留面当前节点的结果',
 };
 
-function clip(text, limit = 1800) {
-    const value = String(text || '').trim();
-    return value.length > limit ? `${value.slice(0, limit)}\n…` : value;
+function text(value) {
+    return String(value || '').trim();
 }
 
 export function buildBeatPrompt(context = {}) {
     const userName = context.userName || '用户';
     const charName = context.charName || '角色';
-    const hasSpace = String(context.spaceRecent || '').trim();
+    const hasSpace = text(context.spaceRecent);
     const angles = BEAT_ANGLES.map(angle => {
         const hint = angle === 'space' && !hasSpace
             ? ANGLE_HINT.space.replace('顺着间里刚说的方向；若间没有方向，则', '')
@@ -30,17 +29,20 @@ export function buildBeatPrompt(context = {}) {
         angles,
         '不要代发用户楼，不要输出 HTML，不要解释。',
         '',
+        '【刚落地的正文】',
+        text(context.latestStory) || '（没有正文）',
+        '',
         '【点·近几天日程】',
-        clip(context.pointRaw) || '（无）',
+        text(context.pointRaw) || '（无）',
         '',
         '【线·平行事件】',
-        clip(context.linesRaw) || '（无）',
+        text(context.linesRaw) || '（无）',
         '',
         '【面·当前节点】',
-        clip(context.outlineNode) || '（无）',
+        text(context.outlineNode) || '（无）',
         '',
         '【间·近期发言】',
-        clip(context.spaceRecent, 1200) || '（无）',
+        text(context.spaceRecent) || '（无）',
         '',
         '只输出：',
         '<beat_shots>',

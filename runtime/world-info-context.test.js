@@ -22,7 +22,6 @@ import {
     worldInfoEntryFromLoaded,
     worldInfoFailureNoticeKey,
     worldInfoMaxContext,
-    WORLD_INFO_TOKEN_BUDGET,
 } from './world-info-context.js';
 
 test('linked world names prefer TavernHelper then card extras', () => {
@@ -99,15 +98,12 @@ test('activation filters by selection and keys', () => {
     assert.deepEqual(filterActivatedWorldInfo(entries, { selection, keys: new Set(['a::1']) }), ['keep']);
 });
 
-test('token pack skips later entries that would blow the budget then trims if the join still overflows', async () => {
-    const packed = await packWorldInfoContents(['aaaa', 'bbbb', 'cccc'], {
-        budget: 10,
-        countTokens: async text => ({ tokens: String(text).length, exact: true }),
-    });
-    assert.match(packed.text, /^【世界书】\n/);
-    assert.ok(packed.skipped >= 1);
-    assert.ok(packed.finalCount.tokens <= 10);
-    assert.equal(WORLD_INFO_TOKEN_BUDGET, 60000);
+test('world-info pack joins activated entries without a token budget', async () => {
+    const packed = await packWorldInfoContents(['aaaa', 'bbbb', 'cccc']);
+    assert.equal(packed.text, '【世界书】\naaaa\n\nbbbb\n\ncccc');
+    assert.equal(packed.skipped, 0);
+    assert.deepEqual(packed.kept, ['aaaa', 'bbbb', 'cccc']);
+    assert.equal((await packWorldInfoContents(['', null])).text, '');
 });
 
 test('resolveWorldInfoActivation falls back from luker to native then fails closed', async () => {

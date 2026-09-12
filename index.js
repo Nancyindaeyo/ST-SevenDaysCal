@@ -249,7 +249,6 @@ import {
     collectChatWorldNames,
     collectGlobalWorldNames,
     collectLinkedWorldNames,
-    countWorldInfoTokens as countWorldInfoTokenValue,
     filterActivatedWorldInfo,
     filterExcludedWorldInfo,
     loadCharacterWorldInfoEntries,
@@ -258,11 +257,9 @@ import {
     resolveAllWorldNames,
     resolveWorldInfoActivation,
     wiExcludeSet,
-    WORLD_INFO_TOKEN_BUDGET,
     worldInfoFailureNoticeKey,
 } from './runtime/world-info-context.js';
 import { paintWiEntryFull, paintWiExcludeList, paintWiList, worldInfoPanelIdentity } from './runtime/world-info-panel.js';
-import { capMemText, capMemTextAsync } from './business/memory/recall.js';
 import {
     dispatchStoreClearInvalidate,
     dispatchStoreClearRefreshAfter,
@@ -4002,12 +3999,6 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 200
 
 let lastWorldInfoFailureNoticeKey = '';
 
-async function countWorldInfoTokens(text) {
-    return countWorldInfoTokenValue(text, {
-        getTokenCountAsync: value => getContext()?.getTokenCountAsync?.call(getContext(), value),
-    });
-}
-
 function notifyWorldInfoActivationFailure(ctx) {
     const key = worldInfoFailureNoticeKey(ctx);
     if (lastWorldInfoFailureNoticeKey === key) return;
@@ -4042,18 +4033,7 @@ async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
     }
     const candidates = filterActivatedWorldInfo(entries, { selection, keys: activation.keys });
     if (!candidates.length) return '';
-    const packed = await packWorldInfoContents(candidates, { countTokens: countWorldInfoTokens });
-    if (packed.skipped) {
-        console.warn('[构画] 世界书预算跳过条目诊断', {
-            candidateCount: candidates.length,
-            activatedCount: activation.keys.size,
-            finalEntryCount: packed.kept.length,
-            estimatedTokens: packed.finalCount.tokens,
-            exactCount: packed.exactCount,
-            skippedCount: packed.skipped,
-            budget: WORLD_INFO_TOKEN_BUDGET,
-        });
-    }
+    const packed = await packWorldInfoContents(candidates);
     return packed.text;
 }
 
@@ -4081,18 +4061,9 @@ async function _getMemTextRaw(opts = {}) {
     return memory.getMemoryContext();
 }
 
-// 记忆块 tk 预算封顶：把记忆源产出的文本压到预算内再交给生成。
-// 柏宝书注入版靠向量召回自封顶，但内置 L1 早期章节全塞时，长故事会飙到 10w+ tk。
-//   full=true（历·排全年日期）→ 保覆盖：跨全程等距抽块，别掐中段（会漏中段生日/纪念日）。
-//   full=false（点/线/面/间）→ 近景优先：留最近的块 + 一小段最早梗概，中段省略。
-// 不超预算 → 原样返回、零改动。按空行块边界切，不切碎句子。
+// 记忆原文交给生成，不再按 60000 tk 抽块。柏宝书自己召回；内置 L0/L1 宁可变长，也不要再节选成「读不全」。
 async function getMemText(opts = {}) {
-    const raw = await _getMemTextRaw(opts);
-    try {
-        return await capMemTextAsync(raw, !!opts.full, {
-            countTokens: async text => getContext().getTokenCountAsync(text),
-        });
-    } catch (err) { console.warn('[7dayscal] 记忆预算封顶出错，回退长度估算', safeDiagnosticLog('memory', 'request', err, { background: true })); return capMemText(raw, !!opts.full); }
+    return _getMemTextRaw(opts);
 }
 
 const generationMessages = createGenerationMessagesHost({

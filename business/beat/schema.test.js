@@ -40,6 +40,14 @@ test('beat prompt asks for 4-5 shots and never fills theater', () => {
     assert.match(prompt, /换路径/);
 });
 
+test('beat prompt keeps the latest floor story in full', () => {
+    const latestStory = `${'这段正文要完整进本轮拍。'.repeat(80)}收口句。`;
+    const prompt = buildBeatPrompt({ latestStory, pointRaw: '日程全文', spaceRecent: '间里刚说完' });
+    assert.match(prompt, /【刚落地的正文】/);
+    assert.ok(prompt.includes(latestStory));
+    assert.ok(prompt.includes('日程全文'));
+});
+
 test('removeShot drops one outline and keeps the rest', async () => {
     const { createBeatController } = await import('./controller.js');
     let latest = [];

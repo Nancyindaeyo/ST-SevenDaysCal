@@ -1,7 +1,5 @@
 import { worldInfoSelectionAllows } from './world-info-selection.js';
 
-export const WORLD_INFO_TOKEN_BUDGET = 60000;
-
 export function worldInfoCandidateKey(world, uid) {
     const book = String(world ?? '').trim();
     const id = String(uid ?? '').trim();
@@ -227,41 +225,12 @@ export async function resolveWorldInfoActivation(ctx, coreChat, env = {}) {
     return { supported: false, failed: true, keys: new Set(), lukerFailed };
 }
 
-export async function packWorldInfoContents(candidates, { budget = WORLD_INFO_TOKEN_BUDGET, countTokens } = {}) {
-    const count = countTokens || (text => countWorldInfoTokens(text));
-    const kept = [];
-    let skipped = 0;
-    if (!candidates?.length) return { text: '', skipped, kept, finalCount: { tokens: 0, exact: true }, exactCount: true };
-    const titleCount = await count('【世界书】\n');
-    const separatorCount = await count('\n\n');
-    let estimatedTokens = titleCount.tokens;
-    let exactCount = titleCount.exact && separatorCount.exact;
-    for (const content of candidates) {
-        const counted = await count(content);
-        const nextTokens = estimatedTokens + counted.tokens + (kept.length ? separatorCount.tokens : 0);
-        estimatedTokens = nextTokens;
-        exactCount = exactCount && counted.exact;
-        if (nextTokens > budget) {
-            skipped++;
-            estimatedTokens -= counted.tokens + (kept.length ? separatorCount.tokens : 0);
-            continue;
-        }
-        kept.push(content);
-    }
-    let finalCount = await count(`【世界书】\n${kept.join('\n\n')}`);
-    while (finalCount.tokens > budget && kept.length) {
-        const removed = kept.pop();
-        skipped++;
-        estimatedTokens -= (await count(removed)).tokens + (kept.length ? separatorCount.tokens : 0);
-        finalCount = await count(`【世界书】\n${kept.join('\n\n')}`);
-    }
+export async function packWorldInfoContents(candidates = []) {
+    const kept = (candidates || []).map(content => String(content || '')).filter(Boolean);
     return {
         text: kept.length ? `【世界书】\n${kept.join('\n\n')}` : '',
-        skipped,
+        skipped: 0,
         kept,
-        finalCount,
-        exactCount: finalCount.exact && exactCount,
-        estimatedTokens: finalCount.tokens,
     };
 }
 
