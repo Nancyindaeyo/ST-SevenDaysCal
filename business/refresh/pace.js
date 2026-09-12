@@ -75,7 +75,20 @@ export function collectPaceRows(snap = {}) {
     return rows;
 }
 
-export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id = 'sp-pace-strip', interactive = [] } = {}) {
+const COMPACT_LABELS = Object.freeze({
+    'ledger-capture': '标注',
+    'ledger-judge': '现状',
+});
+
+export function compactPaceText(text = '') {
+    return String(text)
+        .replace(/^还差\s*/, '差')
+        .replace(/\s*楼$/, '')
+        .replace('等日期变了', '等日期')
+        .replace('下一楼补', '下楼补');
+}
+
+export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id = 'sp-pace-strip', interactive = [], compact = false } = {}) {
     const live = rows.filter(row => !row.off && row.strip !== false);
     const clickable = new Set(Array.isArray(interactive) ? interactive : []);
     if (!live.length) {
@@ -86,7 +99,9 @@ export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id =
         const due = row.due || row.text === '下一楼' || row.text === '下一楼补' || row.text === '失败' || row.live === 'running' || row.live === 'queued' || row.live === 'failed' ? ' is-due' : '';
         const tag = clickable.has(row.id) ? 'button' : 'span';
         const type = tag === 'button' ? ' type="button"' : '';
-        return `<${tag}${type} class="sp-pace-chip${due}${live}" data-pace="${row.id}"><span class="sp-pace-chip-label">${row.label}</span><span class="sp-pace-chip-value">${row.text}</span></${tag}>`;
+        const label = compact ? (COMPACT_LABELS[row.id] || row.label) : row.label;
+        const text = compact ? compactPaceText(row.text) : row.text;
+        return `<${tag}${type} class="sp-pace-chip${due}${live}" data-pace="${row.id}"><span class="sp-pace-chip-label">${label}</span><span class="sp-pace-chip-value">${text}</span></${tag}>`;
     }).join('');
     return `<div id="${id}" class="sp-pace-strip" role="status">${chips}</div>`;
 }

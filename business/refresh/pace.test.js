@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectPaceRows, formatRemain, overlayQueueOnRows, paceStripHtml, remainingFloors } from './pace.js';
+import { collectPaceRows, compactPaceText, formatRemain, overlayQueueOnRows, paceStripHtml, remainingFloors } from './pace.js';
 
 test('remaining floors count down until the interval fires', () => {
     assert.equal(remainingFloors(0, 3), 3);
@@ -65,6 +65,19 @@ test('failed align chip is due and activity chips can be buttons', () => {
     assert.match(mixed, /<button type="button" class="sp-pace-chip is-due" data-pace="advance"/);
     assert.match(mixed, /<button type="button" class="sp-pace-chip" data-pace="dashed"/);
     assert.match(mixed, /<span class="sp-pace-chip is-due" data-pace="ledger-capture"/);
+});
+
+test('activity compact chips shorten remain copy and long labels', () => {
+    assert.equal(compactPaceText('还差 2 楼'), '差2');
+    assert.equal(compactPaceText('等日期变了'), '等日期');
+    const html = paceStripHtml([
+        { id: 'align', label: '对齐', text: '还差 2 楼' },
+        { id: 'ledger-capture', label: '刻度标注', text: '下一楼', due: true },
+    ], { compact: true });
+    assert.match(html, />差2</);
+    assert.match(html, />标注</);
+    assert.doesNotMatch(html, /还差 2 楼/);
+    assert.doesNotMatch(html, /刻度标注/);
 });
 
 test('queue overlay paints running, queued and failed on top of remain text', () => {

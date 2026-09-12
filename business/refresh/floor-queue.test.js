@@ -33,6 +33,16 @@ test('stale identity stops remaining jobs without burning them as failures', asy
     assert.equal(queue.snapshot().failed.length, 0);
 });
 
+test('a new idle floor drops leftover failures so the red glow can go out', async () => {
+    const queue = createFloorJobQueue({ identityCurrent: () => true });
+    queue.beginFloor({ chatId: 'c', floorId: 1 });
+    queue.enqueue({ id: 'align', run: async () => ({ status: 'failed', error: 'x' }) });
+    await queue.drain();
+    assert.equal(queue.snapshot().failed.length, 1);
+    queue.beginFloor({ chatId: 'c', floorId: 2 });
+    assert.equal(queue.snapshot().failed.length, 0);
+});
+
 test('retry runs only the failed job', async () => {
     let alignTries = 0;
     const queue = createFloorJobQueue({ identityCurrent: () => true });

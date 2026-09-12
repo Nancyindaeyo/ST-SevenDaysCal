@@ -68,6 +68,8 @@ export function createFloorJobQueue(env = {}) {
             jobs = [];
             queued = [];
             running = null;
+            failed = [];
+            notify();
         }
         if (!busy) floor = incoming;
         return snapshot();

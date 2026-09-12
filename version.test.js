@@ -5,6 +5,6 @@ import { PLUGIN_VERSION } from './version.js';
 
 test('runtime and manifest expose the same plugin version', async () => {
     const manifest = JSON.parse(await readFile(new URL('./manifest.json', import.meta.url), 'utf8'));
-    assert.equal(PLUGIN_VERSION, '3.7.7');
+    assert.equal(PLUGIN_VERSION, '3.7.8');
     assert.equal(manifest.version, PLUGIN_VERSION);
 });

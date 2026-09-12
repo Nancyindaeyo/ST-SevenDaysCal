@@ -1610,7 +1610,8 @@ async function retryFloorAutomation(id) {
     return { status: 'skipped' };
 }
 function syncFabFailed() {
-    fabRuntime.setFailed?.((floorQueue.snapshot().failed || []).length > 0);
+    const failed = (floorQueue.snapshot().failed || []).length > 0;
+    fabRuntime.setFailed?.(failed);
 }
 function enqueueStoryDateBeat() {
     const ctx = getContext();
@@ -2781,11 +2782,11 @@ function paintPace() {
     if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
     const $host = $in('#sp-activity-pace-strip-host');
     if ($host.length) {
-        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive }));
+        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive, compact: true }));
         activityFeature.syncPaceOpen?.();
     } else {
         const $activityPace = $in('#sp-activity-pace');
-        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive }));
+        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive, compact: true }));
     }
     const $settings = $in('#sp-pace-settings');
     if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
