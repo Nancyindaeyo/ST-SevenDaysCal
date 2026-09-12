@@ -71,7 +71,7 @@ export function createRefreshController(env = {}) {
         const ctx = env.context?.() || {};
         const ownerChatId = String(ctx.chatId ?? '');
         const latest = latestAiFloor(ctx.chat);
-        const latestStory = env.cleanText?.(latest?.text || '') || String(latest?.text || '');
+        const latestStory = env.readFloorStory?.(latest?.text || '') || env.cleanText?.(latest?.text || '') || String(latest?.text || '');
         const cfg = env.loadConfig?.() || {};
         const activityBase = () => ({
             source: alignSourceOf(options),
@@ -213,6 +213,13 @@ export function createRefreshController(env = {}) {
         counter = 0;
         lastReconcileFloor = messageId;
         const selected = ['point', ...(linesOn() ? ['lines'] : [])];
+        if (typeof env.enqueueJob === 'function') {
+            env.enqueueJob({
+                id: 'align',
+                run: async () => align({ auto: true, selected, cause: 'auto' }),
+            });
+            return { status: 'queued' };
+        }
         const result = await align({ auto: true, selected, cause: 'auto' });
         if (result?.status === 'failed') env.toastAlways?.(`点/线对齐失败：${diagnosticMessage(result.error)}`, true);
         return result;

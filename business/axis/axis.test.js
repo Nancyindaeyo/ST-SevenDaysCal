@@ -9,6 +9,11 @@ const index = fs.readFileSync(new URL('index.js', root), 'utf8');
 const bind = fs.readFileSync(new URL('./bind.js', import.meta.url), 'utf8');
 const css = fs.readFileSync(new URL('style.css', root), 'utf8');
 const itemUi = fs.readFileSync(new URL('./item-ui.js', import.meta.url), 'utf8');
+const generation = fs.readFileSync(new URL('./generation.js', import.meta.url), 'utf8');
+
+test('anniversary supplement feeds more recent floors than first-year generation', () => {
+    assert.match(generation, /supplement \? 12 : 3/);
+});
 
 test('axis toolbar production contract has shared wide/narrow action dispatcher', () => {
     assert.match(index, /bindAlmanacPanel/);

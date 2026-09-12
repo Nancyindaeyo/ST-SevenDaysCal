@@ -43,4 +43,6 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.doesNotMatch(html, /sp-mem-source-anima/);
     assert.doesNotMatch(html, /sp-mem-source-database/);
     assert.match(html, /时间戳正常/);
+    assert.match(html, /正文包裹/);
+    assert.match(html, /只读标签内全文/);
 });

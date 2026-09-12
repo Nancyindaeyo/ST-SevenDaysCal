@@ -45,6 +45,8 @@ function host(overrides = {}) {
         pace: track(calls, 'pace'),
         coordinate: track(calls, 'coordinate'),
         refresh: track(calls, 'refresh'),
+        floorQueue: track(calls, 'floorQueue'),
+        syncFabFailed: () => calls.push('syncFabFailed'),
         beat: track(calls, 'beat'),
         clearTravelUi: () => calls.push('clearTravelUi'),
         removeDialogOverlays: () => calls.push('removeOverlays'),
@@ -76,6 +78,9 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.ok(names.indexOf('begin') < names.indexOf('load'));
     assert.ok(names.indexOf('memory.abortAll') < names.indexOf('migrate'));
     assert.ok(names.includes('refresh.abort'));
+    assert.ok(names.includes('floorQueue.abort'));
+    assert.ok(names.includes('floorQueue.resetFailed'));
+    assert.ok(names.includes('syncFabFailed'));
     assert.ok(names.indexOf('migrate') < names.indexOf('hydrate'));
     assert.ok(names.indexOf('reloadPanel') < names.indexOf('injLines'));
     assert.equal(names.filter(name => name === 'activity.onChatChanged').length, 2);

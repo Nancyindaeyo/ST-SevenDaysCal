@@ -15,6 +15,7 @@ export const ACTIVITY_SOURCES = Object.freeze({
     bootstrap: '开局生成',
     'ledger-capture': '刻度标注',
     'ledger-judge': '刻度现状',
+    supplement: '补录纪念日',
 });
 
 export const ACTIVITY_CAUSES = Object.freeze({
@@ -86,6 +87,16 @@ export function isAlignEntry(entry) {
 
 export function isAdvanceEntry(entry) {
     return entry?.source === 'advance';
+}
+
+export function isRetryableEntry(entry) {
+    return isAlignEntry(entry)
+        || isAdvanceEntry(entry)
+        || entry?.source === 'supplement'
+        || entry?.source === 'outline'
+        || entry?.source === 'dashed'
+        || entry?.source === 'ledger-capture'
+        || entry?.source === 'ledger-judge';
 }
 
 export function alignSourceOf(options = {}) {

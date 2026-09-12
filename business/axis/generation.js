@@ -33,7 +33,7 @@ export function createAxisGenerationController(env = {}) {
                 ? { fullMemory: true, promptMode: 'creative', diagnosticModule: 'axis-generation', diagnosticSink: diagnostic.sink }
                 : { fullMemory: true, noAlmanac: true, reroll: true, module: 'almanac', promptMode: 'creative', diagnosticModule: 'axis-generation', diagnosticSink: diagnostic.sink };
             if (!participantCurrent(participant) || env.context?.().chatId !== chatId) return cancelOwned();
-            const raw = await env.callApi(chat, prompt, cfg, userName, charName, ctrl.signal, 3, apiOptions);
+            const raw = await env.callApi(chat, prompt, cfg, userName, charName, ctrl.signal, supplement ? 12 : 3, apiOptions);
             if (axisState.almanacAbortController !== ctrl) return { status: 'cancelled' };
             if (!participantCurrent(participant) || env.context?.().chatId !== chatId) return cancelOwned();
             if (!env.validate?.(raw)) throw diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'almanac-widget-missing' });

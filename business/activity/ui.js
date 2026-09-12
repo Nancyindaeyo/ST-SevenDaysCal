@@ -5,6 +5,7 @@ import {
     causeLabel,
     isAdvanceEntry,
     isAlignEntry,
+    isRetryableEntry,
     moduleLabel,
     sourceLabel,
     undoItemKey,
@@ -40,14 +41,38 @@ export function activityClockLabel({ clock = null, today = null, calendar = null
     return '还没有故事日期';
 }
 
+export function renderQueueStatus(queue = null) {
+    const failedJobs = queue?.failed || [];
+    const queuedJobs = queue?.queued || [];
+    const running = queue?.running;
+    if (!running && !queuedJobs.length && !failedJobs.length) {
+        return `<div class="sp-activity-queue-live is-idle"><span class="sp-activity-queue-idle">这楼后台空闲</span></div>`;
+    }
+    const runningHtml = running
+        ? `<span class="sp-activity-queue-running">正在${escape(running.label)}</span>`
+        : '';
+    const queuedHtml = queuedJobs.length
+        ? `<span class="sp-activity-queue-wait">接着 ${escape(queuedJobs.map(job => job.label).join(' · '))}</span>`
+        : '';
+    const failedHtml = failedJobs.map(job => (
+        `<button type="button" class="sp-activity-queue-fail" data-queue-retry="${escape(job.id)}" title="重试${escape(job.label)}">${escape(job.label)}失败 · 重试</button>`
+    )).join('');
+    return `<div class="sp-activity-queue-live${failedJobs.length ? ' has-failed' : ''}">${runningHtml}${queuedHtml}${failedHtml}</div>`;
+}
+
 export function activityOverlayHtml() {
     return `<div id="sp-activity-overlay" class="sp-settings-overlay" style="display:none">
         <div class="sp-settings-header">
-            <span class="sp-settings-title"><i class="fa-solid fa-clock-rotate-left"></i> 最近改动</span>
+            <span class="sp-settings-title"><i class="fa-solid fa-layer-group"></i> 后台与改动</span>
             <button type="button" class="sp-icon-btn sp-activity-close-btn" title="关闭"><i class="fa-solid fa-xmark"></i></button>
         </div>
         <div id="sp-activity-clock" class="sp-activity-clock">还没有故事日期</div>
+        <section class="sp-activity-live" aria-label="本楼后台">
+            <p class="sp-activity-section-kicker">本楼</p>
+            <div id="sp-activity-queue" class="sp-activity-queue"></div>
+        </section>
         <div id="sp-activity-pace" class="sp-activity-pace">
+            <p class="sp-activity-section-kicker">节拍</p>
             <div id="sp-activity-pace-strip-host"></div>
             <div id="sp-activity-pace-detail" class="sp-activity-pace-detail" hidden></div>
         </div>
@@ -66,12 +91,13 @@ export function activityOverlayHtml() {
                 <button type="button" class="sp-btn sp-activity-catchup">手动推进到今天</button>
             </div>
         </div>
+        <p class="sp-activity-section-kicker sp-activity-recent-kicker">最近</p>
         <div class="sp-settings-body" id="sp-activity-body"></div>
     </div>`;
 }
 
 export function activityButtonHtml() {
-    return `<button type="button" class="sp-side-tab sp-activity-btn" aria-label="最近改动">
+    return `<button type="button" class="sp-side-tab sp-activity-btn" aria-label="后台与改动">
         <span class="sp-tab-glyph" aria-hidden="true">改</span>
         <span class="sp-activity-badge" hidden></span>
     </button>`;
@@ -123,7 +149,8 @@ function cardButtons(entry, entries) {
         : canUndoActivity(entry, entries)
             ? button('sp-activity-undo', '撤回')
             : '';
-    const retry = isAlignEntry(entry) || isAdvanceEntry(entry) ? button('sp-activity-retry', '重试') : '';
+    const retry = isAlignEntry(entry) || isAdvanceEntry(entry) || (isRetryableEntry(entry) && entry.outcome === 'failed')
+        ? button('sp-activity-retry', '重试') : '';
     const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
     const actions = `${undo}${retry}${quote}`;
     return actions ? `<div class="sp-activity-card-actions">${actions}</div>` : '';
@@ -150,6 +177,9 @@ const PACE_EMPTY = {
     advance: '还没有推进记录。倒计时到了会跑，详情写在下面。',
     outline: '还没有面判定记录。倒计时到了会跑，详情写在下面。',
     dashed: '还没有冷知识改动。倒计时到了会跑，详情写在下面。',
+    supplement: '还没有补录记录。故事换日且历里已有条目时会穿插纪念日。',
+    'ledger-capture': '还没有刻度标注记录。倒计时到了会跑。',
+    'ledger-judge': '还没有刻度现状记录。倒计时到了会跑。',
 };
 
 export function renderPaceDetail(paceId, entries = []) {
@@ -176,7 +206,7 @@ export function renderAlignRounds(entries = []) {
 
 export function renderActivityList(entries = []) {
     if (!entries.length) {
-        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">自动对齐、线推进、面判定、间引导和手动刷新成功后会记在这里，方便反悔。对齐的理由也写在卡片上，可以拿到间里聊。失败和无变化也会记一笔，方便确认 API 跑过了。</p></div>`;
+        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">上面能看见这楼正在跑谁、后面排谁。自动对齐、推进、补录、刻度、面、冷知识跑完会记在下面，失败可重试。</p></div>`;
     }
     return `<ol class="sp-activity-list">${entries.slice(0, 3).map(entry => {
         const stale = entry.stale && !entry.undone

@@ -1,528 +1,995 @@
-import { createLinesLifecycle } from './lifecycle.js';
-import { createSwipeLinesStore } from './swipe-store.js';
-import { createLinesRuntime } from './runtime.js';
-import { createLinesInjectionController } from './injection.js';
-import { createLinesGenerationController } from './controller.js';
-import { createLinesActions } from './actions.js';
-import { runGenerationUiEffect } from '../../api/diagnostics.js';
-import { commitLineWidget } from './widget.js';
-import { createDashedModule } from './dashed.js';
-import { createTaskOwnerManager } from '../../runtime/task-owner.js';
-import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from './schema.js';
-import { publicCueChips, stripInternalLineLines } from './vectors/codec.js';
-import { vectorGlyphSvg } from './vectors/glyph.js';
-import { linesViewModel } from './render.js';
-import { buildLineInjectText, inlineState } from './inline.js';
-import { chooseSwipeLayer, dayCrossedSincePreviousFloor, floorToFinalize, latestStampDay, markEditedFloor } from './strategy.js';
-import { renderActionMenu } from '../utils/action-menu.js';
+import { runGenerationUiEffect } from "../../api/diagnostics.js";
+import { createTaskOwnerManager } from "../../runtime/task-owner.js";
+import { renderActionMenu } from "../utils/action-menu.js";
+import { createLinesActions } from "./actions.js";
+import { createLinesGenerationController } from "./controller.js";
+import { createDashedModule } from "./dashed.js";
+import { createLinesInjectionController } from "./injection.js";
+import { buildLineInjectText, inlineState } from "./inline.js";
+import { createLinesLifecycle } from "./lifecycle.js";
+import { linesViewModel } from "./render.js";
+import { createLinesRuntime } from "./runtime.js";
+import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from "./schema.js";
+import {
+  chooseSwipeLayer,
+  dayCrossedSincePreviousFloor,
+  floorToFinalize,
+  latestStampDay,
+  markEditedFloor,
+} from "./strategy.js";
+import { createSwipeLinesStore } from "./swipe-store.js";
+import { publicCueChips, stripInternalLineLines } from "./vectors/codec.js";
+import { vectorGlyphSvg } from "./vectors/glyph.js";
+import { commitLineWidget } from "./widget.js";
 
 const LINE_EDGE_COLORS = Object.freeze({
-    ordinary: '#6aab8a',
-    ordinaryPinned: '#3f765c',
-    adult: '#d6b85a',
-    adultPinned: '#8d7330',
+  ordinary: "#6aab8a",
+  ordinaryPinned: "#3f765c",
+  adult: "#d6b85a",
+  adultPinned: "#8d7330",
 });
 
-const lineEdgeColor = line => line.adult
-    ? (line.pin ? LINE_EDGE_COLORS.adultPinned : LINE_EDGE_COLORS.adult)
-    : (line.pin ? LINE_EDGE_COLORS.ordinaryPinned : LINE_EDGE_COLORS.ordinary);
+const lineEdgeColor = (line) =>
+  line.adult
+    ? line.pin
+      ? LINE_EDGE_COLORS.adultPinned
+      : LINE_EDGE_COLORS.adult
+    : line.pin
+      ? LINE_EDGE_COLORS.ordinaryPinned
+      : LINE_EDGE_COLORS.ordinary;
 
 const LINE_STAGE_STEPS = Object.freeze({
-    '起线': 1,
-    '延展': 2,
-    '成形': 3,
-    '收束': 4,
+  起线: 1,
+  延展: 2,
+  成形: 3,
+  收束: 4,
 });
 
 // 阶段文字已承担可访问的状态语义；四格只是本地视觉刻度，不伪装成百分比进度。
 const lineStageMeterHtml = (stage, color) => {
-    const faded = stage === '淡出';
-    const filled = faded ? 0 : (LINE_STAGE_STEPS[stage] || 0);
-    const segments = Array.from({ length: 4 }, (_, index) => `<span class="sp-line-stage-segment${index < filled ? ' sp-line-stage-segment-filled' : ''}"></span>`).join('');
-    return `<span class="sp-line-stage-meter${faded ? ' sp-line-stage-meter-faded' : ''}" style="color:${color}" aria-hidden="true">${segments}</span>`;
+  const faded = stage === "淡出";
+  const filled = faded ? 0 : LINE_STAGE_STEPS[stage] || 0;
+  const segments = Array.from(
+    { length: 4 },
+    (_, index) =>
+      `<span class="sp-line-stage-segment${index < filled ? " sp-line-stage-segment-filled" : ""}"></span>`,
+  ).join("");
+  return `<span class="sp-line-stage-meter${faded ? " sp-line-stage-meter-faded" : ""}" style="color:${color}" aria-hidden="true">${segments}</span>`;
 };
 
 // 线域组合根：宿主只注入能力与跨域回调；各纯业务子模块不反向读取 index 状态。
 export function createLinesFeature(env = {}) {
-    const runtime = env.runtime || createLinesRuntime({ render: env.render });
-    const owners = env.owners || createTaskOwnerManager();
-    const lifecycle = env.lifecycle || createLinesLifecycle();
-    if (lifecycle.lastDay == null && typeof env.dayAnchor === 'function') lifecycle.lastDay = env.dayAnchor() ?? null;
-    const swipeStore = env.swipeStore || createSwipeLinesStore({ storage: env.storage });
-    const latestFloorTravel = ({ auto = false } = {}) => {
-        const include = auto === true || env.getSettings?.().linesAdvanceIncludeLatest !== false;
-        if (!include) return null;
-        const chat = env.chat?.() || [];
-        for (let i = chat.length - 1; i >= 0; i--) {
-            const message = chat[i];
-            if (!message || message.is_user || message.is_system) continue;
-            const text = String(env.cleanText?.(message.mes || '') || message.mes || '').trim();
-            if (!text) return null;
-            return { promptAddon: `【本楼刚落地的正文，线必须据此推进】\n${text}` };
-        }
-        return null;
-    };
-    const injection = env.injection || (env.injectionEnv && createLinesInjectionController(env.injectionEnv));
-    const dashed = env.dashed || (env.dashedEnv && createDashedModule({ ...env.dashedEnv, refreshPanel: () => refreshPanel?.(true), refreshInline: () => syncInline?.() }));
-    const generation = env.generation || (env.generationEnv && createLinesGenerationController({
+  const runtime = env.runtime || createLinesRuntime({ render: env.render });
+  const owners = env.owners || createTaskOwnerManager();
+  const lifecycle = env.lifecycle || createLinesLifecycle();
+  if (lifecycle.lastDay == null && typeof env.dayAnchor === "function")
+    lifecycle.lastDay = env.dayAnchor() ?? null;
+  const swipeStore =
+    env.swipeStore || createSwipeLinesStore({ storage: env.storage });
+  const latestFloorTravel = ({ auto = false } = {}) => {
+    const include =
+      auto === true || env.getSettings?.().linesAdvanceIncludeLatest !== false;
+    if (!include) return null;
+    const chat = env.chat?.() || [];
+    for (let i = chat.length - 1; i >= 0; i--) {
+      const message = chat[i];
+      if (!message || message.is_user || message.is_system) continue;
+      const text = String(
+        env.readFloorStory?.(message.mes || "") ||
+          env.cleanText?.(message.mes || "") ||
+          message.mes ||
+          "",
+      ).trim();
+      if (!text) return null;
+      return { promptAddon: `【本楼刚落地的正文，线必须据此推进】\n${text}` };
+    }
+    return null;
+  };
+  const injection =
+    env.injection ||
+    (env.injectionEnv && createLinesInjectionController(env.injectionEnv));
+  const dashed =
+    env.dashed ||
+    (env.dashedEnv &&
+      createDashedModule({
+        ...env.dashedEnv,
+        refreshPanel: () => refreshPanel?.(true),
+        refreshInline: () => syncInline?.(),
+      }));
+  const generation =
+    env.generation ||
+    (env.generationEnv &&
+      createLinesGenerationController({
         ...env.generationEnv,
         owners,
         runtime,
         commit: async (...args) => commitGenerationResult(...args),
-        onStart: () => { if (env.isPanelActive?.()) refreshPanel?.(); },
+        onStart: () => {
+          if (env.isPanelActive?.()) refreshPanel?.();
+        },
         cleanup: (owner, chatId) => cleanupOwner(owner, chatId),
-    }));
-    const actions = env.actions || (env.actionsEnv && createLinesActions({
+      }));
+  const actions =
+    env.actions ||
+    (env.actionsEnv &&
+      createLinesActions({
         ...env.actionsEnv,
         isBusy: () => runtime.busy,
-        resetCounter: () => { lifecycle.counter = 0; },
-        render: raw => renderLines(raw),
-        setCached: html => runtime.setHtml(html),
+        resetCounter: () => {
+          lifecycle.counter = 0;
+        },
+        render: (raw) => renderLines(raw),
+        setCached: (html) => runtime.setHtml(html),
         refreshPanel: () => refreshPanel?.(),
         refreshInline: () => syncInline?.(),
         beginPreflight: () => {
-            const participantIdentity = env.participantIdentity?.() || null;
-            const owner = owners.create('lines-preflight', { chatId: env.chatId?.(), chatRevision: owners.currentChatRevision(), participantIdentity });
-            owner.contextSnapshot = env.contextSnapshot?.() || null;
-            return owner;
+          const participantIdentity = env.participantIdentity?.() || null;
+          const owner = owners.create("lines-preflight", {
+            chatId: env.chatId?.(),
+            chatRevision: owners.currentChatRevision(),
+            participantIdentity,
+          });
+          owner.contextSnapshot = env.contextSnapshot?.() || null;
+          return owner;
         },
-        preflightCurrent: owner => owners.isCurrent(owner, { chatId: env.chatId?.(), chatRevision: owners.currentChatRevision() }) && (!owner.participantIdentity || env.sameParticipantIdentity?.(owner.participantIdentity, env.participantIdentity?.()) !== false),
-        finishPreflight: owner => owners.finish(owner),
-        invalidatePreflight: (reason = 'manual-abort') => owners.invalidate('lines-preflight', reason),
+        preflightCurrent: (owner) =>
+          owners.isCurrent(owner, {
+            chatId: env.chatId?.(),
+            chatRevision: owners.currentChatRevision(),
+          }) &&
+          (!owner.participantIdentity ||
+            env.sameParticipantIdentity?.(
+              owner.participantIdentity,
+              env.participantIdentity?.(),
+            ) !== false),
+        finishPreflight: (owner) => owners.finish(owner),
+        invalidatePreflight: (reason = "manual-abort") =>
+          owners.invalidate("lines-preflight", reason),
         runGenerate: (...args) => generation?.run?.(...args),
-        latestFloorTravel: options => latestFloorTravel(options),
-    }));
-    const adultBlurEnabled = () => env.getSettings?.().adultBlurEnabled !== false;
-    const sensitive = (html, adult) => adult && adultBlurEnabled() ? `<span class="sp-adult-sensitive" tabindex="0" role="button" aria-label="显示成人内容" title="显示成人内容"><span aria-hidden="true">${html}</span></span>` : html;
-    const titleHtml = (className, line) => {
-        const name = env.escapeHtml?.(line.name) || '';
-        const glyph = vectorGlyphSvg(line.cue);
-        const body = name;
-        return glyph ? `<div class="${className} sp-line-title-with-glyph">${glyph}${body}</div>` : `<div class="${className}">${body}</div>`;
-    };
-    const cueLabelsHtml = line => {
-        const chips = publicCueChips(line.cue);
-        if (!chips.length) return '';
-        return `<div class="sp-line-cues"><span class="sp-line-cue-list">${chips.map(chip => `<span class="sp-line-cue-chip sp-line-cue-tone-${chip.colorSlot}">${env.escapeHtml?.(chip.label) ?? String(chip.label)}</span>`).join('')}</span></div>`;
-    };
-    const widget = env.widget || (env.widgetEnv && {
-        apply(body, editIdx = null, button = null) {
-            const key = env.widgetEnv.key?.();
-            if (!key) return env.widgetEnv.fail?.('当前 chat 没有可写入的线缓存');
-            const saved = env.widgetEnv.read?.(key);
-            const result = commitLineWidget(saved?.raw || '', body, { editIndex: editIdx == null ? null : Number(editIdx) - 1, pin: true });
-            if (!result.ok) return env.widgetEnv.fail?.(editIdx != null ? `找不到第 ${editIdx} 条线，请刷新面板后重试` : '卡片格式不完整，无法应用');
-            env.widgetEnv.write?.(key, { raw: result.raw, ts: Date.now() });
-            runtime.cache(result.raw);
-            refreshPanel?.(true);
-            syncInline?.();
-            env.widgetEnv.button?.(button, editIdx, result);
-            return result;
-        },
-    });
-    const renderLines = (raw = '') => {
-        const parsed = parseLines(raw);
-        const lines = linesViewModel(parsed, Number.POSITIVE_INFINITY);
-        if (!lines.length) return `${env.jumpHint?.() || ''}<div class="sp-raw">${env.escapeHtml?.(stripInternalLineLines(raw)).replace(/\n/g, '<br>')}</div>`;
-        const colors = env.stageColors || {};
-        const cards = lines.map((l, i) => {
-            const adult = l.adult === true;
-            const color = colors[l.stage] || '#9aa6b2';
-            const edgeColor = lineEdgeColor(l);
-            const next = l.next ? `<div class="sp-line-next ${l.stall ? 'sp-line-next-stall' : 'sp-line-next-go'}"><span class="sp-line-next-tag">${l.stall ? '⏸' : '→'}</span><span class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(l.next) || l.next)}</span></div>` : '';
-            const inject = env.makeInjectBtn?.(buildLineInjectText(l)) || ''; const iid = inject.match(/data-iid="([^"]+)"/)?.[1] || '';
-            const actions = renderActionMenu('line', [
-                { action: 'line-edit', icon: 'fa-pen', label: '编辑', title: '编辑这条线' },
-                { action: 'line-pin', icon: l.pin ? 'fa-lock-open' : 'fa-lock', label: l.pin ? '解锁' : '锁定', title: l.pin ? '解锁这条线' : '锁定这条线' },
-                { action: 'line-inject', icon: 'fa-arrow-right-to-bracket', label: '注入', title: '注入到输入框' },
-                { action: 'line-delete', icon: 'fa-trash', label: '删除', title: '删除这条线' },
-            ], env.escapeHtml, env.escapeAttr).replace('data-menu-id="line"', `data-menu-id="line" data-line-idx="${i}" data-iid="${iid}"`);
-            const desc = l.desc ? `<div class="sp-beat-scene">${env.escapeHtml?.(env.cleanText?.(l.desc) || l.desc)}</div>` : '';
-            const nextText = l.next ? `<div class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(l.next) || l.next)}</div>` : '';
-            const nextHtml = l.next ? `<div class="sp-line-next ${l.stall ? 'sp-line-next-stall' : 'sp-line-next-go'}"><span class="sp-line-next-tag">${l.stall ? '⏸' : '→'}</span>${sensitive(nextText, adult)}</div>` : '';
-            return `<div class="sp-beat sp-line-card${l.stall ? ' sp-line-stall' : ''}${l.pin ? ' sp-line-pinned' : ''}${l.adult ? ' sp-line-adult' : ''}" data-line-idx="${i}" data-jump-mod="lines" data-jump-key="${env.escapeAttr?.(l.name) || ''}"${l.id ? ` data-jump-ref="${env.escapeAttr?.(l.id) || ''}"` : ''} style="border-left:3px solid ${edgeColor}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-type" style="color:${color}">${env.escapeHtml?.(l.stage)}</span>${lineStageMeterHtml(l.stage, color)}${l.when ? `<span class="sp-line-when">${env.escapeHtml?.(l.when)}</span>` : ''}${l.stall ? '<span class="sp-line-stall-tag">停滞</span>' : ''}<span class="sp-beat-actions">${actions}</span></div>${sensitive(titleHtml('sp-beat-title', l), adult)}${cueLabelsHtml(l)}${sensitive(desc, adult)}${nextHtml}</div>`;
-        }).join('');
-        return `${env.jumpHint?.() || ''}${cards}`;
-    };
-    const inlineHtml = (raw = null, readOnly = false) => {
-        if (env.getSettings?.().linesInlineEnabled === false) return '';
-        const value = raw == null ? env.readRaw?.() || '' : raw;
-        const view = inlineState(value, { readOnly });
-        const dashedSub = !readOnly && view.dashed.enabled ? dashed?.inlineHtml?.() || '' : '';
-        const body = view.lines.map((line, i) => {
-            const adult = line.adult === true;
-            const color = (env.stageColors || {})[line.stage] || '#9aa6b2';
-            const edgeColor = lineEdgeColor(line);
-            const actions = view.hasActions ? `<span class="sp-beat-actions">${env.makeInjectBtn?.(buildLineInjectText(line)) || ''}<button class="sp-line-del-one" data-line-idx="${i}" title="删除这条线"><i class="fa-solid fa-xmark"></i></button></span>` : '';
-            const desc = line.desc ? `<div class="sp-inline-desc">${env.escapeHtml?.(env.cleanText?.(line.desc) || line.desc)}</div>` : '';
-            const next = line.next ? `<div class="sp-line-next sp-inline-next ${line.stall ? 'sp-line-next-stall' : 'sp-line-next-go'}"><span class="sp-line-next-tag">${line.stall ? '⏸' : '→'}</span>${sensitive(`<span class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(line.next) || line.next)}</span>`, adult)}</div>` : '';
-            return `<div class="sp-inline-line${line.stall ? ' sp-line-stall' : ''}${line.adult ? ' sp-line-adult' : ''}" data-line-idx="${i}" style="border-left:3px solid ${edgeColor}"><div class="sp-inline-head"><span class="sp-inline-stage" style="color:${color}">${env.escapeHtml?.(line.stage)}</span>${lineStageMeterHtml(line.stage, color)}${line.when ? `<span class="sp-inline-when">${env.escapeHtml?.(line.when)}</span>` : ''}${line.stall ? '<span class="sp-line-stall-tag sp-inline-stall">停滞</span>' : ''}${actions}</div>${sensitive(titleHtml('sp-inline-name', line), adult)}${cueLabelsHtml(line)}${sensitive(desc, adult)}${next}</div>`;
-        }).join('');
-        const controls = !readOnly && view.hasActions ? '<span class="sp-inline-summary-actions"><button class="sp-inline-refresh-lines" title="重新生成线"><i class="fa-solid fa-rotate-right"></i></button><button class="sp-inline-advance-lines" title="推进事件线"><i class="fa-solid fa-forward"></i></button></span>' : '';
-        const summaryText = view.empty ? '暂无' : [view.activeCount ? `${view.activeCount} 条活跃` : '', view.settledCount ? `${view.settledCount} 条已结束` : ''].filter(Boolean).join(' · ');
-        const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">线</span><span class="sp-inline-count${view.empty ? ' sp-inline-empty' : ''}">${summaryText}</span>${controls}</summary>`;
-        return `${summary}${body || dashedSub ? `<div class="sp-inline-body" data-lines-inject-text="${env.escapeAttr?.(view.injectText) || ''}">${body}${dashedSub}</div>` : ''}`;
-    };
-    const advanceErrorText = result => {
-        const message = String(result?.error?.message || result?.error || '').trim();
-        if (message) return message.slice(0, 200);
-        if (result?.reason === 'busy') return '线正在生成，这次推进没跑成';
-        if (result?.reason === 'no-api') return '请先配置 API';
-        if (result?.reason === 'unavailable') return '这次推进没跑成';
-        return '线推进失败';
-    };
-    const recordAdvanceAttempt = (messageId, before, result, cause = 'auto') => {
-        if (!result || result.status === 'cancelled') return;
-        if (result.status === 'updated') {
-            env.onActivity?.({
-                source: 'advance',
-                cause,
-                floorId: messageId,
-                snapshot: { lines: before },
-                after: { lines: env.readRaw?.() || '' },
-            });
-            return;
-        }
-        if (result.status !== 'failed' && result.status !== 'skipped') return;
-        const note = advanceErrorText(result);
-        env.onActivity?.({
-            source: 'advance',
-            cause,
-            floorId: messageId,
-            outcome: 'failed',
-            error: note,
-            note,
+        latestFloorTravel: (options) => latestFloorTravel(options),
+      }));
+  const adultBlurEnabled = () => env.getSettings?.().adultBlurEnabled !== false;
+  const sensitive = (html, adult) =>
+    adult && adultBlurEnabled()
+      ? `<span class="sp-adult-sensitive" tabindex="0" role="button" aria-label="显示成人内容" title="显示成人内容"><span aria-hidden="true">${html}</span></span>`
+      : html;
+  const titleHtml = (className, line) => {
+    const name = env.escapeHtml?.(line.name) || "";
+    const glyph = vectorGlyphSvg(line.cue);
+    const body = name;
+    return glyph
+      ? `<div class="${className} sp-line-title-with-glyph">${glyph}${body}</div>`
+      : `<div class="${className}">${body}</div>`;
+  };
+  const cueLabelsHtml = (line) => {
+    const chips = publicCueChips(line.cue);
+    if (!chips.length) return "";
+    return `<div class="sp-line-cues"><span class="sp-line-cue-list">${chips.map((chip) => `<span class="sp-line-cue-chip sp-line-cue-tone-${chip.colorSlot}">${env.escapeHtml?.(chip.label) ?? String(chip.label)}</span>`).join("")}</span></div>`;
+  };
+  const widget =
+    env.widget ||
+    (env.widgetEnv && {
+      apply(body, editIdx = null, button = null) {
+        const key = env.widgetEnv.key?.();
+        if (!key) return env.widgetEnv.fail?.("当前 chat 没有可写入的线缓存");
+        const saved = env.widgetEnv.read?.(key);
+        const result = commitLineWidget(saved?.raw || "", body, {
+          editIndex: editIdx == null ? null : Number(editIdx) - 1,
+          pin: true,
         });
-        if (cause === 'auto' && result.status === 'failed') env.toast?.('线自动推进失败，可在【改】里重试', true);
-    };
-    const appendInlineBlock = async (messageId, shouldAdvance) => {
-        const expectedChatId = env.chatId?.();
-        const expectedEpoch = env.boundaryEpoch?.();
-        const boundaryCurrent = () => env.chatId?.() === expectedChatId && (expectedEpoch === undefined || env.boundaryEpoch?.() === expectedEpoch);
-        if (!shouldAdvance) env.refreshInlineWindow?.(true);
-        const cfg = env.loadConfig?.();
-        let result = { status: 'skipped', reason: shouldAdvance ? 'unavailable' : 'not-requested' };
-        if (shouldAdvance && !runtime.busy && cfg?.url && cfg?.key) {
-            const swipeId = Number(env.swipeId?.(messageId) ?? 0);
-            result = await generation?.run?.(true, { mesId: Number(messageId), swipeId }, latestFloorTravel({ auto: true })) || result;
-        } else if (shouldAdvance && runtime.busy) {
-            result = { status: 'skipped', reason: 'busy' };
-        } else if (shouldAdvance && (!cfg?.url || !cfg?.key)) {
-            result = { status: 'skipped', reason: 'no-api' };
-        }
-        if (!boundaryCurrent()) return result;
-        if (shouldAdvance && result?.status !== 'updated') return result;
-        if (shouldAdvance) env.refreshInlineWindow?.(true);
-        env.freezeSnapshot?.(messageId);
+        if (!result.ok)
+          return env.widgetEnv.fail?.(
+            editIdx != null
+              ? `找不到第 ${editIdx} 条线，请刷新面板后重试`
+              : "卡片格式不完整，无法应用",
+          );
+        env.widgetEnv.write?.(key, { raw: result.raw, ts: Date.now() });
+        runtime.cache(result.raw);
+        refreshPanel?.(true);
+        syncInline?.();
+        env.widgetEnv.button?.(button, editIdx, result);
         return result;
+      },
+    });
+  const renderLines = (raw = "") => {
+    const parsed = parseLines(raw);
+    const lines = linesViewModel(parsed, Number.POSITIVE_INFINITY);
+    if (!lines.length)
+      return `${env.jumpHint?.() || ""}<div class="sp-raw">${env.escapeHtml?.(stripInternalLineLines(raw)).replace(/\n/g, "<br>")}</div>`;
+    const colors = env.stageColors || {};
+    const cards = lines
+      .map((l, i) => {
+        const adult = l.adult === true;
+        const color = colors[l.stage] || "#9aa6b2";
+        const edgeColor = lineEdgeColor(l);
+        const next = l.next
+          ? `<div class="sp-line-next ${l.stall ? "sp-line-next-stall" : "sp-line-next-go"}"><span class="sp-line-next-tag">${l.stall ? "⏸" : "→"}</span><span class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(l.next) || l.next)}</span></div>`
+          : "";
+        const inject = env.makeInjectBtn?.(buildLineInjectText(l)) || "";
+        const iid = inject.match(/data-iid="([^"]+)"/)?.[1] || "";
+        const actions = renderActionMenu(
+          "line",
+          [
+            {
+              action: "line-edit",
+              icon: "fa-pen",
+              label: "编辑",
+              title: "编辑这条线",
+            },
+            {
+              action: "line-pin",
+              icon: l.pin ? "fa-lock-open" : "fa-lock",
+              label: l.pin ? "解锁" : "锁定",
+              title: l.pin ? "解锁这条线" : "锁定这条线",
+            },
+            {
+              action: "line-inject",
+              icon: "fa-arrow-right-to-bracket",
+              label: "注入",
+              title: "注入到输入框",
+            },
+            {
+              action: "line-delete",
+              icon: "fa-trash",
+              label: "删除",
+              title: "删除这条线",
+            },
+          ],
+          env.escapeHtml,
+          env.escapeAttr,
+        ).replace(
+          'data-menu-id="line"',
+          `data-menu-id="line" data-line-idx="${i}" data-iid="${iid}"`,
+        );
+        const desc = l.desc
+          ? `<div class="sp-beat-scene">${env.escapeHtml?.(env.cleanText?.(l.desc) || l.desc)}</div>`
+          : "";
+        const nextText = l.next
+          ? `<div class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(l.next) || l.next)}</div>`
+          : "";
+        const nextHtml = l.next
+          ? `<div class="sp-line-next ${l.stall ? "sp-line-next-stall" : "sp-line-next-go"}"><span class="sp-line-next-tag">${l.stall ? "⏸" : "→"}</span>${sensitive(nextText, adult)}</div>`
+          : "";
+        return `<div class="sp-beat sp-line-card${l.stall ? " sp-line-stall" : ""}${l.pin ? " sp-line-pinned" : ""}${l.adult ? " sp-line-adult" : ""}" data-line-idx="${i}" data-jump-mod="lines" data-jump-key="${env.escapeAttr?.(l.name) || ""}"${l.id ? ` data-jump-ref="${env.escapeAttr?.(l.id) || ""}"` : ""} style="border-left:3px solid ${edgeColor}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-type" style="color:${color}">${env.escapeHtml?.(l.stage)}</span>${lineStageMeterHtml(l.stage, color)}${l.when ? `<span class="sp-line-when">${env.escapeHtml?.(l.when)}</span>` : ""}${l.stall ? '<span class="sp-line-stall-tag">停滞</span>' : ""}<span class="sp-beat-actions">${actions}</span></div>${sensitive(titleHtml("sp-beat-title", l), adult)}${cueLabelsHtml(l)}${sensitive(desc, adult)}${nextHtml}</div>`;
+      })
+      .join("");
+    return `${env.jumpHint?.() || ""}${cards}`;
+  };
+  const inlineHtml = (raw = null, readOnly = false) => {
+    if (env.getSettings?.().linesInlineEnabled === false) return "";
+    const value = raw == null ? env.readRaw?.() || "" : raw;
+    const view = inlineState(value, { readOnly });
+    const dashedSub =
+      !readOnly && view.dashed.enabled ? dashed?.inlineHtml?.() || "" : "";
+    const body = view.lines
+      .map((line, i) => {
+        const adult = line.adult === true;
+        const color = (env.stageColors || {})[line.stage] || "#9aa6b2";
+        const edgeColor = lineEdgeColor(line);
+        const actions = view.hasActions
+          ? `<span class="sp-beat-actions">${env.makeInjectBtn?.(buildLineInjectText(line)) || ""}<button class="sp-line-del-one" data-line-idx="${i}" title="删除这条线"><i class="fa-solid fa-xmark"></i></button></span>`
+          : "";
+        const desc = line.desc
+          ? `<div class="sp-inline-desc">${env.escapeHtml?.(env.cleanText?.(line.desc) || line.desc)}</div>`
+          : "";
+        const next = line.next
+          ? `<div class="sp-line-next sp-inline-next ${line.stall ? "sp-line-next-stall" : "sp-line-next-go"}"><span class="sp-line-next-tag">${line.stall ? "⏸" : "→"}</span>${sensitive(`<span class="sp-line-next-text">${env.escapeHtml?.(env.cleanText?.(line.next) || line.next)}</span>`, adult)}</div>`
+          : "";
+        return `<div class="sp-inline-line${line.stall ? " sp-line-stall" : ""}${line.adult ? " sp-line-adult" : ""}" data-line-idx="${i}" style="border-left:3px solid ${edgeColor}"><div class="sp-inline-head"><span class="sp-inline-stage" style="color:${color}">${env.escapeHtml?.(line.stage)}</span>${lineStageMeterHtml(line.stage, color)}${line.when ? `<span class="sp-inline-when">${env.escapeHtml?.(line.when)}</span>` : ""}${line.stall ? '<span class="sp-line-stall-tag sp-inline-stall">停滞</span>' : ""}${actions}</div>${sensitive(titleHtml("sp-inline-name", line), adult)}${cueLabelsHtml(line)}${sensitive(desc, adult)}${next}</div>`;
+      })
+      .join("");
+    const controls =
+      !readOnly && view.hasActions
+        ? '<span class="sp-inline-summary-actions"><button class="sp-inline-refresh-lines" title="重新生成线"><i class="fa-solid fa-rotate-right"></i></button><button class="sp-inline-advance-lines" title="推进事件线"><i class="fa-solid fa-forward"></i></button></span>'
+        : "";
+    const summaryText = view.empty
+      ? "暂无"
+      : [
+          view.activeCount ? `${view.activeCount} 条活跃` : "",
+          view.settledCount ? `${view.settledCount} 条已结束` : "",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+    const summary = `<summary class="sp-inline-summary"><span class="sp-inline-title">线</span><span class="sp-inline-count${view.empty ? " sp-inline-empty" : ""}">${summaryText}</span>${controls}</summary>`;
+    return `${summary}${body || dashedSub ? `<div class="sp-inline-body" data-lines-inject-text="${env.escapeAttr?.(view.injectText) || ""}">${body}${dashedSub}</div>` : ""}`;
+  };
+  const advanceErrorText = (result) => {
+    const message = String(
+      result?.error?.message || result?.error || "",
+    ).trim();
+    if (message) return message.slice(0, 200);
+    if (result?.reason === "busy") return "线正在生成，这次推进没跑成";
+    if (result?.reason === "no-api") return "请先配置 API";
+    if (result?.reason === "unavailable") return "这次推进没跑成";
+    return "线推进失败";
+  };
+  const recordAdvanceAttempt = (messageId, before, result, cause = "auto") => {
+    if (!result || result.status === "cancelled") return;
+    if (result.status === "updated") {
+      env.onActivity?.({
+        source: "advance",
+        cause,
+        floorId: messageId,
+        snapshot: { lines: before },
+        after: { lines: env.readRaw?.() || "" },
+      });
+      return;
+    }
+    if (result.status !== "failed" && result.status !== "skipped") return;
+    const note = advanceErrorText(result);
+    env.onActivity?.({
+      source: "advance",
+      cause,
+      floorId: messageId,
+      outcome: "failed",
+      error: note,
+      note,
+    });
+    if (cause === "auto" && result.status === "failed")
+      env.toast?.("线自动推进失败，可在【改】里重试", true);
+  };
+  const appendInlineBlock = async (messageId, shouldAdvance) => {
+    const expectedChatId = env.chatId?.();
+    const expectedEpoch = env.boundaryEpoch?.();
+    const boundaryCurrent = () =>
+      env.chatId?.() === expectedChatId &&
+      (expectedEpoch === undefined || env.boundaryEpoch?.() === expectedEpoch);
+    if (!shouldAdvance) env.refreshInlineWindow?.(true);
+    const cfg = env.loadConfig?.();
+    let result = {
+      status: "skipped",
+      reason: shouldAdvance ? "unavailable" : "not-requested",
     };
-    const syncInline = expectedChatId => {
-        if (expectedChatId != null && env.chatId?.() !== expectedChatId) return;
-        injection?.refresh?.();
-        env.refreshInlineWindow?.(true);
-    };
-    const commitGenerationResult = async (raw, { silent, owner, swipeCtx, travelContext, commitBaseline } = {}) => {
-        const chatId = env.chatId?.();
-        const key = env.cacheKey?.();
-        const writer = env.writeStoreConfirmed || env.writeStore;
-        const stored = await writer?.(key, { raw, ts: Date.now() }, { ownerGuard: () => env.chatId?.() === chatId && (!owner || owners.isCurrent(owner, { chatId, chatRevision: owner.chatRevision })) });
-        if (!(stored === true || stored?.ok === true)) return stored || false;
-        if (stored?.stale) return { ...stored, ok: true };
-        const ui = await runGenerationUiEffect(() => {
-            runtime.cache(raw);
-            if (swipeCtx?.mesId != null) {
-                const rec = swipeStore.read(chatId, swipeCtx.mesId) || { baseline: swipeCtx.baselineRaw ?? commitBaseline?.raw ?? '', swipes: {}, view: 'user', charName: '' };
-                if (rec.baseline == null) rec.baseline = swipeCtx.baselineRaw ?? commitBaseline?.raw ?? '';
-                rec.swipes[String(swipeCtx.swipeId ?? 0)] = raw;
-                swipeStore.write(chatId, swipeCtx.mesId, rec);
-            }
-            if (env.isPanelActive?.()) { refreshPanel(true); if (!silent && env.notifyMode?.() !== 'off') env.toast?.('线已生成'); }
-            syncInline(chatId);
-            if (!env.isPanelActive?.() && !silent) env.toast?.('线已生成，点击查看');
+    if (shouldAdvance && !runtime.busy && cfg?.url && cfg?.key) {
+      const swipeId = Number(env.swipeId?.(messageId) ?? 0);
+      result =
+        (await generation?.run?.(
+          true,
+          { mesId: Number(messageId), swipeId },
+          latestFloorTravel({ auto: true }),
+        )) || result;
+    } else if (shouldAdvance && runtime.busy) {
+      result = { status: "skipped", reason: "busy" };
+    } else if (shouldAdvance && (!cfg?.url || !cfg?.key)) {
+      result = { status: "skipped", reason: "no-api" };
+    }
+    if (!boundaryCurrent()) return result;
+    if (shouldAdvance && result?.status !== "updated") return result;
+    if (shouldAdvance) env.refreshInlineWindow?.(true);
+    env.freezeSnapshot?.(messageId);
+    return result;
+  };
+  const syncInline = (expectedChatId) => {
+    if (expectedChatId != null && env.chatId?.() !== expectedChatId) return;
+    injection?.refresh?.();
+    env.refreshInlineWindow?.(true);
+  };
+  const commitGenerationResult = async (
+    raw,
+    { silent, owner, swipeCtx, travelContext, commitBaseline } = {},
+  ) => {
+    const chatId = env.chatId?.();
+    const key = env.cacheKey?.();
+    const writer = env.writeStoreConfirmed || env.writeStore;
+    const stored = await writer?.(
+      key,
+      { raw, ts: Date.now() },
+      {
+        ownerGuard: () =>
+          env.chatId?.() === chatId &&
+          (!owner ||
+            owners.isCurrent(owner, {
+              chatId,
+              chatRevision: owner.chatRevision,
+            })),
+      },
+    );
+    if (!(stored === true || stored?.ok === true)) return stored || false;
+    if (stored?.stale) return { ...stored, ok: true };
+    const ui = await runGenerationUiEffect(() => {
+      runtime.cache(raw);
+      if (swipeCtx?.mesId != null) {
+        const rec = swipeStore.read(chatId, swipeCtx.mesId) || {
+          baseline: swipeCtx.baselineRaw ?? commitBaseline?.raw ?? "",
+          swipes: {},
+          view: "user",
+          charName: "",
+        };
+        if (rec.baseline == null)
+          rec.baseline = swipeCtx.baselineRaw ?? commitBaseline?.raw ?? "";
+        rec.swipes[String(swipeCtx.swipeId ?? 0)] = raw;
+        swipeStore.write(chatId, swipeCtx.mesId, rec);
+      }
+      if (env.isPanelActive?.()) {
+        refreshPanel(true);
+        if (!silent && env.notifyMode?.() !== "off") env.toast?.("线已生成");
+      }
+      syncInline(chatId);
+      if (!env.isPanelActive?.() && !silent) env.toast?.("线已生成，点击查看");
+    });
+    return ui.ok ? true : { ok: true, uiError: ui.error };
+  };
+  const cleanupOwner = (owner, chatId) => {
+    if (!owners.isCurrent(owner, { chatId })) return false;
+    runtime.finish(owner.controller);
+    owners.finish(owner);
+    if (env.isPanelActive?.()) refreshPanel();
+    return true;
+  };
+  const canonicalMatches = (baseline) => {
+    const hasSaved = typeof env.readSaved === "function";
+    const saved = hasSaved
+      ? env.readSaved() || {}
+      : { raw: env.readRaw?.() || "" };
+    if (!hasSaved && !String(saved.raw || "")) return true;
+    return (
+      !!baseline &&
+      String(saved.raw || "") === String(baseline.raw || "") &&
+      (!hasSaved ||
+        (Number(saved.ts) || null) === (Number(baseline.ts) || null))
+    );
+  };
+  const floorCredentialCurrent = (credential) =>
+    env.chatId?.() === credential?.chatId &&
+    (credential?.boundaryEpoch === undefined ||
+      env.boundaryEpoch?.() === credential.boundaryEpoch);
+  const retirePreviousTerminalLines = async (credential) => {
+    const baseline = credential?.linesBaseline;
+    if (
+      !baseline ||
+      !credential.cacheKey ||
+      !floorCredentialCurrent(credential) ||
+      !canonicalMatches(baseline)
+    )
+      return false;
+    const previous = parseLines(baseline.raw);
+    const retained = previous.filter(
+      (line) => line.pin || !TERMINAL_LINE_STAGES.has(line.stage),
+    );
+    if (retained.length === previous.length) return false;
+    const raw = retained.length ? serializeLines(retained) : "";
+    const target = { raw, ts: Date.now() };
+    const writer = env.writeStoreConfirmed || env.writeStore;
+    let stored;
+    try {
+      stored = await writer?.(credential.cacheKey, target, {
+        ownerGuard: () =>
+          floorCredentialCurrent(credential) &&
+          (canonicalMatches(baseline) || canonicalMatches(target)),
+      });
+    } catch {
+      return false;
+    }
+    if (
+      !(stored === true || stored?.ok === true) ||
+      stored?.stale ||
+      !floorCredentialCurrent(credential)
+    )
+      return false;
+    runtime.cache(raw);
+    if (env.isPanelActive?.()) refreshPanel(true);
+    syncInline(credential.chatId);
+    return true;
+  };
+  const abortGeneration = ({
+    restore = true,
+    reason = "manual-abort",
+  } = {}) => {
+    const owner = owners.invalidate("lines-generation", reason);
+    runtime.abort(reason);
+    if (
+      restore &&
+      !env.isEditing?.() &&
+      owner?.baseline &&
+      owner.baseline.chatId === env.chatId?.() &&
+      canonicalMatches(owner.baseline)
+    )
+      env.restoreBaseline?.(owner.baseline);
+  };
+  const rerunSwipe = async ({ mesId, forceRegen = false } = {}) => {
+    const swipe = env.swipeEnv || {};
+    const cfg = swipe.loadConfig?.() || {};
+    if (!cfg.url || !cfg.key) return;
+    const chatId = swipe.chatId?.();
+    const swipeId = Number(swipe.swipeId?.(mesId) ?? 0);
+    if (env.isEditing?.()) return;
+    const expectedSaved =
+      env.readSaved?.() || env.generationEnv?.readSaved?.() || null;
+    const expectedCanonical = expectedSaved
+      ? {
+          raw: String(expectedSaved.raw || ""),
+          ts: Number(expectedSaved.ts) || null,
+        }
+      : env.readRaw?.()
+        ? { raw: env.readRaw(), ts: null }
+        : null;
+    if (
+      !forceRegen &&
+      applyStoredSwipe({
+        chatId,
+        mesId,
+        swipeId,
+        key: swipe.key?.(),
+        writeStore: swipe.writeStore,
+        render: swipe.render,
+        syncInline: swipe.syncInline,
+        expectedCanonical,
+      })
+    )
+      return;
+    const rec = swipeStore.read(chatId, mesId);
+    let baseline = forceRegen
+      ? env.readSaved?.() ||
+        env.generationEnv?.readSaved?.() ||
+        (env.readRaw?.() ? { raw: env.readRaw?.(), ts: null } : null)
+      : rec?.baseline;
+    if (forceRegen && baseline && typeof baseline === "object")
+      baseline = {
+        raw: String(baseline.raw || ""),
+        ts: Number(baseline.ts) || null,
+      };
+    if (forceRegen && !baseline) baseline = null;
+    if (baseline == null) return;
+    if (runtime.busy) runtime.abort("superseded-owner");
+    return generation?.run?.(true, {
+      mesId: Number(mesId),
+      swipeId,
+      baselineRaw: typeof baseline === "object" ? baseline.raw : baseline,
+      forceReroll: true,
+    });
+  };
+  const onMessageReceived = ({ messageId, type } = {}) => {
+    if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false)
+      return false;
+    const mid = Number(messageId);
+    const chatId = env.chatId?.();
+    const chat = env.chat?.() || [];
+    const floor = chat[mid];
+    if (
+      !Number.isInteger(mid) ||
+      mid !== chat.length - 1 ||
+      !floor ||
+      floor.is_user ||
+      floor.is_system ||
+      !String(floor.mes || "").trim() ||
+      String(type || "") !== "normal"
+    )
+      return false;
+    if (mid <= lifecycle.lastSeenMaxMesId) return false;
+    if (
+      lifecycle.consumePendingReroll() ||
+      lifecycle.pendingSwipeGen?.mesId === mid
+    ) {
+      lifecycle.consumePendingSwipe(mid);
+      return false;
+    }
+    const saved = env.readSaved?.() || { raw: env.readRaw?.() || "", ts: null };
+    return lifecycle.registerFloor({
+      chatId,
+      messageId: mid,
+      type: "normal",
+      cacheKey: env.cacheKey?.(),
+      boundaryEpoch: env.boundaryEpoch?.(),
+      linesBaseline: Object.freeze({
+        raw: String(saved.raw || ""),
+        ts: Number(saved.ts) || null,
+      }),
+    });
+  };
+  const onCharacterRendered = async ({
+    messageId,
+    type,
+    autoSuppressed = false,
+  } = {}) => {
+    if (!env.pluginEnabled?.()) return;
+    const mid = Number(messageId);
+    const enqueueDashed = () => env.enqueueJob?.({
+      id: "dashed",
+      run: () => env.tryDashed?.(mid, { blocked: false }),
+    });
+    if (env.getSettings?.().linesEnabled === false) {
+      if (!autoSuppressed) {
+        if (env.enqueueJob) enqueueDashed();
+        else await env.tryDashed?.(mid, {
+          blocked: env.didReconcile?.(mid) === true,
         });
-        return ui.ok ? true : { ok: true, uiError: ui.error };
-    };
-    const cleanupOwner = (owner, chatId) => {
-        if (!owners.isCurrent(owner, { chatId })) return false;
-        runtime.finish(owner.controller);
-        owners.finish(owner);
-        if (env.isPanelActive?.()) refreshPanel();
-        return true;
-    };
-    const canonicalMatches = baseline => {
-        const hasSaved = typeof env.readSaved === 'function';
-        const saved = hasSaved ? (env.readSaved() || {}) : { raw: env.readRaw?.() || '' };
-        if (!hasSaved && !String(saved.raw || '')) return true;
-        return !!baseline && String(saved.raw || '') === String(baseline.raw || '') && (!hasSaved || (Number(saved.ts) || null) === (Number(baseline.ts) || null));
-    };
-    const floorCredentialCurrent = credential => env.chatId?.() === credential?.chatId
-        && (credential?.boundaryEpoch === undefined || env.boundaryEpoch?.() === credential.boundaryEpoch);
-    const retirePreviousTerminalLines = async credential => {
-        const baseline = credential?.linesBaseline;
-        if (!baseline || !credential.cacheKey || !floorCredentialCurrent(credential) || !canonicalMatches(baseline)) return false;
-        const previous = parseLines(baseline.raw);
-        const retained = previous.filter(line => line.pin || !TERMINAL_LINE_STAGES.has(line.stage));
-        if (retained.length === previous.length) return false;
-        const raw = retained.length ? serializeLines(retained) : '';
-        const target = { raw, ts: Date.now() };
-        const writer = env.writeStoreConfirmed || env.writeStore;
-        let stored;
-        try {
-            stored = await writer?.(credential.cacheKey, target, { ownerGuard: () => floorCredentialCurrent(credential) && (canonicalMatches(baseline) || canonicalMatches(target)) });
-        } catch {
-            return false;
-        }
-        if (!(stored === true || stored?.ok === true) || stored?.stale || !floorCredentialCurrent(credential)) return false;
-        runtime.cache(raw);
-        if (env.isPanelActive?.()) refreshPanel(true);
-        syncInline(credential.chatId);
-        return true;
-    };
-    const abortGeneration = ({ restore = true, reason = 'manual-abort' } = {}) => {
-        const owner = owners.invalidate('lines-generation', reason);
-        runtime.abort(reason);
-        if (restore && !env.isEditing?.() && owner?.baseline && owner.baseline.chatId === env.chatId?.() && canonicalMatches(owner.baseline)) env.restoreBaseline?.(owner.baseline);
-    };
-    const rerunSwipe = async ({ mesId, forceRegen = false } = {}) => {
-        const swipe = env.swipeEnv || {};
-        const cfg = swipe.loadConfig?.() || {};
-        if (!cfg.url || !cfg.key) return;
-        const chatId = swipe.chatId?.();
-        const swipeId = Number(swipe.swipeId?.(mesId) ?? 0);
-        if (env.isEditing?.()) return;
-        const expectedSaved = env.readSaved?.() || env.generationEnv?.readSaved?.() || null;
-        const expectedCanonical = expectedSaved ? { raw: String(expectedSaved.raw || ''), ts: Number(expectedSaved.ts) || null } : (env.readRaw?.() ? { raw: env.readRaw(), ts: null } : null);
-        if (!forceRegen && applyStoredSwipe({ chatId, mesId, swipeId, key: swipe.key?.(), writeStore: swipe.writeStore, render: swipe.render, syncInline: swipe.syncInline, expectedCanonical })) return;
-        const rec = swipeStore.read(chatId, mesId);
-        let baseline = forceRegen ? (env.readSaved?.() || env.generationEnv?.readSaved?.() || (env.readRaw?.() ? { raw: env.readRaw?.(), ts: null } : null)) : rec?.baseline;
-        if (forceRegen && baseline && typeof baseline === 'object') baseline = { raw: String(baseline.raw || ''), ts: Number(baseline.ts) || null };
-        if (forceRegen && !baseline) baseline = null;
-        if (baseline == null) return;
-        if (runtime.busy) runtime.abort('superseded-owner');
-        return generation?.run?.(true, { mesId: Number(mesId), swipeId, baselineRaw: typeof baseline === 'object' ? baseline.raw : baseline, forceReroll: true });
-    };
-    const onMessageReceived = ({ messageId, type } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return false;
-        const mid = Number(messageId);
-        const chatId = env.chatId?.();
-        const chat = env.chat?.() || [];
-        const floor = chat[mid];
-        if (!Number.isInteger(mid) || mid !== chat.length - 1 || !floor || floor.is_user || floor.is_system || !String(floor.mes || '').trim() || String(type || '') !== 'normal') return false;
-        if (mid <= lifecycle.lastSeenMaxMesId) return false;
-        if (lifecycle.consumePendingReroll() || lifecycle.pendingSwipeGen?.mesId === mid) {
-            lifecycle.consumePendingSwipe(mid);
-            return false;
-        }
-        const saved = env.readSaved?.() || { raw: env.readRaw?.() || '', ts: null };
-        return lifecycle.registerFloor({
-            chatId, messageId: mid, type: 'normal', cacheKey: env.cacheKey?.(), boundaryEpoch: env.boundaryEpoch?.(),
-            linesBaseline: Object.freeze({ raw: String(saved.raw || ''), ts: Number(saved.ts) || null }),
+      }
+      return;
+    }
+    const signature = env.floorSignature?.(mid) || "";
+    lifecycle.floorTextSig[mid] = signature;
+    if (lifecycle.pendingReroll || lifecycle.pendingSwipeGen?.mesId === mid) {
+      lifecycle.consumePendingReroll();
+      lifecycle.consumePendingSwipe(mid);
+      lifecycle.consumeFloor(mid, env.chatId?.());
+      // 旧宿主没有统一重跑事务时仍保留原日期善后；新宿主会等所有模块按逆序撤回后统一重跑。
+      if (
+        !autoSuppressed &&
+        env.getMode?.() === "days" &&
+        env.deferSameFloorDateAftermath?.() !== true
+      ) {
+        lifecycle.holdConfirmedFloor({
+          chatId: env.chatId?.(),
+          messageId: mid,
         });
+      }
+      await appendInlineBlock(mid, false);
+      return;
+    }
+    const credential = lifecycle.consumeFloor(mid, env.chatId?.());
+    if (!credential) {
+      await appendInlineBlock(mid, false);
+      return;
+    }
+    const mode = env.getMode?.();
+    const reconcileRan = env.didReconcile?.(mid) === true;
+    let advance = false;
+    if (!autoSuppressed && mode === "days")
+      lifecycle.holdConfirmedFloor(credential);
+    else if (!autoSuppressed && mode === "turns") {
+      const wouldAdvance = lifecycle.advanceCounter({
+        mode,
+        interval: env.getInterval?.(),
+      }).shouldAdvance;
+      if (wouldAdvance && reconcileRan && env.enqueueJob) {
+        env.enqueueJob({
+          id: "advance",
+          run: async () => {
+            lifecycle.lastAdvanceFloor = mid;
+            const beforeRaw = env.readRaw?.() || "";
+            const next = await appendInlineBlock(mid, true);
+            recordAdvanceAttempt(mid, beforeRaw, next, "auto");
+            return next || { status: "skipped" };
+          },
+        });
+      } else if (wouldAdvance && reconcileRan) env.deferAdvance?.();
+      else advance = wouldAdvance;
+    }
+    if (!autoSuppressed && env.enqueueJob) enqueueDashed();
+    if (!autoSuppressed) await retirePreviousTerminalLines(credential);
+    if (!floorCredentialCurrent(credential)) return;
+    lifecycle.lastSeenMaxMesId = mid;
+    if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.())
+      advance = true;
+    if (advance) lifecycle.lastAdvanceFloor = mid;
+    const before = advance ? env.readRaw?.() || "" : "";
+    const result = await appendInlineBlock(mid, advance);
+    if (advance) recordAdvanceAttempt(mid, before, result, "auto");
+    if (!autoSuppressed && mode !== "days" && !env.enqueueJob)
+      await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
+  };
+  const onDateAftermath = async ({
+    chatId = env.chatId?.(),
+    messageId,
+    fromQueue = false,
+  } = {}) => {
+    if (
+      !env.pluginEnabled?.() ||
+      env.getSettings?.().linesEnabled === false ||
+      env.getMode?.() !== "days"
+    )
+      return false;
+    const chat = env.chat?.() || [];
+    const mid = Number(messageId ?? chat.length - 1);
+    const credential = lifecycle.consumeConfirmedFloor(mid, chatId);
+    // 只认「这楼刚落地/重 roll」的凭证；轴面板 ±1 天没有凭证，不能推进。
+    if (!credential) return false;
+    const finishDashed = async (blocked) => {
+      if (fromQueue) return;
+      if (env.enqueueJob) {
+        env.enqueueJob({
+          id: "dashed",
+          run: () => env.tryDashed?.(mid, { blocked: false }),
+        });
+        return;
+      }
+      await env.tryDashed?.(mid, { blocked });
     };
-    const onCharacterRendered = async ({ messageId, type, autoSuppressed = false } = {}) => {
-        if (!env.pluginEnabled?.()) return;
-        if (env.getSettings?.().linesEnabled === false) {
-            const mid = Number(messageId);
-            if (!autoSuppressed) await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
-            return;
+    const latestDay = latestStampDay(chat, mid, env.parseClock);
+    if (!latestDay) {
+      env.toast?.("这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。");
+      await appendInlineBlock(mid, false);
+      await finishDashed(env.didReconcile?.(mid) === true);
+      return false;
+    }
+    const crossed = dayCrossedSincePreviousFloor({
+      chat,
+      latestIndex: mid,
+      latestDay,
+      parseClock: env.parseClock,
+    });
+    const existingAdvance = env.latestFloorAdvance?.(mid);
+    if (!crossed) {
+      if (existingAdvance) {
+        const restored = await env.replayFloorAdvance?.(mid);
+        if (restored?.status === "diverged") {
+          env.toast?.(
+            "之后又改过了，没法按新正文收回这楼的推进。可先在【改】里撤回，再手动推进。",
+            true,
+          );
         }
-        const mid = Number(messageId);
-        const signature = env.floorSignature?.(mid) || '';
-        lifecycle.floorTextSig[mid] = signature;
-        if (lifecycle.pendingReroll || lifecycle.pendingSwipeGen?.mesId === mid) {
-            lifecycle.consumePendingReroll();
-            lifecycle.consumePendingSwipe(mid);
-            lifecycle.consumeFloor(mid, env.chatId?.());
-            // 旧宿主没有统一重跑事务时仍保留原日期善后；新宿主会等所有模块按逆序撤回后统一重跑。
-            if (!autoSuppressed && env.getMode?.() === 'days' && env.deferSameFloorDateAftermath?.() !== true) {
-                lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
-            }
-            await appendInlineBlock(mid, false);
-            return;
-        }
-        const credential = lifecycle.consumeFloor(mid, env.chatId?.());
-        if (!credential) { await appendInlineBlock(mid, false); return; }
-        if (!autoSuppressed) await retirePreviousTerminalLines(credential);
-        if (!floorCredentialCurrent(credential)) return;
-        lifecycle.lastSeenMaxMesId = mid;
-        let advance = false;
-        const mode = env.getMode?.();
-        const reconcileRan = env.didReconcile?.(mid) === true;
-        if (!autoSuppressed && mode === 'days') lifecycle.holdConfirmedFloor(credential);
-        else if (!autoSuppressed && mode === 'turns') {
-            const wouldAdvance = lifecycle.advanceCounter({ mode, interval: env.getInterval?.() }).shouldAdvance;
-            if (wouldAdvance && reconcileRan) env.deferAdvance?.();
-            else advance = wouldAdvance;
-        }
-        if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.()) advance = true;
-        if (advance) lifecycle.lastAdvanceFloor = mid;
-        const before = advance ? env.readRaw?.() || '' : '';
-        const result = await appendInlineBlock(mid, advance);
-        if (advance) recordAdvanceAttempt(mid, before, result, 'auto');
-        if (!autoSuppressed && mode !== 'days') await env.tryDashed?.(mid, { blocked: reconcileRan || advance });
-    };
-    const onDateAftermath = async ({ chatId = env.chatId?.(), messageId } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false || env.getMode?.() !== 'days') return false;
-        const chat = env.chat?.() || [];
-        const mid = Number(messageId ?? (chat.length - 1));
-        const credential = lifecycle.consumeConfirmedFloor(mid, chatId);
-        // 只认「这楼刚落地/重 roll」的凭证；轴面板 ±1 天没有凭证，不能推进。
-        if (!credential) return false;
-        const latestDay = latestStampDay(chat, mid, env.parseClock);
-        if (!latestDay) {
-            env.toast?.('这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。');
-            await appendInlineBlock(mid, false);
-            await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
-            return false;
-        }
-        const crossed = dayCrossedSincePreviousFloor({ chat, latestIndex: mid, latestDay, parseClock: env.parseClock });
-        const existingAdvance = env.latestFloorAdvance?.(mid);
-        if (!crossed) {
-            if (existingAdvance) {
-                const restored = await env.replayFloorAdvance?.(mid);
-                if (restored?.status === 'diverged') {
-                    env.toast?.('之后又改过了，没法按新正文收回这楼的推进。可先在【改】里撤回，再手动推进。', true);
-                }
-            }
-            await appendInlineBlock(mid, false);
-            await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
-            return false;
-        }
-        if (existingAdvance) {
-            const restored = await env.replayFloorAdvance?.(mid);
-            if (restored?.status === 'diverged') {
-                env.toast?.('之后又改过了，没法按新正文重放推进。可先在【改】里撤回，再手动推进。', true);
-                await appendInlineBlock(mid, false);
-                await env.tryDashed?.(mid, { blocked: env.didReconcile?.(mid) === true });
-                return false;
-            }
-        } else if (env.didReconcile?.(mid)) {
-            env.deferAdvance?.();
-            await appendInlineBlock(mid, false);
-            await env.tryDashed?.(mid, { blocked: true });
-            return false;
-        }
-        lifecycle.lastAdvanceFloor = mid;
-        const before = env.readRaw?.() || '';
-        const result = await appendInlineBlock(mid, true);
-        recordAdvanceAttempt(mid, before, result, 'auto');
-        await env.tryDashed?.(mid, { blocked: true });
-        return true;
-    };
-    const forceAdvance = async ({ cause = 'manual', floorId } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return { status: 'skipped', reason: 'off' };
-        const chat = env.chat?.() || [];
-        const mid = Number.isInteger(Number(floorId)) && Number(floorId) >= 0 ? Number(floorId) : (chat.length - 1);
-        if (!Number.isInteger(mid) || mid < 0) return { status: 'skipped', reason: 'no-floor' };
-        env.consumeDeferredAdvance?.();
-        lifecycle.lastAdvanceFloor = mid;
-        const before = env.readRaw?.() || '';
-        const result = await appendInlineBlock(mid, true);
-        recordAdvanceAttempt(mid, before, result, cause);
-        return result || { status: 'skipped' };
-    };
-    const rerunFloorAdvance = async messageId => {
-        const mid = Number(messageId);
-        if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid) return { status: 'skipped', reason: 'not-due' };
-        const existing = env.latestFloorAdvance?.(mid);
-        if (existing) {
-            const restored = await env.replayFloorAdvance?.(mid);
-            if (restored?.status === 'diverged' || restored?.status === 'failed') return restored;
-        }
-        const before = env.readRaw?.() || '';
-        const result = await appendInlineBlock(mid, true);
-        recordAdvanceAttempt(mid, before, result, 'reroll');
-        return result || { status: 'skipped' };
-    };
-    const rerunDateFloorAdvance = async messageId => {
-        const mid = Number(messageId);
-        if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid) return { status: 'skipped', reason: 'not-due' };
-        lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
-        return onDateAftermath({ chatId: env.chatId?.(), messageId: mid });
-    };
-    const onSwiped = async ({ mesId, info } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return;
-        const mid = Number(mesId);
-        const swipeId = Number(info?.nextSwipeId ?? env.swipeId?.(mid) ?? 0);
-        const decision = chooseSwipeLayer({ pendingGeneration: !!info?.pendingGeneration, swipeId, stored: swipeStore.read(env.chatId?.(), mid), baseline: '' });
-        if (decision.action === 'wait') { lifecycle.markPendingSwipe(mid); return; }
-        lifecycle.floorTextSig[mid] = env.floorSignature?.(mid) || '';
+      }
+      await appendInlineBlock(mid, false);
+      await finishDashed(env.didReconcile?.(mid) === true);
+      return false;
+    }
+    if (existingAdvance) {
+      const restored = await env.replayFloorAdvance?.(mid);
+      if (restored?.status === "diverged") {
+        env.toast?.(
+          "之后又改过了，没法按新正文重放推进。可先在【改】里撤回，再手动推进。",
+          true,
+        );
         await appendInlineBlock(mid, false);
-    };
-    const onEdited = ({ mesId } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return;
-        const mid = Number(mesId); if (!Number.isFinite(mid)) return;
-        const edited = markEditedFloor({ messageId: mid, signature: env.floorSignature?.(mid) || '' });
-        if (edited) lifecycle.floorTextSig[edited.messageId] = edited.signature;
-    };
-    const onSent = ({ insertAt } = {}) => {
-        if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false) return;
-        const floor = floorToFinalize({ chat: env.chat?.(), insertAt });
-        if (floor != null) swipeStore.clear(env.chatId?.(), floor);
-    };
-    const onGenerationStarted = ({ genType, dryRun } = {}) => {
-        if (!env.pluginEnabled?.() || dryRun) return;
-        lifecycle.markGenerationStarted({ reroll: genType === 'regenerate', excludedAssistant: genType === 'regenerate' ? env.lastAssistant?.() : null });
-    };
-    const onToken = () => { if (env.pluginEnabled?.()) lifecycle.markToken(); };
-    const onGenerationEnded = ({ stopped = false } = {}) => { if (env.pluginEnabled?.()) { const epoch = env.boundaryEpoch?.(); lifecycle.endGeneration({ stopped }); setTimeout(() => { if (epoch === undefined || env.boundaryEpoch?.() === epoch) env.refreshInlineWindow?.(true); }, 60); } };
-    let sheet = 'events';
-    const renderBody = body => {
-        env.renderPanelDom?.({ toolbar: dashed?.toolbarHtml?.({ onEvents: sheet === 'events', lineBusy: runtime.busy ? ' sp-refresh-busy' : '', generationBusy: runtime.busy }), body: sheet === 'dashed' ? dashed?.panelHtml?.() : String(body || '') });
-    };
-    const refreshPanel = (force = false) => {
-        const raw = env.readRaw?.() || '';
-        const body = runtime.busy && !force ? env.loading?.() : raw ? renderLines(raw) : env.empty?.();
-        if (raw && !runtime.busy) runtime.cache(raw);
-        renderBody(body);
-        return body;
-    };
-    const applyStoredSwipe = ({ chatId, mesId, swipeId, key, writeStore, render, syncInline, expectedCanonical } = {}) => {
-        if (env.isEditing?.()) return false;
-        const rec = swipeStore.read(chatId, mesId);
-        const hit = rec?.swipes?.[String(swipeId)];
-        if (hit == null || !key || typeof writeStore !== 'function' || !rec?.baseline) return false;
-        const hasSaved = typeof env.readSaved === 'function' || typeof env.generationEnv?.readSaved === 'function';
-        const saved = typeof env.readSaved === 'function' ? (env.readSaved() || {}) : (env.generationEnv?.readSaved?.() || {});
-        const current = hasSaved ? { raw: String(saved.raw || ''), ts: Number(saved.ts) || null } : { raw: env.readRaw?.() || '', ts: null };
-        if (expectedCanonical && (current.raw !== String(expectedCanonical.raw || '') || (expectedCanonical.ts != null && current.ts !== expectedCanonical.ts))) return false;
-        if (hasSaved && ![rec.baseline, ...Object.values(rec.swipes || {})].includes(current.raw)) return false;
-        if (!hasSaved && current.raw && ![rec.baseline, ...Object.values(rec.swipes || {})].includes(current.raw)) return false;
-        writeStore(key, { raw: hit, ts: Date.now() });
-        runtime.cache(hit);
-        render?.(hit);
-        syncInline?.(chatId);
+        await finishDashed(env.didReconcile?.(mid) === true);
+        return false;
+      }
+    } else if (env.didReconcile?.(mid) && !fromQueue) {
+      if (env.enqueueJob) {
+        env.enqueueJob({
+          id: "advance",
+          run: async () => {
+            lifecycle.lastAdvanceFloor = mid;
+            const beforeRaw = env.readRaw?.() || "";
+            const next = await appendInlineBlock(mid, true);
+            recordAdvanceAttempt(mid, beforeRaw, next, "auto");
+            return next || { status: "skipped" };
+          },
+        });
+        await finishDashed(true);
         return true;
-    };
-    return {
-        runtime, lifecycle, swipeStore, injection, generation, actions, dashed,
-        nextChatRevision: () => owners.nextChatRevision(),
-        invalidateGeneration: () => owners.invalidate('lines-generation'),
-        isCurrent: (owner, identity) => owners.isOwner(owner, identity),
-        finishOwner: owner => owners.finish(owner),
-        widget,
-        detectInGameDayChange: ({ day = env.dayAnchor?.(), decide = env.dayAdvance } = {}) => lifecycle.detectInGameDayChange({ day, decide }),
-        readSwipe: (chatId, mesId) => swipeStore.read(chatId, mesId),
-        writeSwipe: (chatId, mesId, data) => swipeStore.write(chatId, mesId, data),
-        clearSwipe: (chatId, mesId) => swipeStore.clear(chatId, mesId),
-        clearAllSwipe: chatId => swipeStore.clearAll(chatId),
-        applyStoredSwipe,
-        rerunSwipe,
-        generate: (...args) => actions?.reroll?.(...args),
-        advance: (...args) => actions?.advance?.(...args),
-        forceAdvance,
-        reroll: (...args) => actions?.reroll?.(...args),
-        deleteLine: (...args) => actions?.delete?.(...args),
-        togglePin: (...args) => actions?.pin?.(...args),
-        get sheet() { return sheet; },
-        setSheet: value => { if (value === 'events' || value === 'dashed') sheet = value; return sheet; },
-        renderLines, inlineHtml, appendInlineBlock, syncInline, commitGenerationResult, cleanupOwner, abortGeneration,
-        onMessageReceived, onCharacterRendered, onDateAftermath, rerunFloorAdvance, rerunDateFloorAdvance, onSwiped, onEdited, onSent, onGenerationStarted, onToken, onGenerationEnded,
-        isStreaming: () => Date.now() < lifecycle.streamUntil,
-        resetCounter: () => { lifecycle.counter = 0; },
-        setLastDay: value => { lifecycle.lastDay = value; },
-        onChatChanged: ({ lastSeen = -1 } = {}) => { actions?.invalidatePreflight?.('chat-boundary'); abortGeneration({ restore: false, reason: 'chat-boundary' }); lifecycle.resetChat({ lastSeen, lastDay: env.dayAnchor?.() ?? null }); return env.onChatChanged?.({ lastSeen }); },
-        renderBody,
-        refreshPanel,
-    };
+      }
+      env.deferAdvance?.();
+      await appendInlineBlock(mid, false);
+      await finishDashed(true);
+      return false;
+    }
+    lifecycle.lastAdvanceFloor = mid;
+    const before = env.readRaw?.() || "";
+    const result = await appendInlineBlock(mid, true);
+    recordAdvanceAttempt(mid, before, result, "auto");
+    await finishDashed(true);
+    return true;
+  };
+  const forceAdvance = async ({ cause = "manual", floorId } = {}) => {
+    if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false)
+      return { status: "skipped", reason: "off" };
+    const chat = env.chat?.() || [];
+    const mid =
+      Number.isInteger(Number(floorId)) && Number(floorId) >= 0
+        ? Number(floorId)
+        : chat.length - 1;
+    if (!Number.isInteger(mid) || mid < 0)
+      return { status: "skipped", reason: "no-floor" };
+    env.consumeDeferredAdvance?.();
+    lifecycle.lastAdvanceFloor = mid;
+    const before = env.readRaw?.() || "";
+    const result = await appendInlineBlock(mid, true);
+    recordAdvanceAttempt(mid, before, result, cause);
+    return result || { status: "skipped" };
+  };
+  const rerunFloorAdvance = async (messageId) => {
+    const mid = Number(messageId);
+    if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid)
+      return { status: "skipped", reason: "not-due" };
+    const existing = env.latestFloorAdvance?.(mid);
+    if (existing) {
+      const restored = await env.replayFloorAdvance?.(mid);
+      if (restored?.status === "diverged" || restored?.status === "failed")
+        return restored;
+    }
+    const before = env.readRaw?.() || "";
+    const result = await appendInlineBlock(mid, true);
+    recordAdvanceAttempt(mid, before, result, "reroll");
+    return result || { status: "skipped" };
+  };
+  const rerunDateFloorAdvance = async (messageId) => {
+    const mid = Number(messageId);
+    if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid)
+      return { status: "skipped", reason: "not-due" };
+    lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
+    return onDateAftermath({ chatId: env.chatId?.(), messageId: mid });
+  };
+  const onSwiped = async ({ mesId, info } = {}) => {
+    if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false)
+      return;
+    const mid = Number(mesId);
+    const swipeId = Number(info?.nextSwipeId ?? env.swipeId?.(mid) ?? 0);
+    const decision = chooseSwipeLayer({
+      pendingGeneration: !!info?.pendingGeneration,
+      swipeId,
+      stored: swipeStore.read(env.chatId?.(), mid),
+      baseline: "",
+    });
+    if (decision.action === "wait") {
+      lifecycle.markPendingSwipe(mid);
+      return;
+    }
+    lifecycle.floorTextSig[mid] = env.floorSignature?.(mid) || "";
+    await appendInlineBlock(mid, false);
+  };
+  const onEdited = ({ mesId } = {}) => {
+    if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false)
+      return;
+    const mid = Number(mesId);
+    if (!Number.isFinite(mid)) return;
+    const edited = markEditedFloor({
+      messageId: mid,
+      signature: env.floorSignature?.(mid) || "",
+    });
+    if (edited) lifecycle.floorTextSig[edited.messageId] = edited.signature;
+  };
+  const onSent = ({ insertAt } = {}) => {
+    if (!env.pluginEnabled?.() || env.getSettings?.().linesEnabled === false)
+      return;
+    const floor = floorToFinalize({ chat: env.chat?.(), insertAt });
+    if (floor != null) swipeStore.clear(env.chatId?.(), floor);
+  };
+  const onGenerationStarted = ({ genType, dryRun } = {}) => {
+    if (!env.pluginEnabled?.() || dryRun) return;
+    lifecycle.markGenerationStarted({
+      reroll: genType === "regenerate",
+      excludedAssistant:
+        genType === "regenerate" ? env.lastAssistant?.() : null,
+    });
+  };
+  const onToken = () => {
+    if (env.pluginEnabled?.()) lifecycle.markToken();
+  };
+  const onGenerationEnded = ({ stopped = false } = {}) => {
+    if (env.pluginEnabled?.()) {
+      const epoch = env.boundaryEpoch?.();
+      lifecycle.endGeneration({ stopped });
+      setTimeout(() => {
+        if (epoch === undefined || env.boundaryEpoch?.() === epoch)
+          env.refreshInlineWindow?.(true);
+      }, 60);
+    }
+  };
+  let sheet = "events";
+  const renderBody = (body) => {
+    env.renderPanelDom?.({
+      toolbar: dashed?.toolbarHtml?.({
+        onEvents: sheet === "events",
+        lineBusy: runtime.busy ? " sp-refresh-busy" : "",
+        generationBusy: runtime.busy,
+      }),
+      body: sheet === "dashed" ? dashed?.panelHtml?.() : String(body || ""),
+    });
+  };
+  const refreshPanel = (force = false) => {
+    const raw = env.readRaw?.() || "";
+    const body =
+      runtime.busy && !force
+        ? env.loading?.()
+        : raw
+          ? renderLines(raw)
+          : env.empty?.();
+    if (raw && !runtime.busy) runtime.cache(raw);
+    renderBody(body);
+    return body;
+  };
+  const applyStoredSwipe = ({
+    chatId,
+    mesId,
+    swipeId,
+    key,
+    writeStore,
+    render,
+    syncInline,
+    expectedCanonical,
+  } = {}) => {
+    if (env.isEditing?.()) return false;
+    const rec = swipeStore.read(chatId, mesId);
+    const hit = rec?.swipes?.[String(swipeId)];
+    if (
+      hit == null ||
+      !key ||
+      typeof writeStore !== "function" ||
+      !rec?.baseline
+    )
+      return false;
+    const hasSaved =
+      typeof env.readSaved === "function" ||
+      typeof env.generationEnv?.readSaved === "function";
+    const saved =
+      typeof env.readSaved === "function"
+        ? env.readSaved() || {}
+        : env.generationEnv?.readSaved?.() || {};
+    const current = hasSaved
+      ? { raw: String(saved.raw || ""), ts: Number(saved.ts) || null }
+      : { raw: env.readRaw?.() || "", ts: null };
+    if (
+      expectedCanonical &&
+      (current.raw !== String(expectedCanonical.raw || "") ||
+        (expectedCanonical.ts != null && current.ts !== expectedCanonical.ts))
+    )
+      return false;
+    if (
+      hasSaved &&
+      ![rec.baseline, ...Object.values(rec.swipes || {})].includes(current.raw)
+    )
+      return false;
+    if (
+      !hasSaved &&
+      current.raw &&
+      ![rec.baseline, ...Object.values(rec.swipes || {})].includes(current.raw)
+    )
+      return false;
+    writeStore(key, { raw: hit, ts: Date.now() });
+    runtime.cache(hit);
+    render?.(hit);
+    syncInline?.(chatId);
+    return true;
+  };
+  return {
+    runtime,
+    lifecycle,
+    swipeStore,
+    injection,
+    generation,
+    actions,
+    dashed,
+    nextChatRevision: () => owners.nextChatRevision(),
+    invalidateGeneration: () => owners.invalidate("lines-generation"),
+    isCurrent: (owner, identity) => owners.isOwner(owner, identity),
+    finishOwner: (owner) => owners.finish(owner),
+    widget,
+    detectInGameDayChange: ({
+      day = env.dayAnchor?.(),
+      decide = env.dayAdvance,
+    } = {}) => lifecycle.detectInGameDayChange({ day, decide }),
+    readSwipe: (chatId, mesId) => swipeStore.read(chatId, mesId),
+    writeSwipe: (chatId, mesId, data) => swipeStore.write(chatId, mesId, data),
+    clearSwipe: (chatId, mesId) => swipeStore.clear(chatId, mesId),
+    clearAllSwipe: (chatId) => swipeStore.clearAll(chatId),
+    applyStoredSwipe,
+    rerunSwipe,
+    generate: (...args) => actions?.reroll?.(...args),
+    advance: (...args) => actions?.advance?.(...args),
+    forceAdvance,
+    reroll: (...args) => actions?.reroll?.(...args),
+    deleteLine: (...args) => actions?.delete?.(...args),
+    togglePin: (...args) => actions?.pin?.(...args),
+    get sheet() {
+      return sheet;
+    },
+    setSheet: (value) => {
+      if (value === "events" || value === "dashed") sheet = value;
+      return sheet;
+    },
+    renderLines,
+    inlineHtml,
+    appendInlineBlock,
+    syncInline,
+    commitGenerationResult,
+    cleanupOwner,
+    abortGeneration,
+    onMessageReceived,
+    onCharacterRendered,
+    onDateAftermath,
+    rerunFloorAdvance,
+    rerunDateFloorAdvance,
+    onSwiped,
+    onEdited,
+    onSent,
+    onGenerationStarted,
+    onToken,
+    onGenerationEnded,
+    isStreaming: () => Date.now() < lifecycle.streamUntil,
+    resetCounter: () => {
+      lifecycle.counter = 0;
+    },
+    setLastDay: (value) => {
+      lifecycle.lastDay = value;
+    },
+    onChatChanged: ({ lastSeen = -1 } = {}) => {
+      actions?.invalidatePreflight?.("chat-boundary");
+      abortGeneration({ restore: false, reason: "chat-boundary" });
+      lifecycle.resetChat({ lastSeen, lastDay: env.dayAnchor?.() ?? null });
+      return env.onChatChanged?.({ lastSeen });
+    },
+    renderBody,
+    refreshPanel,
+  };
 }

@@ -460,14 +460,83 @@ q::after {
 .sp-activity-undone { font-size: var(--sp-fs-62); color: var(--sp-subtle); }
 .sp-activity-empty { padding: 24px 16px; }
 .sp-activity-pace {
-    padding: 8px 12px 0;
+    padding: 10px 12px 0;
+    flex-shrink: 0;
 }
+.sp-activity-live {
+    padding: 10px 12px 0;
+    flex-shrink: 0;
+}
+.sp-activity-section-kicker,
+.sp-activity-pace-kicker,
+.sp-activity-queue-kicker,
+.sp-activity-recent-kicker {
+    margin: 0 0 6px;
+    font-size: var(--sp-fs-62);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--sp-subtle);
+}
+.sp-activity-recent-kicker {
+    padding: 10px 12px 0;
+    flex-shrink: 0;
+}
+.sp-activity-queue { padding: 0; }
+.sp-activity-queue[hidden] { display: none; }
+.sp-activity-queue-live {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-height: 28px;
+}
+.sp-activity-queue-idle {
+    font-size: var(--sp-fs-70);
+    color: var(--sp-subtle);
+}
+.sp-activity-queue-running,
+.sp-activity-queue-wait,
+.sp-activity-queue-fail {
+    border-radius: 999px;
+    padding: 4px 10px;
+    font-size: var(--sp-fs-70);
+    line-height: 1.3;
+}
+.sp-activity-queue-running {
+    border: 1px solid color-mix(in oklab, var(--sp-primary) 45%, var(--sp-divider));
+    color: var(--sp-primary);
+    background: color-mix(in oklab, var(--sp-primary) 12%, transparent);
+}
+.sp-activity-queue-wait {
+    border: 1px dashed var(--sp-divider);
+    color: var(--sp-subtle);
+}
+.sp-activity-queue-fail {
+    border: 1px solid color-mix(in oklab, var(--sp-danger, #c45) 50%, var(--sp-divider));
+    color: var(--sp-danger, #c45);
+    background: color-mix(in oklab, var(--sp-danger, #c45) 10%, transparent);
+    cursor: pointer;
+}
+.sp-activity-queue-fail:hover {
+    background: color-mix(in oklab, var(--sp-danger, #c45) 18%, transparent);
+}
+.sp-pace-chip.is-running {
+    border-color: color-mix(in oklab, var(--sp-primary) 55%, var(--sp-divider));
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--sp-primary) 25%, transparent);
+}
+.sp-pace-chip.is-running .sp-pace-chip-value { color: var(--sp-primary); }
+.sp-pace-chip.is-queued .sp-pace-chip-value { color: var(--sp-subtle); }
+.sp-pace-chip.is-failed {
+    border-color: color-mix(in oklab, var(--sp-danger, #c45) 50%, var(--sp-divider));
+}
+.sp-pace-chip.is-failed .sp-pace-chip-value { color: var(--sp-danger, #c45); }
 .sp-activity-clock {
     padding: 10px 12px 0;
     font-size: var(--sp-fs-70);
     color: var(--sp-subtle);
     font-family: var(--sp-font-mono);
     line-height: 1.45;
+    flex-shrink: 0;
 }
 .sp-activity-pace .sp-pace-strip { margin: 0; }
 .sp-activity-pace-detail {
@@ -2812,6 +2881,17 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-fab-btn.sp-fab-busy {
     animation: sp-neon-bar 1.4s ease-in-out infinite !important;
     color    : var(--sp-neon-color) !important;
+}
+@keyframes sp-neon-bar-danger {
+    0%   { box-shadow: 0 0 4px color-mix(in oklab, var(--sp-danger, #c45) 55%, transparent), 0 0 12px color-mix(in oklab, var(--sp-danger, #c45) 40%, transparent); }
+    50%  { box-shadow: 0 0 10px color-mix(in oklab, var(--sp-danger, #c45) 70%, transparent), 0 0 28px color-mix(in oklab, var(--sp-danger, #c45) 45%, transparent); }
+    100% { box-shadow: 0 0 4px color-mix(in oklab, var(--sp-danger, #c45) 55%, transparent), 0 0 12px color-mix(in oklab, var(--sp-danger, #c45) 40%, transparent); }
+}
+.sp-fab-btn.sp-fab-failed:not(.sp-fab-busy):not(.sp-btn-generating) {
+    animation: sp-neon-bar-danger 1.4s ease-in-out infinite !important;
+    color: var(--sp-danger, #c45) !important;
+    opacity: 1;
+    border-color: color-mix(in oklab, var(--sp-danger, #c45) 70%, transparent);
 }
 
 /* Done state */

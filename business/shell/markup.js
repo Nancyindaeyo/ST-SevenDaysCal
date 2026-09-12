@@ -62,7 +62,7 @@ export function panelMarkup({
                     </nav>
                     <div class="sp-sidebar-spacer"></div>
                     <nav class="sp-sidebar-tabs sp-sidebar-util" aria-label="工具">
-                        <button class="sp-side-tab sp-activity-btn" aria-label="最近改动">
+                        <button class="sp-side-tab sp-activity-btn" aria-label="后台与改动">
                             <span class="sp-tab-glyph" aria-hidden="true">改</span>
                             <span class="sp-activity-badge" hidden></span>
                         </button>
@@ -394,9 +394,9 @@ export function panelMarkup({
                                         <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="可留空（创作链只用内置强化词）。也可追加创作规范，如：去八股、控制文风、叙事口吻…"></textarea>
                                     </details>
                                     <details class="sp-settings-subsection sp-prompt-tags"><summary>标签清洗</summary>
-                                        <p class="sp-cfg-hint">读取 AI 楼层原文时的标签过滤规则，<strong>对全部生成链路生效</strong>（记忆摘要、点 / 线 / 面生成、间 / 面讨论的对话注入），用来剔除状态栏 / 思维链等包裹、避免污染上下文。多个用英文逗号分隔；XML 包裹可写标签名或带尖括号（<code>content</code> / <code>&lt;content&gt;</code> 等效），双中括号包裹请固定填写 <code>[[...]]</code>（三个点是配置占位）。可组合填写 <code>content,[[...]]</code>，并支持中文、日文等 Unicode 标签名。</p>
-                                        <div class="sp-mode-opt sp-tag-opt"><span>保留包裹符</span><input id="sp-mem-keeptags" class="sp-input sp-tag-input" type="text" placeholder="content" value=""></div>
-                                        <p class="sp-cfg-hint">标签本身去掉、<strong>内部文字保留</strong>（如正文被 <code>content</code> 包裹）。</p>
+                                        <p class="sp-cfg-hint">读取 AI 楼层原文时的标签规则，<strong>对点 / 轴 / 线 / 面 / 间 / 记忆全部生效</strong>。多个用英文逗号分隔；XML 可写标签名或带尖括号（<code>content</code> / <code>&lt;content&gt;</code> 等效），双中括号请固定填写 <code>[[...]]</code>。可组合 <code>content,[[...]]</code>，支持中文、日文等 Unicode 标签名。</p>
+                                        <div class="sp-mode-opt sp-tag-opt"><span>正文包裹</span><input id="sp-mem-keeptags" class="sp-input sp-tag-input" type="text" placeholder="content" value=""></div>
+                                        <p class="sp-cfg-hint">楼层里<strong>有这些标签就只读标签内全文</strong>，外面的状态栏 / 面板丢掉，也不再按字数截断。标签名可改（默认 <code>content</code>）。没有这类标签时，退回普通清洗。</p>
                                         <div class="sp-mode-opt sp-tag-opt"><span>剔除包裹符</span><input id="sp-mem-extratags" class="sp-input sp-tag-input" type="text" placeholder="think,reasoning" value=""></div>
                                         <p class="sp-cfg-hint">包裹符<strong>连同内部内容一起删除</strong>（如 <code>think,reasoning,[[...]]</code>）；未闭合的双中括号会保留原文，不会吞掉后文。</p>
                                     </details>

@@ -49,12 +49,12 @@ export function createAnchorAftermath(env = {}) {
         }
     }
 
-    function run() {
+    function run(source = 'story') {
         env.syncAlmanacBlock?.();
         env.syncScheduleBlock?.();
         // 星期锚是纯显示：用现有 raw 重画点面板，不写 store、不请求 API。生成中不抢画。
         if (!env.pointGenerating?.()) env.refreshPointPanel?.();
-        env.notifyLinesDate?.();
+        env.notifyLinesDate?.({ source });
         if (env.almanacVisible?.()) env.renderAlmanac?.();
         env.paintPace?.();
     }

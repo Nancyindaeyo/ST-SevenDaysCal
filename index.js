@@ -11,7 +11,8 @@ import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK } from './business/theater/constants.js';
 import { refreshFoldHtml } from './business/refresh/bar.js';
-import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
+import { collectPaceRows, overlayQueueOnRows, paceStripHtml } from './business/refresh/pace.js';
+import { createFloorJobQueue } from './business/refresh/floor-queue.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createSameFloorGate } from './business/refresh/same-floor.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
@@ -489,7 +490,7 @@ const axisDateActions = createAxisDateActions({
     chatId: () => latestStoryOwnerIdentity().chatId,
     swipe: () => latestStoryOwnerIdentity().swipe,
     confirm: spConfirm,
-    aftermath: () => runAnchorAftermath(),
+    aftermath: () => runAnchorAftermath('manual-axis'),
     monthName: (cal, month) => calMonthName(cal, month),
     toast: showToast,
 });
@@ -653,6 +654,10 @@ const pointInlineRenderer = createPointInlineRenderer({
     today: almTodayAnchor,
 });
 const parseJudgedDate = parseJudgedDatePure;
+function readFloorStory(raw) {
+    const settings = getSettings();
+    return memory.extractStoryText(raw, { keepTags: settings.keepTags, extraTags: settings.extraTags });
+}
 
 // ledger 选择器注入：select.js 的打分/门槛依赖到期/距今口径 ledgerDueInfo/ledgerDaysSince
 // （二者仍滞留本文件、且另经历法助手触达），经 bindLedgerSelect 注入以免反向依赖循环引用。
@@ -664,7 +669,7 @@ bindLedgerCapture({
     context: getContext,
     parseClock: parseStoryClockPure,
     parseDate: parseJudgedDate,
-    stripTags: (text) => memory.stripTags(text, { keepTags: getSettings().keepTags, extraTags: getSettings().extraTags }),
+    stripTags: (text) => memory.extractStoryText(text, { keepTags: getSettings().keepTags, extraTags: getSettings().extraTags }),
     settings: getSettings,
     systemTypes: system_message_types,
     eventTypes: LEDGER_EVENT_TYPES,
@@ -734,7 +739,7 @@ const ledgerInjectionController = createLedgerInjectionController({
     daysSince: ledgerDaysSince,
     dueInfo: ledgerDueInfo,
     narrative: ledgerNarrativeMessage,
-    stripTags: text => memory.stripTags(text, { keepTags: getSettings().keepTags, extraTags: getSettings().extraTags }),
+    stripTags: text => memory.extractStoryText(text, { keepTags: getSettings().keepTags, extraTags: getSettings().extraTags }),
 });
 const refreshLedgerInjection = () => ledgerInjectionController.refresh();
 const ledgerJudgeController = createLedgerJudgeController({
@@ -1067,7 +1072,7 @@ const dateDetectionController = createDateDetectionController({
     monthName: month => calMonthName(loadCalDesc(), month),
     toast: showToast,
     logDiagnostic: diagnostic => console.warn('[SP axis failure]', diagnostic),
-    aftermath: () => runAnchorAftermath(),
+    aftermath: () => runAnchorAftermath('story'),
     captureParticipantIdentity,
     sameParticipantIdentity,
 });
@@ -1165,7 +1170,7 @@ const timeTravel = createTimeTravelHost({
                 signal,
             });
         } },
-        { key: AUTOMATION_MODULES.AXIS, canRun: () => true, run: async () => { runAnchorAftermath(); return { status: 'updated' }; } },
+        { key: AUTOMATION_MODULES.AXIS, canRun: () => true, run: async () => { runAnchorAftermath('time-travel'); return { status: 'updated' }; } },
         { key: AUTOMATION_MODULES.OUTLINE, canRun: () => outlineFeature.canRelocate(), run: ({ promptAddon, signal }) => outlineFeature.relocate(promptAddon, signal) },
         { key: AUTOMATION_MODULES.LEDGER_CAPTURE, canRun: () => getSettings().ledgerCaptureEnabled === true, run: ({ destinationDate, promptAddon, signal }) => runLedgerCaptureStep(true, { targetDate: destinationDate, promptAddon, feedback: 'time-travel', signal }) },
         { key: AUTOMATION_MODULES.LEDGER_JUDGE, canRun: () => getSettings().ledgerCaptureEnabled === true, run: ({ destinationDate, promptAddon, signal }) => runLedgerJudgeStep(true, { targetDate: destinationDate, promptAddon, feedback: 'time-travel', signal }) },
@@ -1546,13 +1551,102 @@ const activityFeature = createActivityFeature({
         return { status: ok ? 'quoted' : 'failed' };
     },
     openItem: item => openActivityItem(item),
+    queueSnapshot: () => floorQueue?.snapshot?.() || null,
+    retryQueueJob: id => retryFloorAutomation(id),
 });
+const floorQueue = createFloorJobQueue({
+    identityCurrent: (floor) => {
+        if (!pluginEnabled() || !floor) return false;
+        const ctx = getContext();
+        if (String(ctx?.chatId ?? '') !== String(floor.chatId ?? '')) return false;
+        if (Number((ctx?.chat?.length || 0) - 1) !== Number(floor.floorId)) return false;
+        if (floor.signature && _floorSig(floor.floorId) !== floor.signature) return false;
+        return true;
+    },
+    setBusy: on => setFabBusy(on),
+    onChange: () => {
+        syncFabFailed();
+        paintPaceSoon();
+        activityFeature.paint?.();
+    },
+    onJobFailed: (job, result, snap) => {
+        const more = (snap?.queued || []).length ? '；后面的继续' : '';
+        showToast(`${job.label}失败，可在【改】里重试${more}`, null, true);
+    },
+});
+let _floorDrainTimer = null;
+function scheduleFloorDrain() {
+    if (_floorDrainTimer != null) return;
+    _floorDrainTimer = setTimeout(() => {
+        _floorDrainTimer = null;
+        void floorQueue.drain();
+    }, 0);
+}
+function enqueueFloorJob(job) {
+    const ok = floorQueue.enqueue(job);
+    if (ok) scheduleFloorDrain();
+    return ok;
+}
+function beginFloorAutomation(messageId) {
+    floorQueue.beginFloor({
+        chatId: getContext()?.chatId,
+        floorId: Number(messageId),
+        signature: _floorSig(messageId),
+    });
+}
+async function retryFloorAutomation(id) {
+    const key = String(id || '');
+    if (key === 'align' || key === 'align-auto') return activityFeature.realign({ cause: 'retry' });
+    if (key === 'advance') return activityFeature.readvance({ cause: 'retry' });
+    if (floorQueue.failed.some(job => job.id === key)) return floorQueue.retry(key);
+    if (key === 'supplement') return triggerSupplementAnniversary();
+    if (key === 'outline') return outlineFeature.judge.runAdvance((getContext()?.chat?.length || 0) - 1);
+    if (key === 'dashed') {
+        const mid = (getContext()?.chat?.length || 0) - 1;
+        return linesFeature.dashed.rerunAutoFloor(mid, { latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || '') });
+    }
+    if (key === 'ledger-capture') return runLedgerCaptureStep(false, { automationFloor: (getContext()?.chat?.length || 0) - 1 });
+    if (key === 'ledger-judge') return runLedgerJudgeStep(false, { automationFloor: (getContext()?.chat?.length || 0) - 1 });
+    return { status: 'skipped' };
+}
+function syncFabFailed() {
+    fabRuntime.setFailed?.((floorQueue.snapshot().failed || []).length > 0);
+}
+function enqueueStoryDateBeat() {
+    const ctx = getContext();
+    const mid = (ctx?.chat?.length ?? 0) - 1;
+    if (mid < 0) return;
+    beginFloorAutomation(mid);
+    if (getSettings().linesEnabled !== false && getLinesMode() === 'days') {
+        enqueueFloorJob({
+            id: 'advance',
+            run: () => linesFeature.onDateAftermath({ messageId: mid, chatId: ctx.chatId, fromQueue: true }),
+        });
+    }
+    const items = loadAlmanac() || [];
+    if (items.length) {
+        enqueueFloorJob({
+            id: 'supplement',
+            run: () => triggerSupplementAnniversary(),
+        });
+    }
+    if (getSettings().dashedEnabled === true) {
+        enqueueFloorJob({
+            id: 'dashed',
+            run: () => linesFeature.dashed.onAiFloor(mid, {
+                blocked: false,
+                latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
+            }),
+        });
+    }
+    scheduleFloorDrain();
+}
 const sameFloorGate = createSameFloorGate();
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
 const linesFeature = createLinesFeature({
     jumpHint: () => SP_JUMP_HINT_LINES,
     get stageColors() { return STAGE_COLORS; },
-    escapeHtml, escapeAttr, cleanText, makeInjectBtn,
+    escapeHtml, escapeAttr, cleanText, readFloorStory, enqueueJob: enqueueFloorJob, makeInjectBtn,
     cacheKey: () => getLinesCacheKey(), chatId: () => getContext().chatId,
     boundaryEpoch: () => chatBoundaryEpoch,
     participantIdentity: captureParticipantIdentity,
@@ -1581,7 +1675,7 @@ const linesFeature = createLinesFeature({
             ...opts,
             blocked,
             owed,
-            latestStory: cleanText(latestAiFloor(getContext().chat)?.text || ''),
+            latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
         });
     },
     pluginEnabled, getSettings, getMode: getLinesMode, getInterval: getLinesInterval,
@@ -1669,6 +1763,7 @@ const outlineFeature = createOutlineFeature({
         callCustomApi(ctx, prompt, config, userName, charName, signal, historyLimit, options),
     precheck: memoryPreCheckConfirm,
     isAutomationSuppressed,
+    enqueueJob: enqueueFloorJob,
     automationModule: AUTOMATION_MODULES.OUTLINE,
     bridgeAbortSignal,
     buildChatMessages: args => composeCreativeChatMessages(args),
@@ -1728,7 +1823,7 @@ bootstrapFeature = createBootstrapFeature({
         dashed: async () => bootstrapStatus(await linesFeature.dashed.run({
             manual: true,
             nearText: true,
-            latestStory: cleanText(latestAiFloor(getContext().chat)?.text || ''),
+            latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
         })),
     },
     abortRunners: () => {
@@ -1817,6 +1912,8 @@ const refreshController = createRefreshController({
     callApi: callCustomApi,
     calendar: loadCalDesc,
     cleanText,
+    readFloorStory,
+    enqueueJob: enqueueFloorJob,
     today: almTodayAnchor,
     pluginEnabled,
     enabled: () => getSettings().ledgerReconcileEnabled === true,
@@ -1903,7 +2000,7 @@ function collectBeatLedgerContext() {
         outlineRaw: outlineFeature.readRaw?.() || '',
         outlineNode,
         spaceRecent,
-        latestStory: cleanText(latestAiFloor(getContext().chat)?.text || '').slice(0, 1600),
+        latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
     };
 }
 async function applyGuideDraft(name, draft) {
@@ -2288,6 +2385,8 @@ jQuery(async () => {
         pace: paceBook,
         get coordinate() { return coordinateRuntime?.feature; },
         refresh: refreshController,
+        floorQueue,
+        syncFabFailed,
         sameFloor: sameFloorGate,
         beat: beatFeature,
         clearTravelUi() {
@@ -2384,7 +2483,7 @@ jQuery(async () => {
                 }
                 : null,
             linesFeature.dashed.state().lastDueFloor === mid
-                ? { source: 'dashed', label: '冷知识', restore: () => activityFeature.replayFloorSource('dashed', mid), run: () => linesFeature.dashed.rerunAutoFloor(mid, { latestStory: cleanText(latestAiFloor(getContext().chat)?.text || '') }) }
+                ? { source: 'dashed', label: '冷知识', restore: () => activityFeature.replayFloorSource('dashed', mid), run: () => linesFeature.dashed.rerunAutoFloor(mid, { latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || '') }) }
                 : null,
             outlineFeature.judge.state().lastDueFloor === mid
                 ? { source: 'outline', label: '面判定', restore: () => activityFeature.replayFloorSource('outline', mid), run: () => outlineFeature.judge.runAdvance(mid) }
@@ -2418,6 +2517,9 @@ jQuery(async () => {
             syncLatestAlmanacBlock,
             syncLatestScheduleBlock,
             refresh: refreshController,
+            beginFloorAutomation,
+            enqueueJob: enqueueFloorJob,
+            scheduleFloorDrain,
             sameFloor: sameFloorGate,
             beat: beatFeature,
             activity: activityFeature,
@@ -2524,6 +2626,9 @@ function _abortAllBackground() {
     spaceFeature.abortAll('plugin-disabled');
     linesFeature.dashed.abort('plugin-disabled');
     refreshController.abort('plugin-disabled');
+    floorQueue.abort('plugin-disabled');
+    floorQueue.resetFailed();
+    syncFabFailed();
     pointState.scheduleAbortController = null;
     theaterFeature.onPluginDisabled();
     axisGenerationController.reset('plugin-disabled');
@@ -2667,26 +2772,34 @@ function hydratePaceFromStore() { paceBook.hydrate(); }
 hydratePaceFromStore();
 
 function paintPace() {
-    const rows = pluginEnabled() ? collectPaceRows(readPaceSnapshot()) : [];
+    const rows = pluginEnabled()
+        ? overlayQueueOnRows(collectPaceRows(readPaceSnapshot()), floorQueue.snapshot())
+        : [];
     const empty = pluginEnabled() ? '后台节奏都关着' : '插件关着';
+    const interactive = ['align', 'advance', 'outline', 'dashed', 'supplement', 'ledger-capture', 'ledger-judge'];
     const $fold = $in('#sp-pace-fold');
     if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
     const $host = $in('#sp-activity-pace-strip-host');
     if ($host.length) {
-        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align', 'advance', 'outline', 'dashed'] }));
+        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive }));
         activityFeature.syncPaceOpen?.();
     } else {
         const $activityPace = $in('#sp-activity-pace');
-        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive: ['align', 'advance', 'outline', 'dashed'] }));
+        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive }));
     }
     const $settings = $in('#sp-pace-settings');
     if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
     for (const row of rows) {
         const $el = $in(`[data-pace-remain="${row.id}"]`);
         if (!$el.length) continue;
-        $el.text(row.text).toggleClass('is-off', !!row.off).toggleClass('is-due', !row.off && (!!row.due || row.text === '下一楼' || row.text === '下一楼补'));
+        $el.text(row.text)
+            .toggleClass('is-off', !!row.off)
+            .toggleClass('is-due', !row.off && (!!row.due || row.text === '下一楼' || row.text === '下一楼补' || row.live === 'running' || row.live === 'queued' || row.live === 'failed'))
+            .toggleClass('is-running', row.live === 'running')
+            .toggleClass('is-queued', row.live === 'queued')
+            .toggleClass('is-failed', row.live === 'failed');
     }
-    if (!rows.length) $in('[data-pace-remain]').text('').removeClass('is-due is-off');
+    if (!rows.length) $in('[data-pace-remain]').text('').removeClass('is-due is-off is-running is-queued is-failed');
 }
 
 let _pacePaintQueued = false;
@@ -2772,7 +2885,7 @@ async function fillLatestStoryClock() {
     scriptCore.saveChatDebounced?.();
     eventSource.emit(event_types.MESSAGE_EDITED, latest.index);
     linesFeature.lifecycle.holdConfirmedFloor({ chatId: getContext().chatId, messageId: latest.index });
-    runAnchorAftermath();
+    runAnchorAftermath('story');
     showToast('已补上这楼时间戳');
     activityFeature.paint();
     return { status: 'updated' };
@@ -2798,21 +2911,26 @@ const anchorAftermath = createAnchorAftermath({
         setBody,
         visible: !outlineMode && !linesMode && !spaceMode && !theaterMode && !axisState.almanacMode && $(`#${MODAL_ID}`).is(':visible'),
     }),
-    notifyLinesDate: () => {
+    notifyLinesDate: ({ source } = {}) => {
+        if (source === 'time-travel') return;
         const floorId = (getContext().chat?.length ?? 0) - 1;
         const day = almTodayAnchor();
-        void advanceQueue.run({
-            trigger: 'date',
-            messageId: floorId,
-            chatId: getContext().chatId,
-            day: day ? `${+day.month}-${+day.day}` : null,
-        });
+        if (source === 'manual-axis') {
+            void advanceQueue.run({
+                trigger: 'date',
+                messageId: floorId,
+                chatId: getContext().chatId,
+                day: day ? `${+day.month}-${+day.day}` : null,
+            });
+            return;
+        }
+        enqueueStoryDateBeat();
     },
     almanacVisible: () => axisState.almanacMode,
     renderAlmanac: renderAlmanacPanel,
     paintPace: paintPaceSoon,
 });
-function runAnchorAftermath() { anchorAftermath.run(); }
+function runAnchorAftermath(source) { anchorAftermath.run(source); }
 async function fillPointHorizons(auto = false) {
     const user = await pointController.fillHorizon(auto, { targetScope: { view: 'user', charName: '' } });
     const charName = String(charViewName || '').trim();
@@ -3856,7 +3974,7 @@ async function getAllWorldNames(ctx) {
 // only outline+wi+memText, so the last few floors of the main chat were
 // invisible to the assistant — feels like it "ignores context".
 // Returns a formatted block or '' when the chat is empty.
-async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 2500) {
+async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 20000) {
     const chat = ctx?.chat;
     if (!Array.isArray(chat) || !chat.length) return '';
     const charName = ctx.name2 || '角色';
@@ -3869,7 +3987,7 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 250
         if (!m || m.is_user || m.is_system) continue;   // only visible AI narrative
         const raw = String(m.mes || '');
         if (!raw.trim()) continue;
-        const cleaned = memory.stripTags(raw, stripOpts).trim();
+        const cleaned = memory.extractStoryText(raw, stripOpts).trim();
         if (!cleaned) continue;
         const speaker = m.name || charName;
         const capped = cleaned.length > perMessageChars
@@ -3984,7 +4102,7 @@ const generationMessages = createGenerationMessagesHost({
     getCalDescInjectText,
     garnish: () => getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
     substituteParams,
-    stripTags: (text, opts) => memory.stripTags(text, opts),
+    stripTags: (text, opts) => memory.extractStoryText(text, opts),
     selectVisibleHistory: selectVisibleChatHistory,
     getContext,
     readOutline: target => outlineFeature.repository.readRaw(target),

@@ -4,7 +4,7 @@ import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorU
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { activityOverlayHtml, activityClockLabel, renderActivityList, renderPaceDetail } from './ui.js';
+import { activityOverlayHtml, activityClockLabel, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -179,7 +179,19 @@ test('activity cards keep align notes and mark a restyled floor', () => {
     assert.match(html, /这楼重 roll 了/);
     assert.match(activityOverlayHtml(), /手动补时间戳/);
     assert.match(activityOverlayHtml(), /sp-activity-clock/);
+    assert.match(activityOverlayHtml(), /后台与改动/);
+    assert.match(activityOverlayHtml(), /本楼/);
+    assert.match(activityOverlayHtml(), /最近/);
     assert.match(html, /拿到间里聊/);
+});
+
+test('queue status shows idle, running, wait and retryable failures', () => {
+    assert.match(renderQueueStatus(null), /这楼后台空闲/);
+    assert.match(renderQueueStatus({ running: { id: 'align', label: '对齐' }, queued: [{ id: 'advance', label: '推进' }] }), /正在对齐/);
+    assert.match(renderQueueStatus({ running: { id: 'align', label: '对齐' }, queued: [{ id: 'advance', label: '推进' }] }), /接着 推进/);
+    const failed = renderQueueStatus({ failed: [{ id: 'dashed', label: '冷知识' }] });
+    assert.match(failed, /data-queue-retry="dashed"/);
+    assert.match(failed, /冷知识失败/);
 });
 
 test('advance cards jump to the line item and do not auto-write diary notes', () => {

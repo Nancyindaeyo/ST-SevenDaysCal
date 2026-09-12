@@ -34,7 +34,7 @@ function makeHost(overrides = {}) {
         syncScheduleBlock: () => calls.push('schedule'),
         pointGenerating: () => false,
         refreshPointPanel: () => calls.push('refresh'),
-        notifyLinesDate: () => calls.push('lines'),
+        notifyLinesDate: spec => calls.push(spec?.source ? ['lines', spec.source] : 'lines'),
         almanacVisible: () => false,
         renderAlmanac: () => calls.push('almanac-panel'),
         paintPace: () => calls.push('pace'),
@@ -47,7 +47,7 @@ test('锚点善后不再自动滚点', () => {
     const { host, calls } = makeHost();
     host.run();
     assert.equal(calls.some(call => call[0] === 'write'), false);
-    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
+    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', ['lines', 'story'], 'pace']);
 });
 
 test('手动滚动把用户点前移一格、保留过去并记进改', () => {
@@ -84,7 +84,16 @@ test('善后刷界面；读 store 失败不再挡住后面的刷新', () => {
         readStore: () => { throw new Error('boom'); },
     });
     host.run();
-    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', 'lines', 'pace']);
+    assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', ['lines', 'story'], 'pace']);
+});
+
+test('时旅善后会带上 source，轴手动能单独区分', () => {
+    const { host, calls } = makeHost();
+    host.run('time-travel');
+    assert.deepEqual(calls.find(call => Array.isArray(call) && call[0] === 'lines'), ['lines', 'time-travel']);
+    const manual = makeHost();
+    manual.host.run('manual-axis');
+    assert.deepEqual(manual.calls.find(call => Array.isArray(call) && call[0] === 'lines'), ['lines', 'manual-axis']);
 });
 
 test('生成中不重画点面板；轴开着才刷轴', () => {
@@ -94,7 +103,7 @@ test('生成中不重画点面板；轴开着才刷轴', () => {
         initialStore: [['user', widget('2024-04-15', 'Day: 1\n')]],
     });
     host.run();
-    assert.deepEqual(calls, ['almanac', 'schedule', 'lines', 'almanac-panel', 'pace']);
+    assert.deepEqual(calls, ['almanac', 'schedule', ['lines', 'story'], 'almanac-panel', 'pace']);
 });
 
 test('后台跟随只在 StartDate 还不是目标日时要补同步', () => {

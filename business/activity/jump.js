@@ -1,6 +1,6 @@
 import { isAlignEntry } from './schema.js';
 
-export const PACE_EXPANDABLE = Object.freeze(['align', 'advance', 'outline', 'dashed']);
+export const PACE_EXPANDABLE = Object.freeze(['align', 'advance', 'outline', 'dashed', 'supplement', 'ledger-capture', 'ledger-judge']);
 
 export function isPaceExpandable(paceId) {
     return PACE_EXPANDABLE.includes(String(paceId || ''));
@@ -12,6 +12,9 @@ export function entryMatchesPace(entry, paceId) {
     if (paceId === 'advance') return entry.source === 'advance';
     if (paceId === 'outline') return entry.source === 'outline';
     if (paceId === 'dashed') return entry.source === 'dashed';
+    if (paceId === 'supplement') return entry.source === 'supplement';
+    if (paceId === 'ledger-capture') return entry.source === 'ledger-capture';
+    if (paceId === 'ledger-judge') return entry.source === 'ledger-judge';
     return false;
 }
 

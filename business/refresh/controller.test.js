@@ -38,6 +38,21 @@ Event: main|体检|去做体检|上午|医院||false
     };
 }
 
+test('align prefers extracted floor story over cleanText', async () => {
+    let prompt = '';
+    const host = env({
+        cleanText: () => '状态栏残渣',
+        readFloorStory: () => '正文里去体检了，后面还有很长一段。',
+        callApi: async (_ctx, text) => {
+            prompt = text;
+            return 'note: 已对齐';
+        },
+    });
+    await createRefreshController(host).align({ selected: ['point'] });
+    assert.match(prompt, /正文里去体检了/);
+    assert.doesNotMatch(prompt, /状态栏残渣/);
+});
+
 test('align skips when busy with regenerate', async () => {
     const controller = createRefreshController(env());
     const first = controller.align({ selected: ['point'] });
@@ -227,6 +242,19 @@ test('pending same-floor reroll does not consume an align interval even if lastF
     pending = false;
     assert.equal((await controller.onAiFloor(2)).reason, 'seen');
     assert.equal(controller.state().counter, 1);
+});
+
+test('due align enqueues instead of running when a floor queue is provided', async () => {
+    const queued = [];
+    const host = env({
+        enabled: () => true,
+        pluginEnabled: () => true,
+        interval: () => 1,
+        enqueueJob: job => { queued.push(job.id); return true; },
+    });
+    const result = await createRefreshController(host).onAiFloor(0);
+    assert.equal(result.status, 'queued');
+    assert.deepEqual(queued, ['align']);
 });
 
 test('reroll skips floors that were not the align floor', async () => {

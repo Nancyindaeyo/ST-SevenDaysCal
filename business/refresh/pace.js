@@ -10,6 +10,32 @@ export function formatRemain(used, interval) {
     return left <= 1 ? '下一楼' : `还差 ${left} 楼`;
 }
 
+export function overlayQueueOnRows(rows = [], queue = null) {
+    const runningId = queue?.running?.id || '';
+    const queuedIds = new Set((queue?.queued || []).map(job => job.id));
+    const failedIds = new Set((queue?.failed || []).map(job => job.id));
+    const next = (Array.isArray(rows) ? rows : []).map(row => {
+        if (runningId && row.id === runningId) return { ...row, text: '正在跑', due: true, live: 'running' };
+        if (queuedIds.has(row.id)) return { ...row, text: '排队', due: true, live: 'queued' };
+        if (failedIds.has(row.id)) return { ...row, text: '失败', due: true, live: 'failed' };
+        return row;
+    });
+    const known = new Set(next.map(row => row.id));
+    for (const job of [...(queue?.failed || []), ...(queue?.queued || []), queue?.running].filter(Boolean)) {
+        if (known.has(job.id)) continue;
+        const live = queue?.running?.id === job.id ? 'running' : (queuedIds.has(job.id) ? 'queued' : 'failed');
+        next.push({
+            id: job.id,
+            label: job.label,
+            text: live === 'running' ? '正在跑' : live === 'queued' ? '排队' : '失败',
+            due: true,
+            live,
+        });
+        known.add(job.id);
+    }
+    return next;
+}
+
 export function collectPaceRows(snap = {}) {
     const rows = [];
     const push = row => rows.push(row);
@@ -56,10 +82,11 @@ export function paceStripHtml(rows = [], { empty = '后台节奏都关着', id =
         return `<div id="${id}" class="sp-pace-strip is-empty" role="status">${empty}</div>`;
     }
     const chips = live.map(row => {
-        const due = row.due || row.text === '下一楼' || row.text === '下一楼补' || row.text === '失败' ? ' is-due' : '';
+        const live = row.live ? ` is-${row.live}` : '';
+        const due = row.due || row.text === '下一楼' || row.text === '下一楼补' || row.text === '失败' || row.live === 'running' || row.live === 'queued' || row.live === 'failed' ? ' is-due' : '';
         const tag = clickable.has(row.id) ? 'button' : 'span';
         const type = tag === 'button' ? ' type="button"' : '';
-        return `<${tag}${type} class="sp-pace-chip${due}" data-pace="${row.id}"><span class="sp-pace-chip-label">${row.label}</span><span class="sp-pace-chip-value">${row.text}</span></${tag}>`;
+        return `<${tag}${type} class="sp-pace-chip${due}${live}" data-pace="${row.id}"><span class="sp-pace-chip-label">${row.label}</span><span class="sp-pace-chip-value">${row.text}</span></${tag}>`;
     }).join('');
     return `<div id="${id}" class="sp-pace-strip" role="status">${chips}</div>`;
 }

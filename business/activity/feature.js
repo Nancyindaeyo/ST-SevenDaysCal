@@ -3,6 +3,7 @@ import {
     canUndoActivity,
     isAdvanceEntry,
     isAlignEntry,
+    isRetryableEntry,
     normalizeActivityEntry,
     remainingUndoItems,
     sourceLabel,
@@ -10,7 +11,7 @@ import {
 } from './schema.js';
 import { restoreLineItem, restorePointItem } from './revert.js';
 import { createActivityStore } from './store.js';
-import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderPaceDetail } from './ui.js';
+import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
 import { isPaceExpandable, canJumpActivityItem } from './jump.js';
 
 export function createActivityFeature(env = {}) {
@@ -68,6 +69,8 @@ export function createActivityFeature(env = {}) {
         $in?.('#sp-activity-clock')?.text?.(env.clockLabel?.() || '还没有故事日期');
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
         $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
+        const queueHtml = renderQueueStatus(env.queueSnapshot?.());
+        $in?.('#sp-activity-queue')?.html?.(queueHtml).prop?.('hidden', false);
         $in?.('#sp-activity-advance')?.prop?.('hidden', env.needsAdvanceCatchup?.() !== true);
         $in?.('.sp-activity-btn')?.toggleClass?.('sp-btn-active', open);
         syncPaceOpen();
@@ -362,7 +365,11 @@ export function createActivityFeature(env = {}) {
         click('.sp-activity-retry', function () {
             const entry = list().find(item => item.id === String(env.$(this).attr('data-id')));
             if (isAdvanceEntry(entry)) void readvance({ cause: 'retry', floorId: entry.floorId });
-            else void realign({ cause: 'retry' });
+            else if (entry?.source === 'align' || entry?.source === 'align-auto') void realign({ cause: 'retry' });
+            else if (isRetryableEntry(entry)) void env.retryQueueJob?.(entry.source);
+        });
+        click('.sp-activity-queue-fail', function () {
+            void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
         });
         click('.sp-activity-readvance', () => { void readvance({ cause: 'retry' }); });
         click('.sp-activity-catchup', () => { void catchUpAdvance(); });

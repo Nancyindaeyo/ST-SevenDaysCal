@@ -45,6 +45,7 @@ export function createChatFloorHandlers(h) {
         },
         char: async (messageId, type) => {
             if (!h.pluginEnabled?.()) return;
+            h.beginFloorAutomation?.(Number(messageId));
             h.coordinate?.onCharacterRendered?.({ messageId: Number(messageId), type });
             h.scheduleForChatBoundary?.(() => h.coordinate?.scanButtons?.(), 150);
             h.syncLatestAlmanacBlock?.();
@@ -135,7 +136,9 @@ export function createChatFloorHandlers(h) {
                 interval: h.getLedgerCaptureInterval?.(),
                 blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_CAPTURE),
             })) return;
-            h.runLedgerCaptureStep?.(false, { automationFloor: Number(messageId) });
+            const run = () => h.runLedgerCaptureStep?.(false, { automationFloor: Number(messageId) });
+            if (typeof h.enqueueJob === 'function') h.enqueueJob({ id: 'ledger-capture', run });
+            else run();
             h.rememberPace?.();
         },
         ledgerJudge: async (messageId) => {
@@ -147,8 +150,13 @@ export function createChatFloorHandlers(h) {
                 interval: h.getLedgerJudgeInterval?.(),
                 blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_JUDGE),
             })) return;
-            h.runLedgerJudgeStep?.(false, { automationFloor: Number(messageId) });
+            const run = () => h.runLedgerJudgeStep?.(false, { automationFloor: Number(messageId) });
+            if (typeof h.enqueueJob === 'function') h.enqueueJob({ id: 'ledger-judge', run });
+            else run();
             h.rememberPace?.();
+        },
+        floorQueueDrain: () => {
+            h.scheduleFloorDrain?.();
         },
         ledgerInjectRescore: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
@@ -196,6 +204,7 @@ export function bindChatFloorListeners({ eventSource, event_types: et, store, h 
         { key: 'ledgerJudge', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerJudge },
         { key: 'ledgerInjectRescore', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerInjectRescore },
         { key: 'sameFloorSettle', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.sameFloorSettle },
+        { key: 'floorQueueDrain', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.floorQueueDrain },
         { key: 'rename', type: et.CHAT_RENAMED, handler: handlers.rename },
     ]);
     return handlers;

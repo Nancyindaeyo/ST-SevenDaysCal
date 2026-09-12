@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectPaceRows, formatRemain, paceStripHtml, remainingFloors } from './pace.js';
+import { collectPaceRows, formatRemain, overlayQueueOnRows, paceStripHtml, remainingFloors } from './pace.js';
 
 test('remaining floors count down until the interval fires', () => {
     assert.equal(remainingFloors(0, 3), 3);
@@ -65,6 +65,26 @@ test('failed align chip is due and activity chips can be buttons', () => {
     assert.match(mixed, /<button type="button" class="sp-pace-chip is-due" data-pace="advance"/);
     assert.match(mixed, /<button type="button" class="sp-pace-chip" data-pace="dashed"/);
     assert.match(mixed, /<span class="sp-pace-chip is-due" data-pace="ledger-capture"/);
+});
+
+test('queue overlay paints running, queued and failed on top of remain text', () => {
+    const rows = collectPaceRows({
+        alignOn: true, alignUsed: 1, alignInterval: 3,
+        linesOn: true, linesMode: 'days',
+        outlineOn: true, outlineUsed: 0, outlineInterval: 3,
+    });
+    const overlaid = overlayQueueOnRows(rows, {
+        running: { id: 'align', label: '对齐' },
+        queued: [{ id: 'advance', label: '推进' }, { id: 'supplement', label: '补录' }],
+        failed: [{ id: 'dashed', label: '冷知识' }],
+    });
+    assert.equal(overlaid.find(row => row.id === 'align').text, '正在跑');
+    assert.equal(overlaid.find(row => row.id === 'align').live, 'running');
+    assert.equal(overlaid.find(row => row.id === 'advance').text, '排队');
+    assert.equal(overlaid.find(row => row.id === 'supplement').label, '补录');
+    assert.equal(overlaid.find(row => row.id === 'supplement').live, 'queued');
+    assert.equal(overlaid.find(row => row.id === 'dashed').text, '失败');
+    assert.equal(overlaid.find(row => row.id === 'dashed').live, 'failed');
 });
 
 test('pace state survives a reload-shaped hydrate', async () => {

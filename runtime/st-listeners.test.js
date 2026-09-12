@@ -87,6 +87,9 @@ function floorHost(over = {}) {
         pruneExternalSnapshots: () => calls.push('prune'),
         isExternalMode: () => false,
         outline: { onCharacterMessage: () => calls.push('outline.judge') },
+        beginFloorAutomation: mid => calls.push(['beginFloor', mid]),
+        enqueueJob: job => { calls.push(['enqueue', job.id]); return true; },
+        scheduleFloorDrain: () => calls.push('scheduleDrain'),
         ...over,
     };
     return h;
@@ -129,6 +132,7 @@ test('char with lines off still remembers pace after refresh', async () => {
     const h = floorHost();
     h.settings.linesEnabled = false;
     await createChatFloorHandlers(h).char(2, 'new');
+    assert.deepEqual(h.calls[0], ['beginFloor', 2]);
     assert.ok(h.calls.includes('refresh.onAiFloor'));
     assert.ok(h.calls.includes('remember'));
     assert.ok(h.calls.includes('lines.onCharacterRendered'));
@@ -180,7 +184,20 @@ test('ledger capture stays off unless enabled and latest', async () => {
     assert.equal(h.consumed.length, 0);
     await createChatFloorHandlers(h).ledgerCapture(2);
     assert.equal(h.consumed[0][0], 'ledgerCapture');
+    assert.deepEqual(h.calls.find(c => Array.isArray(c) && c[0] === 'enqueue'), ['enqueue', 'ledger-capture']);
+    assert.ok(!h.calls.includes('ledgerCapture'));
+});
+
+test('ledger without enqueueJob still runs immediately', async () => {
+    const h = floorHost({ enqueueJob: undefined });
+    await createChatFloorHandlers(h).ledgerCapture(2);
     assert.ok(h.calls.includes('ledgerCapture'));
+});
+
+test('last rendered handler schedules the floor drain', () => {
+    const h = floorHost();
+    createChatFloorHandlers(h).floorQueueDrain();
+    assert.ok(h.calls.includes('scheduleDrain'));
 });
 
 test('rename maps ST filenames onto chat ids', async () => {

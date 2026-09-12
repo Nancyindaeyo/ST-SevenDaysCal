@@ -21,6 +21,7 @@ export function createOutlineJudge({
     logDiagnostic,
     isEditing = () => false,
     sameFloor,
+    enqueueJob,
 } = {}) {
     let owner = null;
     let busy = false;
@@ -223,6 +224,10 @@ export function createOutlineJudge({
         messageCounter = tick.counter;
         if (tick.status !== 'due') return false;
         lastAutoRunFloor = Number(messageId);
+        if (typeof enqueueJob === 'function') {
+            enqueueJob({ id: 'outline', run: () => runAdvance(messageId) });
+            return true;
+        }
         void runAdvance(messageId);
         return true;
     };

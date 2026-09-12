@@ -86,10 +86,10 @@ export const DEFAULT_SETTINGS = {
     useQianQianJie : false, // retired memory source; forced off in getSettings()
     databaseWorldbookName: '', // leftover key from retired database memory source
     animaRecallCount: 20,
-    // Tag sanitizer (used by memory.js:stripTags AND anywhere else that reads
-    // AI floor content). Both are comma-separated Unicode tag names; optional surrounding <> are normalized away.
-    keepTags       : 'content',  // protect list — contents inside these tags survive stripping
-    extraTags      : '',         // extra strip list — forcibly delete these tags + their content
+    // 正文包裹（extractStoryText）：楼层里有这些标签时，只读标签内全文，外面的状态栏丢掉。
+    // 没有包裹则走 stripTags。逗号分隔；可选尖括号会被规范化掉。
+    keepTags       : 'content',
+    extraTags      : '',         // 连同内部一起删除（think / reasoning 等）
     customPrompt   : '',         // 创作链自定义写作规范；机械链只使用统一基础处理层
     spacePersona   : '',         // 间·人格覆盖：空=用内置默认语气（ADVISOR_TONE_GUIDE）；非空=换间的语气/行文/人格（顾问身份恒保留、不可覆盖）
     // 坐标（收藏楼层）

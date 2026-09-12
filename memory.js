@@ -18,10 +18,12 @@
 
 import { getContext } from '../../../extensions.js';
 import { eventSource, event_types } from '../../../../script.js';
-import { LITERAL_DOUBLE_BRACKET_RULE, normalizeTagRules, TAG_NAME_SOURCE } from './utils/tag-names.js';
+import { extractStoryText, normalizeTagList, stripTags } from './utils/story-text.js';
 import { diagnosticMessage, safeDiagnosticLog } from './api/diagnostics.js';
 import { getChatRoot, persistExternalRoots, registerExternalStorageContext } from './runtime/external-chat-storage.js';
 import { chatFingerprints, firstRemovedIndex, pruneMemoryAfterDelete } from './business/memory/invalidate.js';
+
+export { extractStoryText, normalizeTagList, stripTags };
 
 registerExternalStorageContext(getContext);
 
@@ -134,105 +136,14 @@ function persist() {
 }
 
 // ─── Content sanitizer ──────────────────────────────────────────────────────
-// Strip all tag-wrapped blocks (thinking, reasoning, outline_widget,
-// calendar_widget, details/summary, HTML markup, etc.) — the summarizer only
-// wants the narrative prose. Both paired blocks and stray tags are removed,
-// plus HTML/XML comments. Applied at getAiFloors() so every downstream
-// consumer (grouping, hashing, prompt building) sees the same clean text.
-//
-// Two user-configurable name lists override the default behavior:
-//   keepTags  → PROTECT list. Contents inside these tags survive stripping;
-//               the tags themselves are removed but their inner text is kept.
-//               Default 'content'. Fixes the "AI wraps narrative in <content>
-//               and default strip nukes it" edge case some cards hit.
-//   extraTags → EXTRA strip list. Explicitly names tags that MUST be removed
-//               with their content. Redundant with default behavior but lets
-//               users document intent (e.g. write 'think,reasoning').
-export function normalizeTagList(csv) {
-    return normalizeTagRules(csv);
-}
-const parseTagList = normalizeTagList;
-const escapeTagName = name => String(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const replaceLiteralDoubleBracketBlocks = (text, replacement) => String(text).replace(/\[\[([\s\S]*?)\]\]/g, replacement);
-
-export function stripTags(raw, opts = {}) {
-    if (!raw) return '';
-    const keep  = parseTagList(opts.keepTags  ?? 'content');
-    const extra = parseTagList(opts.extraTags ?? '');
-    let s = String(raw);
-    // 1. HTML/XML comments
-    s = s.replace(/<!--[\s\S]*?-->/g, '');
-    // 2. Extract keep-list blocks into placeholders BEFORE any stripping runs,
-    //    so the default "delete paired tags with content" pass won't nuke them.
-    //    Restored (as bare inner text) at the end.
-    const keepStash = [];
-    for (const name of keep) {
-        if (name === LITERAL_DOUBLE_BRACKET_RULE) {
-            s = replaceLiteralDoubleBracketBlocks(s, (_m, inner) => inner);
-            continue;
-        }
-        const safeName = escapeTagName(name);
-        const rx = new RegExp(`<${safeName}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${safeName}\\s*>`, 'giu');
-        s = s.replace(rx, (_m, inner) => {
-            keepStash.push(inner);
-            return ` KEEP${keepStash.length - 1} `;
-        });
-    }
-    // 3. Extra strip list — delete these tags + content entirely (redundant with
-    //    the default pass but explicit for user clarity + future-proofs if we
-    //    ever change the default).
-    for (const name of extra) {
-        if (name === LITERAL_DOUBLE_BRACKET_RULE) {
-            s = replaceLiteralDoubleBracketBlocks(s, '');
-            continue;
-        }
-        const safeName = escapeTagName(name);
-        const rx = new RegExp(`<${safeName}(?:\\s[^>]*)?>[\\s\\S]*?<\\/${safeName}\\s*>`, 'giu');
-        let prev;
-        do { prev = s; s = s.replace(rx, ''); } while (s !== prev);
-    }
-    // 4. Default: delete every remaining paired tag WITH its content.
-    //    Multi-pass to handle nested same-name tags.
-    let prev;
-    do {
-        prev = s;
-        s = s.replace(new RegExp(`<(${TAG_NAME_SOURCE})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1\\s*>`, 'gu'), '');
-    } while (s !== prev);
-    // 5. Any remaining self-closing / orphan tags
-    s = s.replace(new RegExp(`<\\/?${TAG_NAME_SOURCE}(?:\\s[^>]*)?\\/?>`, 'gu'), '');
-    // 6. Restore keep-list inner content (bare, no tags)
-    s = s.replace(/ KEEP(\d+) /g, (_m, idx) => keepStash[+idx] ?? '');
-    // XML keep 先于双中括号 keep 时，后者会藏在 stash 内；恢复后再解包一次，
-    // 使两种配置顺序行为一致，也避免把 XML 占位符带进最终文本。
-    if (keep.includes(LITERAL_DOUBLE_BRACKET_RULE)) {
-        s = replaceLiteralDoubleBracketBlocks(s, (_m, inner) => inner);
-    }
-    // 7. Second cleaning pass — restored kept content may itself contain
-    //    noisy tags (e.g. <content><thinking>...</thinking>正文</content>).
-    //    Run the default + orphan strip again. Keep list is NOT re-applied
-    //    here (would re-stash then loop); protection is by design outermost-only.
-    do {
-        prev = s;
-        s = s.replace(new RegExp(`<(${TAG_NAME_SOURCE})(?:\\s[^>]*)?>[\\s\\S]*?<\\/\\1\\s*>`, 'gu'), '');
-    } while (s !== prev);
-    s = s.replace(new RegExp(`<\\/?${TAG_NAME_SOURCE}(?:\\s[^>]*)?\\/?>`, 'gu'), '');
-    // XML keep 块恢复后，其中的显式双中括号噪音仍须清理；同一规则也在
-    // keep 列表时维持既有的“保留优先”合同。
-    if (extra.includes(LITERAL_DOUBLE_BRACKET_RULE) && !keep.includes(LITERAL_DOUBLE_BRACKET_RULE)) {
-        s = replaceLiteralDoubleBracketBlocks(s, '');
-    }
-    // 8. Collapse the whitespace left behind by removed blocks
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
+// 楼层正文清洗已搬到 utils/story-text.js：有正文包裹则只读标签内全文，
+// 没有则走 stripTags。getAiFloors 用 extractStoryText，下游摘要/生成看到同一份。
 
 // ─── Chat helpers ────────────────────────────────────────────────────────────
 function getChat() { return getContext().chat || []; }
 
 // Returns all AI floors (including hidden — is_system=true means hidden in ST).
-// Text is sanitized: thinking/reasoning/widget/HTML tags all stripped,
-// leaving only narrative prose for the summarizer. User can influence which
-// tags to keep/strip via keepTags/extraTags settings.
+// 有正文包裹则只取标签内全文；没有则 stripTags。
 function getAiFloors() {
     const chat = getChat();
     const settings = _getSettings();
@@ -242,7 +153,7 @@ function getAiFloors() {
         const m = chat[i];
         if (m && !m.is_user) {
             const raw = m.mes || '';
-            out.push({ mesid: String(i), text: stripTags(raw, stripOpts), rawLen: raw.length });
+            out.push({ mesid: String(i), text: extractStoryText(raw, stripOpts), rawLen: raw.length });
         }
     }
     return out;
@@ -311,7 +222,7 @@ function buildL0Prompt(prevSummary, groupFloors) {
     const skipShort = +_getSettings().memorySkipShort || 50;
     const body = groupFloors
         .filter(f => (f.text || '').trim().length >= skipShort || groupFloors.length === 1)
-        .map((f, i) => `【楼 ${f.mesid}】\n${String(f.text || '').slice(0, 2000)}`)
+        .map((f, i) => `【楼 ${f.mesid}】\n${String(f.text || '')}`)
         .join('\n\n');
     return [
         {
