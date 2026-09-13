@@ -62,12 +62,26 @@ export function createRefreshController(env = {}) {
     async function align(options = {}) {
         const token = beginGeneration('align');
         if (!token) return { status: 'skipped', reason: 'busy' };
+        let diagnostic;
+        const recordFailed = error => {
+            try {
+                const latest = latestAiFloor(env.context?.()?.chat);
+                env.onActivity?.({
+                    source: alignSourceOf(options),
+                    cause: options.cause || (options.auto ? 'auto' : 'manual'),
+                    floorId: latest?.index,
+                    swipeId: env.context?.()?.chat?.[latest?.index]?.swipe_id,
+                    signature: env.floorSignature?.(latest?.index),
+                    outcome: 'failed',
+                    error: diagnosticMessage(error),
+                    note: diagnosticMessage(error),
+                });
+            } catch { /* 记失败不能再把 busy 卡死 */ }
+        };
+        try {
         let selected = selectedOf(options).filter(name => name === 'point' || name === 'lines');
         if (!linesOn()) selected = selected.filter(name => name !== 'lines');
-        if (!selected.length) {
-            endGeneration(token);
-            return { status: 'skipped', reason: 'none' };
-        }
+        if (!selected.length) return { status: 'skipped', reason: 'none' };
         const ctx = env.context?.() || {};
         const ownerChatId = String(ctx.chatId ?? '');
         const latest = latestAiFloor(ctx.chat);
@@ -80,32 +94,21 @@ export function createRefreshController(env = {}) {
             swipeId: ctx.chat?.[latest?.index]?.swipe_id,
             signature: env.floorSignature?.(latest?.index),
         });
-        const recordFailed = error => {
-            env.onActivity?.({
-                ...activityBase(),
-                outcome: 'failed',
-                error: diagnosticMessage(error),
-                note: diagnosticMessage(error),
-            });
-        };
         if (options.signal) {
             if (options.signal.aborted) token.controller.abort(options.signal.reason ?? 'external-abort');
             else options.signal.addEventListener('abort', () => token.controller.abort(options.signal.reason ?? 'external-abort'), { once: true });
         }
-        const diagnostic = createGenerationDiagnosticScope('ledger-reconcile', { background: options.auto === true || options.cause === 'reroll' || options.cause === 'retry' });
+        diagnostic = createGenerationDiagnosticScope('ledger-reconcile', { background: options.auto === true || options.cause === 'reroll' || options.cause === 'retry' });
         if (!String(latestStory).trim()) {
             const error = new Error('没有可读的最新 AI 楼正文');
             recordFailed(error);
-            endGeneration(token);
             return { status: 'failed', error };
         }
         if (!cfg.url || !cfg.key) {
             const error = makeDiagnosticError('config-missing');
             recordFailed(error);
-            endGeneration(token);
             return { status: 'failed', error };
         }
-        try {
             const pointRaw = selected.includes('point') ? String(env.readPointRaw?.() || '') : '';
             const linesRaw = selected.includes('lines') ? String(env.readLinesRaw?.() || '') : '';
             if (!pointRaw && !linesRaw) return { status: 'skipped', reason: 'empty' };
@@ -161,7 +164,7 @@ export function createRefreshController(env = {}) {
             return { status: 'updated', summary, items, unchanged: !patched, skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])] };
         } catch (error) {
             if (error?.name === 'AbortError') return { status: 'cancelled' };
-            diagnostic.rejected?.(error, { phase: 'request' });
+            diagnostic?.rejected?.(error, { phase: 'request' });
             recordFailed(error);
             return { status: 'failed', error };
         } finally { endGeneration(token); }

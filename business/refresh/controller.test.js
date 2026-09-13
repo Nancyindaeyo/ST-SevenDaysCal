@@ -53,6 +53,17 @@ test('align prefers extracted floor story over cleanText', async () => {
     assert.doesNotMatch(prompt, /状态栏残渣/);
 });
 
+test('align clears busy if story reader throws before the request', async () => {
+    const host = env({
+        readFloorStory: () => { throw new Error('boom'); },
+    });
+    const controller = createRefreshController(host);
+    const first = await controller.align({ selected: ['point'] });
+    assert.equal(first.status, 'failed');
+    const second = await controller.align({ selected: ['point'] });
+    assert.notEqual(second.reason, 'busy');
+});
+
 test('align skips when busy with regenerate', async () => {
     const controller = createRefreshController(env());
     const first = controller.align({ selected: ['point'] });

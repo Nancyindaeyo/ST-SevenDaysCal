@@ -22,7 +22,11 @@ test('outline regen mode falls back to current', () => {
 test('align toast covers empty and failed', () => {
     assert.deepEqual(refreshAlignToast({ status: 'invalid' }), { message: '请先勾选要动的模块', error: true });
     assert.deepEqual(refreshAlignToast({ status: 'skipped', reason: 'empty' }), { message: '还没有点或线可以对齐', error: true });
+    assert.deepEqual(refreshAlignToast({ status: 'skipped', reason: 'busy' }), { message: '正在对齐或刷新，请稍后再点', error: true });
+    assert.deepEqual(refreshAlignToast({ status: 'cancelled' }), { message: '这次对齐已取消', error: true });
     assert.deepEqual(refreshAlignToast({ status: 'failed', errorMessage: '超时' }), { message: '对齐失败：超时', error: true });
+    assert.deepEqual(refreshAlignToast({ status: 'updated', unchanged: true }), { message: 'API 跑过了，点和线都不用改' });
+    assert.deepEqual(refreshAlignToast({ status: 'updated', summary: '点已按正文对齐' }), { message: '点已按正文对齐' });
     assert.equal(refreshAlignToast({ status: 'ok' }), null);
 });
 
