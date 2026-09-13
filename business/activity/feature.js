@@ -298,6 +298,27 @@ export function createActivityFeature(env = {}) {
         return result || { status: 'skipped' };
     };
 
+    const convertShiftToAlign = async id => {
+        const entry = list().find(item => item.id === String(id));
+        if (!entry || entry.source !== 'shift' || entry.undone) return { status: 'skipped' };
+        const restored = await revertIfCurrent(entry);
+        if (restored?.status === 'diverged' || restored?.status === 'failed') {
+            env.toast?.('之后又改过了，没法改成整体平移。可先撤回后再试。', true);
+            return restored;
+        }
+        const result = await env.alignPointDate?.();
+        paint();
+        return result || { status: 'skipped' };
+    };
+
+    const rerollShift = async id => {
+        const entry = list().find(item => item.id === String(id));
+        if (!entry || entry.source !== 'shift') return { status: 'skipped' };
+        const result = await env.rollPointDate?.();
+        paint();
+        return result || { status: 'skipped' };
+    };
+
     const catchUpAdvance = async () => {
         const result = await env.catchUpAdvance?.({ cause: 'manual' });
         if (result?.status === 'failed') {
@@ -372,6 +393,8 @@ export function createActivityFeature(env = {}) {
             void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
         });
         click('.sp-activity-readvance', () => { void readvance({ cause: 'retry' }); });
+        clickId('.sp-activity-shift-align', convertShiftToAlign);
+        clickId('.sp-activity-shift-again', rerollShift);
         click('.sp-activity-catchup', () => { void catchUpAdvance(); });
         click('.sp-activity-stamp-fill', () => { void env.fillLatestStamp?.(); });
         click('#sp-activity-pace-strip [data-pace]', event => {
@@ -407,6 +430,8 @@ export function createActivityFeature(env = {}) {
         realign,
         readvance,
         catchUpAdvance,
+        convertShiftToAlign,
+        rerollShift,
         quoteToSpace,
         jumpToItem,
         list,

@@ -39,17 +39,21 @@ export function createAnchorAftermath(env = {}) {
                 }
                 return true;
             };
-            shiftOne('user', '');
+            let changed = shiftOne('user', '');
             const charName = String(env.charViewName?.() || '').trim();
-            if (env.currentView?.() === 'char' && charName) shiftOne('char', charName);
-            return true;
+            if (env.currentView?.() === 'char' && charName) changed = shiftOne('char', charName) || changed;
+            return changed;
         } catch (error) {
             env.warn?.(error);
             return false;
         }
     }
 
-    function run(source = 'story') {
+    function run(source = 'story', info = {}) {
+        if (info.dayChanged === true && source !== 'time-travel') {
+            const shifted = shiftPointsToToday();
+            if (shifted) env.fillAfterShift?.();
+        }
         env.syncAlmanacBlock?.();
         env.syncScheduleBlock?.();
         // 星期锚是纯显示：用现有 raw 重画点面板，不写 store、不请求 API。生成中不抢画。

@@ -77,7 +77,7 @@ export function activityOverlayHtml() {
             <div id="sp-activity-pace-detail" class="sp-activity-pace-detail" hidden></div>
         </div>
         <div id="sp-activity-restyle" class="sp-activity-restyle" hidden>
-            <p>这楼重 roll 了。推进会按新时间戳自己处理。对齐楼会按新正文自动再对齐；没补上或失败时，点下面这颗，或卡片上的重试。</p>
+            <p>这楼重 roll 了。换日会按这楼新旧戳再推进；同日只改钟点不推。对齐楼会按新正文自动再对齐；没补上或失败时，点下面这颗，或卡片上的重试。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-realign">按新正文再对齐一次</button>
         </div>
         <div id="sp-activity-stamp" class="sp-activity-restyle" hidden>
@@ -152,7 +152,10 @@ function cardButtons(entry, entries) {
     const retry = isAlignEntry(entry) || isAdvanceEntry(entry) || (isRetryableEntry(entry) && entry.outcome === 'failed')
         ? button('sp-activity-retry', '重试') : '';
     const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
-    const actions = `${undo}${retry}${quote}`;
+    const shiftFix = entry.source === 'shift' && !entry.undone && entry.snapshot
+        ? `${button('sp-activity-shift-align', '改成整体平移')}${button('sp-activity-shift-again', '再滚一次')}`
+        : '';
+    const actions = `${undo}${shiftFix}${retry}${quote}`;
     return actions ? `<div class="sp-activity-card-actions">${actions}</div>` : '';
 }
 

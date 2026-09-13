@@ -12,10 +12,12 @@ import { createLinesRuntime } from "./runtime.js";
 import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from "./schema.js";
 import {
   chooseSwipeLayer,
-  dayCrossedSincePreviousFloor,
+  dayCrossedForAdvance,
   floorToFinalize,
   latestStampDay,
   markEditedFloor,
+  previousStampDay,
+  stampDayKey,
 } from "./strategy.js";
 import { createSwipeLinesStore } from "./swipe-store.js";
 import { publicCueChips, stripInternalLineLines } from "./vectors/codec.js";
@@ -602,15 +604,11 @@ export function createLinesFeature(env = {}) {
       lifecycle.consumePendingReroll();
       lifecycle.consumePendingSwipe(mid);
       lifecycle.consumeFloor(mid, env.chatId?.());
-      // 旧宿主没有统一重跑事务时仍保留原日期善后；新宿主会等所有模块按逆序撤回后统一重跑。
-      if (
-        !autoSuppressed &&
-        env.getMode?.() === "days" &&
-        env.deferSameFloorDateAftermath?.() !== true
-      ) {
+      if (!autoSuppressed && env.getMode?.() === "days") {
         lifecycle.holdConfirmedFloor({
           chatId: env.chatId?.(),
           messageId: mid,
+          stampDay: lifecycle.rerollStampDay,
         });
       }
       await appendInlineBlock(mid, false);
@@ -690,16 +688,24 @@ export function createLinesFeature(env = {}) {
       env.toast?.("这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。");
       await appendInlineBlock(mid, false);
       await finishDashed(env.didReconcile?.(mid) === true);
+      lifecycle.consumeRerollStampDay();
       return false;
     }
-    const crossed = dayCrossedSincePreviousFloor({
-      chat,
-      latestIndex: mid,
+    const previousSwipeDay = credential.stampDay || lifecycle.rerollStampDay;
+    const previousFloorDay = previousStampDay(chat, mid, env.parseClock);
+    const crossed = dayCrossedForAdvance({
       latestDay,
-      parseClock: env.parseClock,
+      previousFloorDay,
+      previousSwipeDay,
     });
     const existingAdvance = env.latestFloorAdvance?.(mid);
     if (!crossed) {
+      if (previousSwipeDay && previousSwipeDay === latestDay) {
+        await appendInlineBlock(mid, false);
+        await finishDashed(env.didReconcile?.(mid) === true);
+        lifecycle.consumeRerollStampDay();
+        return false;
+      }
       if (existingAdvance) {
         const restored = await env.replayFloorAdvance?.(mid);
         if (restored?.status === "diverged") {
@@ -711,6 +717,23 @@ export function createLinesFeature(env = {}) {
       }
       await appendInlineBlock(mid, false);
       await finishDashed(env.didReconcile?.(mid) === true);
+      lifecycle.consumeRerollStampDay();
+      return false;
+    }
+    const shouldAdvance = !previousFloorDay || latestDay !== previousFloorDay;
+    if (!shouldAdvance) {
+      if (existingAdvance) {
+        const restored = await env.replayFloorAdvance?.(mid);
+        if (restored?.status === "diverged") {
+          env.toast?.(
+            "之后又改过了，没法按新正文收回这楼的推进。可先在【改】里撤回，再手动推进。",
+            true,
+          );
+        }
+      }
+      await appendInlineBlock(mid, false);
+      await finishDashed(env.didReconcile?.(mid) === true);
+      lifecycle.consumeRerollStampDay();
       return false;
     }
     if (existingAdvance) {
@@ -722,6 +745,7 @@ export function createLinesFeature(env = {}) {
         );
         await appendInlineBlock(mid, false);
         await finishDashed(env.didReconcile?.(mid) === true);
+        lifecycle.consumeRerollStampDay();
         return false;
       }
     } else if (env.didReconcile?.(mid) && !fromQueue) {
@@ -737,11 +761,13 @@ export function createLinesFeature(env = {}) {
           },
         });
         await finishDashed(true);
+        lifecycle.consumeRerollStampDay();
         return true;
       }
       env.deferAdvance?.();
       await appendInlineBlock(mid, false);
       await finishDashed(true);
+      lifecycle.consumeRerollStampDay();
       return false;
     }
     lifecycle.lastAdvanceFloor = mid;
@@ -749,6 +775,7 @@ export function createLinesFeature(env = {}) {
     const result = await appendInlineBlock(mid, true);
     recordAdvanceAttempt(mid, before, result, "auto");
     await finishDashed(true);
+    lifecycle.consumeRerollStampDay();
     return true;
   };
   const forceAdvance = async ({ cause = "manual", floorId } = {}) => {
@@ -785,9 +812,16 @@ export function createLinesFeature(env = {}) {
   };
   const rerunDateFloorAdvance = async (messageId) => {
     const mid = Number(messageId);
-    if (!Number.isInteger(mid) || lifecycle.lastAdvanceFloor !== mid)
+    if (!Number.isInteger(mid)) return { status: "skipped", reason: "not-due" };
+    const latestDay = latestStampDay(env.chat?.(), mid, env.parseClock);
+    const stampCrossed = !!lifecycle.rerollStampDay && !!latestDay && lifecycle.rerollStampDay !== latestDay;
+    if (lifecycle.lastAdvanceFloor !== mid && !stampCrossed)
       return { status: "skipped", reason: "not-due" };
-    lifecycle.holdConfirmedFloor({ chatId: env.chatId?.(), messageId: mid });
+    lifecycle.holdConfirmedFloor({
+      chatId: env.chatId?.(),
+      messageId: mid,
+      stampDay: lifecycle.rerollStampDay,
+    });
     return onDateAftermath({ chatId: env.chatId?.(), messageId: mid });
   };
   const onSwiped = async ({ mesId, info } = {}) => {
@@ -827,10 +861,15 @@ export function createLinesFeature(env = {}) {
   };
   const onGenerationStarted = ({ genType, dryRun } = {}) => {
     if (!env.pluginEnabled?.() || dryRun) return;
+    const reroll = genType === "regenerate" || genType === "swipe";
+    const last = reroll ? env.lastAssistant?.() : null;
+    const stampDay = last?.text && typeof env.parseClock === "function"
+      ? stampDayKey(env.parseClock(last.text))
+      : null;
     lifecycle.markGenerationStarted({
-      reroll: genType === "regenerate",
-      excludedAssistant:
-        genType === "regenerate" ? env.lastAssistant?.() : null,
+      reroll,
+      excludedAssistant: genType === "regenerate" ? last : null,
+      stampDay,
     });
   };
   const onToken = () => {
@@ -970,6 +1009,13 @@ export function createLinesFeature(env = {}) {
     onDateAftermath,
     rerunFloorAdvance,
     rerunDateFloorAdvance,
+    rerollStampCrossed: messageId => {
+      const mid = Number(messageId);
+      const day = lifecycle.rerollStampDay;
+      if (!day || !Number.isInteger(mid)) return false;
+      const latest = latestStampDay(env.chat?.(), mid, env.parseClock);
+      return !!latest && day !== latest;
+    },
     onSwiped,
     onEdited,
     onSent,

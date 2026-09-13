@@ -41,6 +41,12 @@ export function dayCrossedSincePreviousFloor({ chat = [], latestIndex, latestDay
     return !!(latest && previous && latest !== previous);
 }
 
+export function dayCrossedForAdvance({ latestDay, previousFloorDay, previousSwipeDay } = {}) {
+    if (!latestDay) return false;
+    if (previousSwipeDay != null && previousSwipeDay !== '') return previousSwipeDay !== latestDay;
+    return !!(previousFloorDay && previousFloorDay !== latestDay);
+}
+
 // 日期已经换了，但这轮自动推进没落下：失败、对齐欠着、或跨日凭证用掉后没写成。
 export function advanceCatchupNeeded({
     mode,

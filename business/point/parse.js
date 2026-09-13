@@ -5,6 +5,7 @@ import { calendarDate, formatCalendarDate, isGregorian, parseCalendarDate, valid
 import { ensureBookId, sameBookItem } from '../identity.js';
 import { stripRecordWrappers } from '../utils/record-wrappers.js';
 import { normalizePointAdultMode, parsePointAdultProof, pointTicketPlan, verifyPointAdultContent, verifyPointAdultProof } from './adult.js';
+import { formatPointDayDate, parsePointDayDate } from './event-when.js';
 
 const cleanPointLine = value => {
     let text = String(value || '').trim();
@@ -227,9 +228,16 @@ export function parseCalendar(raw, calendar = null) {
         if (dayHeader) {
             flushEvent();
             flushBucket();
-            // 日头可带天气：Day: N|天气|温度（旧数据无管道段 → 天气/温度为空，退化为旧行为）
+            // 日头可带日期与天气：Day: N|5月4日|晴|3℃；旧数据仍是 Day: N|天气|温度。
             const dayParts = t.split(/[|｜]/).slice(1).map(s => s.trim());
-            cur = dayHeader.dayNumber == null ? null : { dayNumber: dayHeader.dayNumber, events: [], weather: dayParts[0] || '', temp: dayParts[1] || '' };
+            const headerDate = parsePointDayDate(dayParts[0] || '');
+            cur = dayHeader.dayNumber == null ? null : {
+                dayNumber: dayHeader.dayNumber,
+                events: [],
+                weather: headerDate ? (dayParts[1] || '') : (dayParts[0] || ''),
+                temp: headerDate ? (dayParts[2] || '') : (dayParts[1] || ''),
+                ...(headerDate ? { date: headerDate } : {}),
+            };
             bucket = 'day'; continue;
         }
         const pastHeader = pastDayHeading(t, calendar);
@@ -415,11 +423,12 @@ export function serializeCalendar(days, future, startDate, calendar = null, star
         for (const ev of past.events || []) out.push(pointEventToRawLine(ev));
     }
     (days || []).forEach((d, i) => {
-        // 天气随日头走回 raw：Day: N|天气|温度。缺则退回纯 Day: N（旧行为），mergePinnedPoints 才不会丢天气。
         const w  = String(d.weather || '').trim();
         const tp = String(d.temp || '').trim();
         const dayNumber = Number.isInteger(d.dayNumber) ? d.dayNumber : i + 1;
-        out.push((w || tp) ? `Day: ${dayNumber}|${w}|${tp}` : `Day: ${dayNumber}`);
+        const dateText = formatPointDayDate(d.date);
+        if (dateText) out.push((w || tp) ? `Day: ${dayNumber}|${dateText}|${w}|${tp}` : `Day: ${dayNumber}|${dateText}`);
+        else out.push((w || tp) ? `Day: ${dayNumber}|${w}|${tp}` : `Day: ${dayNumber}`);
         for (const ev of (d.events || [])) out.push(pointEventToRawLine(ev));
     });
     if (future && Array.isArray(future.events) && future.events.length) {

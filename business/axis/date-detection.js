@@ -10,6 +10,13 @@ export function buildDateJudgePrompt(calendarText = '') { return calendarText ? 
 只回答「当前剧情日期」，格式为「第M月D日」（M=第几个月的序号，D=该月第几日，例如第3月15日），或直接用上面列出的月名。正文已写明年则带上年份；没有年不要猜。
 若最近对话中并无明确日期线索、无法确定具体月日，就只回答「未知」。
 不要解释，不要输出任何多余文字。` : DATE_JUDGE_PROMPT; }
+function calendarDayChanged(prev, md) {
+    if (!prev) return true;
+    return Number(prev.month) !== Number(md.month)
+        || Number(prev.day) !== Number(md.day)
+        || (prev.year != null && md.year != null && Number(prev.year) !== Number(md.year));
+}
+
 export function storyWeekdayDisplaySignature(clock) {
     const meta = clock?.endMeta;
     return meta?.complete && Number.isInteger(meta.month) && Number.isInteger(meta.day) && Number.isInteger(meta.weekdayIndex)
@@ -29,6 +36,7 @@ export function createDateDetectionController(options = {}) {
         const calibration = options.getCalibration?.(charKey);
         if (mode === 'sdc' && calibration && ownerIdentity && Number.isInteger(calibration.floor) && calibration.floor === ownerIdentity.floor) return { status: 'calibration-held', date: md };
         const prev = options.getAnchor?.(charKey);
+        const dayChanged = calendarDayChanged(prev, md);
         if (prev && prev.month === md.month && prev.day === md.day && prev.year === md.year && prev.eraLabel === md.eraLabel && prev.time === md.time) return { status: 'unchanged', date: md };
         if (ownerIdentity && !ownerCurrent(ownerIdentity)) return { status: 'cancelled' };
         const stored = options.setAnchor?.(charKey, md.month, md.day, 'detected', { ...(mode === 'api' && calibration ? { calibration } : {}), year: md.year, eraLabel: md.eraLabel, time: md.time });
@@ -40,7 +48,7 @@ export function createDateDetectionController(options = {}) {
         }
         if (!suppressAftermath) {
             if (ownerIdentity && !ownerCurrent(ownerIdentity)) return { status: 'cancelled' };
-            options.aftermath?.();
+            options.aftermath?.({ dayChanged });
         }
         return { status: 'updated', date: md };
     };
@@ -98,6 +106,7 @@ export function createDateDetectionController(options = {}) {
             }
             if (!current(ctrl, ownerIdentity, externalSignal)) return { status: 'cancelled' };
             diagnostic.accepted({ phase: 'validation', reasonCode: 'date-valid' });
+            const prevAnchor = options.getAnchor?.(charKey);
             let result;
             try { result = await applyConfirmed(charKey, md, ownerIdentity); }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'date-save-failed' }); }
@@ -110,7 +119,7 @@ export function createDateDetectionController(options = {}) {
             if (result.status === 'committed-stale') return { status: 'cancelled', reason: 'committed-but-stale', committed: true, date: md };
             if (result.status === 'updated') {
                 if (options.settings?.().notifyMode === 'full') await runGenerationUiEffect(() => options.toast?.(`剧情日期已自动更新为 ${options.monthName?.(md.month)}${md.day}日 · 请注意查看`), { diagnostic, reasonCode: 'date-toast-failed' });
-                await runGenerationUiEffect(() => options.aftermath?.(), { diagnostic, reasonCode: 'date-ui-refresh-failed' });
+                await runGenerationUiEffect(() => options.aftermath?.({ dayChanged: calendarDayChanged(prevAnchor, md) }), { diagnostic, reasonCode: 'date-ui-refresh-failed' });
             }
             return ctrl.signal.aborted ? { status: 'cancelled' } : { ...result, date: md };
         } catch (error) {

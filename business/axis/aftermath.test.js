@@ -43,11 +43,16 @@ function makeHost(overrides = {}) {
     return { host, calls, store };
 }
 
-test('锚点善后不再自动滚点', () => {
+test('锚点善后默认不滚点；日历日变了才自动滚', () => {
     const { host, calls } = makeHost();
     host.run();
     assert.equal(calls.some(call => call[0] === 'write'), false);
     assert.deepEqual(calls, ['almanac', 'schedule', 'refresh', ['lines', 'story'], 'pace']);
+
+    const rolled = makeHost();
+    rolled.host.run('story', { dayChanged: true });
+    assert.equal(rolled.calls.some(call => call[0] === 'write'), true);
+    assert.equal(rolled.calls.some(call => call[0] === 'record'), true);
 });
 
 test('手动滚动把用户点前移一格、保留过去并记进改', () => {

@@ -10,7 +10,7 @@ import { createLinesInjectionController } from './injection.js';
 import { createSwipeLinesStore } from './swipe-store.js';
 import { createLinesActions } from './actions.js';
 import { mergePinned, editLineDescription, editLineFields } from './mutations.js';
-import { activeLines, advanceCatchupNeeded, buildLinesInjection, dayCrossedSincePreviousFloor, latestStampDay, previousStampDay, stampDayKey } from './strategy.js';
+import { activeLines, advanceCatchupNeeded, buildLinesInjection, dayCrossedForAdvance, dayCrossedSincePreviousFloor, latestStampDay, previousStampDay, stampDayKey } from './strategy.js';
 import { adultInjectionGuidance, adultModeForCharacter, drawAdultSelections, allocateAdultPools } from './adult.js';
 import { drawTickets } from './vectors/draw.js';
 import { serializeVectorCue } from './vectors/codec.js';
@@ -944,6 +944,11 @@ function automaticLinesFeature(status, { mode = 'turns', didReconcile = false, c
         },
         dayAnchor: () => '1-1',
         dayAdvance: ({ dayAnchor, previousDay }) => ({ shouldAdvance: dayAnchor !== previousDay }),
+        lastAssistant: () => {
+            const last = messages.at(-1);
+            if (!last || last.is_user || last.is_system) return null;
+            return { mesId: messages.length - 1, text: last.mes };
+        },
     });
     return {
         feature, toasts, activities, calls: () => calls, deferred: () => deferred,
@@ -1095,6 +1100,9 @@ test('stamp helpers compare previous and latest floor days', () => {
     assert.equal(dayCrossedSincePreviousFloor({ chat, latestIndex: 3, parseClock: stampClock }), true);
     assert.equal(dayCrossedSincePreviousFloor({ chat: stampChat(['1-1', '1-1']), latestIndex: 1, parseClock: stampClock }), false);
     assert.equal(dayCrossedSincePreviousFloor({ chat: stampChat(['1-1', 'none']), latestIndex: 1, parseClock: stampClock }), false);
+    assert.equal(dayCrossedForAdvance({ latestDay: '5-4', previousFloorDay: '5-3' }), true);
+    assert.equal(dayCrossedForAdvance({ latestDay: '5-4', previousFloorDay: '5-3', previousSwipeDay: '5-4' }), false);
+    assert.equal(dayCrossedForAdvance({ latestDay: '5-4', previousFloorDay: null, previousSwipeDay: '5-3' }), true);
 });
 
 test('catch-up is due after a failed or deferred date advance', () => {
@@ -1140,12 +1148,25 @@ test('regenerate still advances lines when the story date moves forward', async 
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(harness.calls(), 0, '同一天不推进');
-    harness.setLatestMes(stampMes('1-2'));
     harness.feature.onGenerationStarted({ genType: 'regenerate' });
+    harness.setLatestMes(stampMes('1-2'));
     assert.equal(harness.feature.onMessageReceived({ messageId: 1, type: 'normal' }), false);
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
-    assert.equal(harness.calls(), 1, '重 roll 成第二天仍要推进');
+    assert.equal(harness.calls(), 1, '这楼旧戳换日仍要推进');
+});
+
+test('first-floor reroll still advances when this floor stamp changes day', async () => {
+    const harness = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1']) });
+    harness.feature.onMessageReceived({ messageId: 0, type: 'normal' });
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0 });
+    assert.equal(harness.calls(), 0, '一楼首落没有上一座戳，不推进');
+    harness.feature.onGenerationStarted({ genType: 'regenerate' });
+    harness.setLatestMes(stampMes('1-2'));
+    await harness.feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 0 });
+    assert.equal(harness.calls(), 1, '一楼重 roll 换日也要推进');
 });
 
 test('same-day regenerate does not advance lines again', async () => {
@@ -1159,24 +1180,22 @@ test('same-day regenerate does not advance lines again', async () => {
     assert.equal(harness.calls(), 0);
 });
 
-test('crossing-day regenerate restores the last advance snapshot then advances once more', async () => {
+test('same-day reroll of a crossed floor keeps the existing advance', async () => {
     const harness = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
     harness.feature.onMessageReceived({ messageId: 1, type: 'normal' });
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(harness.calls(), 1);
     assert.equal(harness.lines(), 'evolved-1');
-    assert.equal(harness.activities[0].snapshot.lines, 'lines-raw');
     harness.feature.onGenerationStarted({ genType: 'regenerate' });
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
-    assert.equal(harness.calls(), 2, '重 roll 仍跨日时只重放一次推进，不叠两次演化');
-    assert.equal(harness.lines(), 'evolved-2');
-    assert.equal(harness.activities[0].undone, true);
-    assert.equal(harness.activities[1].snapshot.lines, 'lines-raw');
+    assert.equal(harness.calls(), 1, '这楼月日没变就不再推一次');
+    assert.equal(harness.lines(), 'evolved-1');
+    assert.equal(harness.activities[0].undone, undefined);
 });
 
-test('crossing-day regenerate does not replay after later line edits', async () => {
+test('same-day reroll after later line edits keeps the user edits', async () => {
     const harness = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
     harness.feature.onMessageReceived({ messageId: 1, type: 'normal' });
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
@@ -1187,7 +1206,6 @@ test('crossing-day regenerate does not replay after later line edits', async () 
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(harness.calls(), 1);
     assert.equal(harness.lines(), 'user-edited');
-    assert.match(harness.toasts.at(-1) || '', /没法按新正文重放推进/);
 });
 
 test('missing latest stamp or axis-only date change does not advance', async () => {
@@ -1227,8 +1245,8 @@ test('reroll back to the previous floor day restores the advance snapshot', asyn
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(harness.lines(), 'evolved-1');
-    harness.setLatestMes(stampMes('1-1'));
     harness.feature.onGenerationStarted({ genType: 'regenerate' });
+    harness.setLatestMes(stampMes('1-1'));
     await harness.feature.onCharacterRendered({ messageId: 1, type: 'normal' });
     await harness.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(harness.calls(), 1, '收回跨日推进时不再生成');

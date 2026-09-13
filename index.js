@@ -487,7 +487,7 @@ const axisDateActions = createAxisDateActions({
     chatId: () => latestStoryOwnerIdentity().chatId,
     swipe: () => latestStoryOwnerIdentity().swipe,
     confirm: spConfirm,
-    aftermath: () => runAnchorAftermath('manual-axis'),
+    aftermath: () => runAnchorAftermath('manual-axis', { dayChanged: true }),
     monthName: (cal, month) => calMonthName(cal, month),
     toast: showToast,
 });
@@ -1069,7 +1069,7 @@ const dateDetectionController = createDateDetectionController({
     monthName: month => calMonthName(loadCalDesc(), month),
     toast: showToast,
     logDiagnostic: diagnostic => console.warn('[SP axis failure]', diagnostic),
-    aftermath: () => runAnchorAftermath('story'),
+    aftermath: info => runAnchorAftermath('story', info),
     captureParticipantIdentity,
     sameParticipantIdentity,
 });
@@ -1260,7 +1260,7 @@ const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" f
 const MODULE_INTROS = {
     schedule:
         _iLede('「点」从故事里的“今天”开始，为我／TA 安排接下来 3 天的事项，并把更远的事另列在“未来”；它不是人物此刻状态卡。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；是否出现、格式完整与时间合理取决于模型是否遵循提示词和主楼剧情质量，缺失或不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('时间戳换日后会自动把对应日期标成“今天”，不会暗改事项。需要改窗口时可选「整体平移」；要保留原日期则用「滚动至今日」，过期事项会进入“过去”。想重做内容用顶上的「刷新账本」；后台对齐、推进的结果记在侧栏「改」。') +
+        _iSub('时间戳换日后会自动滚动点窗口，把下一天当成今天，过期事项进入“过去”；同日只改钟点不滚。【改】里可撤回，也能改成整体平移或再滚一次。想重做内容用顶上的「刷新账本」。') +
         _iKey('fa-rotate-right', '生成／刷新', '按最新剧情重做未锁事项；新结果会覆盖旧的未锁数据') +
         _iKey('fa-thumbtack',    '固定 TA',    '只把当前 TA 留在 TA▾ 抽屉，方便下次查看；不是锁定事项') +
         _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条点的操作都收在这里') +
@@ -1538,6 +1538,8 @@ const activityFeature = createActivityFeature({
         cause: opts?.cause || 'manual',
         floorId: opts?.floorId,
     }),
+    alignPointDate: () => pointActions.alignStartDate(),
+    rollPointDate: () => pointActions.rollToToday(),
     sendToSpace: async item => {
         if (!item || typeof item !== 'object' || !String(item.quote || '').trim()) return { status: 'failed' };
         spaceFeature.guide?.leave?.();
@@ -2472,7 +2474,7 @@ jQuery(async () => {
             getSettings().ledgerReconcileReroll !== false && refreshController.didReconcile(mid)
                 ? { source: 'align', label: '自动对齐', restore: () => activityFeature.revertLatestAlign(mid), run: () => refreshController.onRerollAlign(mid) }
                 : null,
-            linesFeature.lifecycle.lastAdvanceFloor === mid
+            linesFeature.lifecycle.lastAdvanceFloor === mid || linesFeature.rerollStampCrossed?.(mid)
                 ? {
                     source: 'advance',
                     label: '线推进',
@@ -2901,6 +2903,7 @@ const anchorAftermath = createAnchorAftermath({
     charViewName: () => charViewName,
     recordActivity: payload => activityFeature.record(payload),
     warn: error => console.warn('[SP shift] 换日滚点失败', error),
+    fillAfterShift: () => fillPointHorizons(true),
     syncAlmanacBlock: syncLatestAlmanacBlock,
     syncScheduleBlock: syncLatestScheduleBlock,
     pointGenerating: () => pointState.isGenerating,
@@ -2928,7 +2931,7 @@ const anchorAftermath = createAnchorAftermath({
     renderAlmanac: renderAlmanacPanel,
     paintPace: paintPaceSoon,
 });
-function runAnchorAftermath(source) { anchorAftermath.run(source); }
+function runAnchorAftermath(source, info) { anchorAftermath.run(source, info); }
 async function fillPointHorizons(auto = false) {
     const user = await pointController.fillHorizon(auto, { targetScope: { view: 'user', charName: '' } });
     const charName = String(charViewName || '').trim();

@@ -72,10 +72,12 @@ export function shiftPointCalendar(raw, target, calendar = null) {
     for (const day of parsed.allDays || parsed.days || []) {
         const nextNumber = Number(day.dayNumber) - delta;
         if (nextNumber >= 1) {
+            const nextDate = addCalendarDays(calendarDate(fromMd.year, fromMd.month, fromMd.day), Number(day.dayNumber) - 1, calendar);
             kept.push({
                 ...day,
                 dayNumber: nextNumber,
                 events: (day.events || []).map(cloneEvent),
+                ...(day.date && nextDate ? { date: { year: nextDate.year ?? day.date.year ?? '', month: nextDate.month, day: nextDate.day } } : {}),
             });
             continue;
         }

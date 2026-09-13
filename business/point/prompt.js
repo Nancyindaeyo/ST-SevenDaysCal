@@ -30,7 +30,7 @@ ${adultBlock}
 理想输出顺序为 Day 1 → Day 2 → Day 3 → Future → </calendar_widget>。Day 1、Day 2、Day 3 都必须出现且各自至少有一条完整 Event；日头后面不能空着就写下一天。目标总展示数量为 14 条：Day 1、Day 2、Day 3 各 3 条，Future 5 条；已锁定事件也占对应栏目的名额。不得把同一事件拆碎、换标题复述或凭空凑数；可从 ${subject} 自身事务、第三方行动、阵营或生活层面扩展真正独立的事项。
 
 【天气说明】
-每个 Day 的日头请附带当天天气与温度，格式 Day: N|天气|温度（如 Day: 1|晴|3℃）。
+每个 Day 的日头请附带当天日期、天气与温度，格式 Day: N|月日或年月日|天气|温度（如 Day: 1|5月4日|晴|3℃ 或 Day: 1|2027年5月4日|晴|3℃）。正文已写明年则带年，没有年不要猜。
 天气是氛围点缀，请结合剧情季节/地域/时间合理"推测"，无需真实准确——晴/多云/阴/小雨/雷阵雨/小雪/大雪/雾 等皆可，温度给摄氏度区间或单值（如 -2℃ / 12~18℃）。
 若剧情完全无从判断季节地域，可给一个自洽的温和天气。Future 块不需要天气。
 
@@ -41,7 +41,7 @@ ${adultBlock}
 - title 是单一、可识别的事件身份；同一主体、触发、核心目标和连续时间窗的上下游必须合并。
 - description：只写一个连续时间节点内的具体推进，以第三人称客观记述 ${subject} 这天经历的事，生活化口吻，直呼其名，不用第一人称，30字以上
 - 线头动态：与此事件同一时段同步发生的其他角色动作/回应，可以是任意第三方，30字以上；若无关联角色可留空，不要写下一轮清单
-- time：Day 1-3 写当天钟点或时段（如 13:00-13:30 / 上午）。Future 必须带具体月日（如 5月4日 上午 / 5月6日 14:00），只有剧情完全给不出月日时才写「未定」，不要用「以后」「之后」代替日期。
+- time：Day 1-3 只写当天钟点或时段（如 13:00-13:30 / 上午），不要把年月日写进 Event。Future 必须带具体月日（如 5月4日 上午 / 5月6日 14:00），只有剧情完全给不出月日时才写「未定」，不要用「以后」「之后」代替日期。
 - location：事件发生的具体地点，无法确定时留空
 - 成人票不得跨越接触前、互动进行中、事后三个阶段中的多个区间；成人点仍必须遵守明确成年、自愿和当前剧情证据。
 
@@ -51,15 +51,15 @@ ${pinnedBlock}
 【理想输出结构】
 内部完成去重与排序，最终只输出以下 widget。
 ${adultContext?.mode && adultContext.mode !== 'off' ? '模板中的 Ticket／AdultProof 两行仅供新 Event 使用：N 按新 Event 顺序从 1 连续，锁定 Event 省略这两行；具体票型与 proof 只服从上方本轮票据表。\n' : ''}<calendar_widget>
-Day: 1|天气|温度
+Day: 1|月日或年月日|天气|温度
 ${eventTemplate(1)}
 ${eventTemplate(2)}
 ${eventTemplate(3)}
-Day: 2|天气|温度
+Day: 2|月日或年月日|天气|温度
 ${eventTemplate(4)}
 ${eventTemplate(5)}
 ${eventTemplate(6)}
-Day: 3|天气|温度
+Day: 3|月日或年月日|天气|温度
 ${eventTemplate(7)}
 ${eventTemplate(8)}
 ${eventTemplate(9)}
@@ -79,7 +79,7 @@ export function buildHorizonFillPrompt(userName, charName, perspective = 'user',
     const subject = perspective === 'char' ? charName : userName;
     const companion = perspective === 'char' ? userName : charName;
     const missing = Math.max(1, Math.min(3, Number(gap) || 1));
-    const dayBlocks = Array.from({ length: missing }, (_, index) => `Day: ${index + 1}|天气|温度
+    const dayBlocks = Array.from({ length: missing }, (_, index) => `Day: ${index + 1}|月日或年月日|天气|温度
 Event: type|title|description|time|location|线头动态
 Event: type|title|description|time|location|线头动态
 Event: type|title|description|time|location|线头动态`).join('\n');
@@ -90,7 +90,7 @@ Event: type|title|description|time|location|线头动态`).join('\n');
 【已有日程，禁止改写、删除、重排、复述】
 ${existingSummary || '（空）'}
 
-只生成接在已有最后一天之后的新日子。Day 1 是已有窗口的下一天，依次向后。不要输出已有的天，不要输出 Future，不要改 StartDate。
+只生成接在已有最后一天之后的新日子。Day 1 是已有窗口的下一天，依次向后。日头写月日或年月日（正文有年才带年），Event 的 time 只写钟点。不要输出已有的天，不要输出 Future，不要改 StartDate。
 以 ${subject} 自身目标为核心，可按剧情证据涉及 ${companion} 或第三方。不得把已有事项换标题再写一遍。
 
 事件分三类：main（明线）/ hidden（暗线）/ bond（红线）。

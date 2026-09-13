@@ -149,6 +149,8 @@ test('point prompt fixes 14 display slots and adult mode emits continuous Ticket
         assert.match(prompt, /location 或线头动态为空时，仍须保留空字段位置/);
         assert.match(prompt, /锁定事件不附 Ticket 或 AdultProof/);
         assert.match(prompt, /Future 必须带具体月日/);
+        assert.match(prompt, /Day: N\|月日或年月日\|天气\|温度/);
+        assert.match(prompt, /不要把年月日写进 Event/);
         assert.doesNotMatch(prompt, /StartDate|日程思考|重要 NPC|非主角人物/);
     }
     assert.match(mixed, /K = 本轮新建事件数（不含锁定事件）/);
