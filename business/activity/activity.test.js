@@ -14,6 +14,8 @@ test('normalize activity entry keeps undo snapshot', () => {
         after: { point: 'after' },
     });
     assert.equal(entry.source, 'guide');
+    assert.equal(entry.floorId, null);
+    assert.equal(normalizeActivityEntry({ source: 'dashed', floorId: 0 }).floorId, 0);
     assert.equal(entry.items[0].title, '体检');
     assert.equal(entry.snapshot.point, 'before');
     assert.equal(sourceLabel('align-auto'), '自动对齐');
@@ -449,6 +451,33 @@ test('readvance restores the last advance then calls force advance', async () =>
     assert.equal(lines, 'before');
     assert.deepEqual(calls, ['retry']);
     assert.equal(feature.list()[0].undone, true);
+});
+
+test('markLatestSourceFloor upgrades one dashed card instead of cloning it', () => {
+    const memory = new Map();
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: {
+            getItem: key => memory.get(key) || '[]',
+            setItem: (key, value) => memory.set(key, value),
+        },
+        keyForChat: () => 'k',
+        query: () => ({ length: 0 }),
+    });
+    const first = feature.record({
+        source: 'dashed',
+        items: [{ module: 'dashed', title: '基地体育馆', action: 'add', ref: 'd1' }],
+    });
+    feature.markLatestSourceFloor('dashed', 12, {
+        snapshot: { dashed: [] },
+        after: { dashed: [{ id: 'd1', text: '基地体育馆用了防腐铁皮顶。' }] },
+        since: first.ts,
+    });
+    assert.equal(feature.list().length, 1);
+    assert.equal(feature.list()[0].id, first.id);
+    assert.equal(feature.list()[0].floorId, 12);
+    assert.ok(feature.list()[0].snapshot);
+    assert.equal(canUndoActivity(feature.list()[0], feature.list()), true);
 });
 
 test('catch-up advance does not restore a previous snapshot', async () => {

@@ -143,6 +143,12 @@ export function remainingUndoItems(entry) {
     return (entry?.items || []).filter(item => item.module === 'point' || item.module === 'lines').filter(item => !done.has(undoItemKey(item)));
 }
 
+function optionalIndex(value) {
+    if (value == null || value === '') return null;
+    const n = Number(value);
+    return Number.isInteger(n) ? n : null;
+}
+
 export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.random } = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const items = (Array.isArray(source.items) ? source.items : []).map(normalizeActivityItem).filter(item => item.module || item.title);
@@ -161,8 +167,8 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         undoneRefs: Array.isArray(source.undoneRefs) ? source.undoneRefs.map(value => String(value || '')).filter(Boolean).slice(0, 40) : [],
         stale: source.stale === true,
         note: String(source.note || '').trim().slice(0, 280),
-        floorId: Number.isInteger(Number(source.floorId)) ? Number(source.floorId) : null,
-        swipeId: Number.isInteger(Number(source.swipeId)) ? Number(source.swipeId) : null,
+        floorId: optionalIndex(source.floorId),
+        swipeId: optionalIndex(source.swipeId),
         signature: String(source.signature || ''),
     };
 }

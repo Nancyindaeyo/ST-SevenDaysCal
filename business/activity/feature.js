@@ -210,11 +210,11 @@ export function createActivityFeature(env = {}) {
         const { since: _since, ...details } = patch;
         const entry = list().find(item => item.source === source && item.floorId == null && !item.undone && item.ts >= since);
         if (entry) {
-            store.prepend(chatId(), { ...entry, ...details, floorId });
+            store.update(chatId(), entry.id, { ...details, floorId });
             paint();
             return entry.id;
         }
-        return record({ source, floorId, ...details });
+        return record({ source, floorId, ...details })?.id ?? null;
     };
 
     const replayFloorSource = async (source, floorId) => {

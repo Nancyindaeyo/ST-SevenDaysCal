@@ -48,6 +48,40 @@ test('same-floor reroll does not consume a dashed interval', async () => {
     assert.equal(dashed.state().counter, 2);
 });
 
+test('auto dashed records one floor card and does not also emit onActivity', async () => {
+    const activities = [];
+    const marks = [];
+    let stored = { items: [] };
+    const { createDashedModule } = await import('./dashed.js');
+    const dashed = createDashedModule({
+        getSettings: () => ({ dashedEnabled: true, dashedAutoInterval: 1, notifyMode: 'off' }),
+        keyDesc: () => 'dashed',
+        readStore: () => stored,
+        writeStore: (_key, value) => { stored = value || { items: [] }; return true; },
+        writeStoreConfirmed: async (_key, value) => { stored = value || { items: [] }; return { ok: true }; },
+        context: () => ({ name1: '春', name2: '柳', chatId: 'c1' }),
+        chatId: () => 'c1',
+        loadConfig: () => ({ url: 'http://x', key: 'k' }),
+        callApi: async () => '基地的辅助体育馆用了防腐铁皮顶，专门对付多变山风。',
+        now: () => 1,
+        random: () => 0.1,
+        uuid: () => 'id1',
+        onActivity: entry => activities.push(entry),
+        markActivityFloor: (source, floorId, patch) => marks.push({ source, floorId, patch }),
+        refreshPanel() {},
+        refreshInline() {},
+        toast() {},
+    });
+    const result = await dashed.onAiFloor(3, { latestStory: '体育馆里在下雨' });
+    assert.equal(result.status, 'updated');
+    assert.equal(activities.length, 0);
+    assert.equal(marks.length, 1);
+    assert.equal(marks[0].source, 'dashed');
+    assert.equal(marks[0].floorId, 3);
+    assert.ok(marks[0].patch.snapshot);
+    assert.ok(marks[0].patch.after);
+});
+
 test('blocked due floor defers dashed instead of drawing', async () => {
     const { createDashedModule } = await import('./dashed.js');
     let deferred = false;
