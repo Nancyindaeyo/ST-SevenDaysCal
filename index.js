@@ -84,7 +84,8 @@ import { getSettings, parseExcludeParams, loadCfg, loadUtilityCfg, saveCfg, load
 import { postChatCompletion, callCustomApi, callMemoryApi, callTheaterApi, bindApiClient, GEN_TEMPERATURE } from './api/client.js';
 import { normalizeApiUrl } from './api/sse.js';
 import { safeDiagnosticLog, diagnosticMessage, makeDiagnosticError, shouldNotifyGeneration, classifyGenerationError } from './api/diagnostics.js';
-import { readDiagnosticTrace, recordChatBoundary, shareRecentDiagnosticTrace, traceDiagnosticEvent } from './runtime/diagnostic-trace.js';
+import { readDiagnosticTrace, recordChatBoundary, traceDiagnosticEvent } from './runtime/diagnostic-trace.js';
+import { buildSafeDiagnosticPack, dayKey, mergeAssistantDiagnosticPackage } from './runtime/diagnostic-pack.js';
 import {
     abortMigration,
     bindExternalChatStorage,
@@ -708,22 +709,26 @@ const reconcileLedgerSources = async (owner = null) => {
 };
 const runLedgerCaptureStep = async (manual = false, travelContext = null) => {
     const floorId = Number(travelContext?.automationFloor);
-    const tracked = Number.isInteger(floorId);
-    const before = tracked ? ledger.snapshotLedgerState() : null;
+    const latest = latestAiFloor(getContext()?.chat)?.index;
+    const trackedFloor = Number.isInteger(floorId) ? floorId : (manual && Number.isInteger(latest) ? latest : null);
+    const before = ledger.snapshotLedgerState();
     const result = await ledgerCaptureController.run(manual, travelContext);
-    if (tracked) {
-        const after = ledger.snapshotLedgerState();
-        const changed = JSON.stringify(before) !== JSON.stringify(after);
-        activityFeature.record({
-            source: 'ledger-capture',
-            floorId,
-            outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
-            note: changed ? '' : '本轮刻度标注没有改动',
-            items: changed ? [{ module: 'ledger', title: '按本楼正文更新刻度标注', action: 'edit' }] : [],
-            snapshot: changed ? { ledger: before } : null,
-            after: changed ? { ledger: after } : null,
-        });
-    }
+    const after = ledger.snapshotLedgerState();
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
+    activityFeature.record({
+        source: 'ledger-capture',
+        floorId: trackedFloor,
+        cause: travelContext?.reroll ? 'reroll' : manual ? 'manual' : 'auto',
+        outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
+        reasonCode: result?.reason || '',
+        note: result?.status === 'failed'
+            ? '刻度标注失败。可在【改】里重试，或去刻度页再跑一次。'
+            : changed ? '' : '本轮刻度标注没有改动',
+        error: result?.status === 'failed' ? String(result?.error?.message || result?.error || result?.reason || '刻度标注失败').slice(0, 200) : '',
+        items: changed ? [{ module: 'ledger', title: manual ? '手动更新刻度标注' : '按本楼正文更新刻度标注', action: 'edit' }] : [],
+        snapshot: changed ? { ledger: before } : null,
+        after: changed ? { ledger: after } : null,
+    });
     return result;
 };
 const ledgerInjectionController = createLedgerInjectionController({
@@ -772,22 +777,26 @@ const ledgerJudgeController = createLedgerJudgeController({
 });
 const runLedgerJudgeStep = async (manual = false, travelContext = null) => {
     const floorId = Number(travelContext?.automationFloor);
-    const tracked = Number.isInteger(floorId);
-    const before = tracked ? ledger.snapshotLedgerState() : null;
+    const latest = latestAiFloor(getContext()?.chat)?.index;
+    const trackedFloor = Number.isInteger(floorId) ? floorId : (manual && Number.isInteger(latest) ? latest : null);
+    const before = ledger.snapshotLedgerState();
     const result = await ledgerJudgeController.run(manual, travelContext);
-    if (tracked) {
-        const after = ledger.snapshotLedgerState();
-        const changed = JSON.stringify(before) !== JSON.stringify(after);
-        activityFeature.record({
-            source: 'ledger-judge',
-            floorId,
-            outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
-            note: changed ? '' : '本轮刻度现状没有改动',
-            items: changed ? [{ module: 'ledger', title: '按本楼正文更新刻度现状', action: 'edit' }] : [],
-            snapshot: changed ? { ledger: before } : null,
-            after: changed ? { ledger: after } : null,
-        });
-    }
+    const after = ledger.snapshotLedgerState();
+    const changed = JSON.stringify(before) !== JSON.stringify(after);
+    activityFeature.record({
+        source: 'ledger-judge',
+        floorId: trackedFloor,
+        cause: travelContext?.reroll ? 'reroll' : manual ? 'manual' : 'auto',
+        outcome: result?.status === 'failed' ? 'failed' : changed ? 'updated' : 'unchanged',
+        reasonCode: result?.reason || '',
+        note: result?.status === 'failed'
+            ? '刻度现状失败。可在【改】里重试，或去刻度页再跑一次。'
+            : changed ? '' : '本轮刻度现状没有改动',
+        error: result?.status === 'failed' ? String(result?.error?.message || result?.error || result?.reason || '刻度现状失败').slice(0, 200) : '',
+        items: changed ? [{ module: 'ledger', title: manual ? '手动更新刻度现状' : '按本楼正文更新刻度现状', action: 'edit' }] : [],
+        snapshot: changed ? { ledger: before } : null,
+        after: changed ? { ledger: after } : null,
+    });
     return result;
 };
 const ledgerInlineRenderer = createLedgerInlineRenderer({
@@ -936,6 +945,8 @@ const axisGenerationController = createAxisGenerationController({
     loadItems: loadAlmanac, saveItems: saveAlmanacItemsConfirmed, dedupKey: almDedupKey, dateLabel: almDateLabel,
     sync: syncLatestAlmanacBlock, render: () => { if (axisState.almanacMode) renderAlmanacPanel(); },
     notify: (message, generated) => { if (generated) { if (axisState.almanacMode) { if (getSettings().notifyMode !== 'off') showToast(message); } else showToast(message, () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); }); } else if (getSettings().notifyMode !== 'off') showToast(message); },
+    onActivity: entry => activityFeature.record(entry),
+    latestFloor: () => (getContext()?.chat?.length || 0) - 1,
     error: (error, supplement) => showToast(`${supplement ? '补录失败：' : '轴生成失败：'}${diagnosticMessage(error)}`, null, true),
     missingApi: () => { if (!settingsOpen) toggleSettings(); showToast('请先在设置中填写自定义 API', null, true); },
     missingChat: () => showToast('请先打开一个聊天', null, true),
@@ -2497,6 +2508,7 @@ jQuery(async () => {
         ].filter(Boolean),
         toast: (message, error) => showToast(message, null, error),
         remember: rememberPace,
+        onBlocked: labels => activityFeature.setBlockedReroll(labels),
     });
     const rerunFloorAutomations = messageId => floorAutomationRerunner.run(messageId);
     bindChatFloorListeners({
@@ -2997,6 +3009,7 @@ function openActivityItem(item) {
     if (!dest) return Promise.resolve({ status: 'skipped' });
     showPanel();
     if (dest.view === 'lines') linesFeature.setSheet?.(dest.sheet);
+    if (dest.view === 'almanac' && dest.sheet) almSetSheet(dest.sheet);
     const $tab = $in(`.sp-side-tab.sp-view-btn[data-view="${dest.view}"]`);
     const already = $tab.hasClass('sp-view-active');
     if (!already) $tab.trigger('click');
@@ -3099,11 +3112,7 @@ const panelHost = createPanelHost({
             $in, inEl,
             refreshPreview: refreshLastDebugPayloadPreview,
             copyPayload: copyLastDebugPayload,
-            exportTrace: () => shareRecentDiagnosticTrace({
-                copyText: copyPlainText,
-                promptTextarea: options => customDialog.promptTextarea(options),
-                notify: (message, isError) => showToast(message, null, isError),
-            }),
+            exportTrace: () => exportSafeDiagnosticPack(),
             exportCurrent: exportCurrentChatDiagnosticPackage,
         });
     },
@@ -4394,22 +4403,91 @@ function downloadDiagnosticPackage(data) {
     return text;
 }
 
+function collectDiagnosticRuntime(userNote = '') {
+    const ctx = getContext();
+    const chat = ctx?.chat || [];
+    const clock = latestStoryClock();
+    const today = almTodayAnchor();
+    return buildSafeDiagnosticPack({
+        pluginVersion: PLUGIN_VERSION,
+        settings: getSettings(),
+        chat: {
+            floorCount: chat.length,
+            latestAiFloor: latestAiFloor(chat)?.index,
+            stampDay: dayKey((clock?.endMeta?.valid ? clock.endMeta.date || clock.endMeta : null) || (clock?.startMeta?.valid ? clock.startMeta.date || clock.startMeta : null)),
+            axisToday: dayKey(today),
+            sameFloor: sameFloorGate.pending() === true,
+            linesMode: getLinesMode(),
+        },
+        queue: floorQueue?.snapshot?.() || null,
+        activity: activityFeature.compactEntries(8),
+        safeLogs: readDiagnosticTrace(),
+        userNote,
+    });
+}
+
+async function askDiagnosticUserNote() {
+    try {
+        const note = await customDialog.promptTextarea({
+            title: '给助手的一句话（可空）',
+            body: '你点了什么、期望什么、实际怎样。会写进诊断包，不含 Key。',
+            initialValue: '',
+            maxLength: 400,
+            rows: 3,
+            confirmText: '继续',
+            cancelText: '跳过',
+        });
+        return String(note || '').trim();
+    } catch {
+        return '';
+    }
+}
+
+async function exportSafeDiagnosticPack() {
+    try {
+        const text = JSON.stringify(collectDiagnosticRuntime(), null, 2);
+        const copied = await copyPlainText(text);
+        if (copied) {
+            showToast('安全诊断包已复制（无剧情）');
+            return;
+        }
+        await customDialog.promptTextarea({
+            title: '复制安全诊断包',
+            body: '自动复制失败，请长按文本复制。这份没有正文和提示词。',
+            initialValue: text,
+            maxLength: Math.max(1, text.length),
+            rows: 12,
+            confirmText: '关闭',
+            cancelText: '取消',
+        });
+    } catch (error) {
+        showToast(`安全诊断包导出失败：${error?.message || '未知错误'}`, null, true);
+    }
+}
+
 async function exportCurrentChatDiagnosticPackage() {
     const choice = await customDialog.choose({
-        title: '导出当前聊天诊断包',
-        body: '诊断包会包含最近两个有效 AI 楼的请求记录（每个模块仅保留最新一次），包括完整输入与原始回复，可能含剧情。默认不附带聊天正文，也绝不导出 API 配置、URL、密码、请求头或其它聊天。',
-        note: '这不是完整可导入备份。若当前聊天已迁出，仍需另外保留白鳥数据后端。',
+        title: '导出给助手',
+        body: '给改构画的人看：含本聊天账本、最近两楼各模块最新一次完整输入和原始回复、【改】卡片头、本楼队列。默认不附聊天正文。不含 API Key、地址或请求头。',
+        note: '有剧情和模型原文，不要公开发。这不是可再导入的备份。',
         choices: [
             { value: 'cancel', label: '取消' },
-            { value: 'safe', label: '导出（不附正文）', primary: true },
-            { value: 'narrative', label: '导出并附正文' },
+            { value: 'safe', label: '导出给助手（不附正文）', primary: true },
+            { value: 'narrative', label: '导出并附最近楼正文' },
         ],
     });
     if (!choice || choice === 'cancel') return;
+    const userNote = await askDiagnosticUserNote();
     try {
-        const data = await buildCurrentChatDiagnosticPackage({ includeNarrative: choice === 'narrative', safeTrace: readDiagnosticTrace() });
+        const base = await buildCurrentChatDiagnosticPackage({ includeNarrative: choice === 'narrative', safeTrace: readDiagnosticTrace() });
+        const runtime = collectDiagnosticRuntime(userNote);
+        const data = mergeAssistantDiagnosticPackage(base, {
+            pluginVersion: PLUGIN_VERSION,
+            userNote,
+            runtime,
+        });
         const text = downloadDiagnosticPackage(data);
-        showToast('当前聊天诊断包已导出', async () => { if (await copyPlainText(text)) showToast('诊断包已复制'); });
+        showToast('给助手的诊断包已导出', async () => { if (await copyPlainText(text)) showToast('诊断包已复制'); });
     } catch (error) { showToast(`诊断包导出失败：${error?.message || '未知错误'}`, null, true); }
 }
 

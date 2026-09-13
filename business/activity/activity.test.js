@@ -504,7 +504,7 @@ test('catch-up advance does not restore a previous snapshot', async () => {
     assert.equal(lines, 'current');
 });
 
-test('pace detail shows the latest matching round items with jumps, not card actions', () => {
+test('pace detail shows the latest matching round items with jumps and card actions', () => {
     const older = normalizeActivityEntry({
         id: 'old', source: 'align-auto', outcome: 'patched',
         items: [{ module: 'point', title: '旧点', action: 'edit' }],
@@ -521,7 +521,25 @@ test('pace detail shows the latest matching round items with jumps, not card act
     assert.match(html, /调查/);
     assert.doesNotMatch(html, /旧点/);
     assert.match(html, /sp-activity-jump/);
-    assert.doesNotMatch(html, /去点里看|去线里看|>撤回<|>重试</);
+    assert.match(html, />重试</);
+    assert.doesNotMatch(html, /去点里看|去线里看/);
+});
+
+test('activity list can expand past three cards and failed cards show reasonCode', () => {
+    const entries = [0, 1, 2, 3].map(i => normalizeActivityEntry({
+        id: `e${i}`,
+        source: i === 0 ? 'outline' : 'align',
+        outcome: i === 0 ? 'failed' : 'unchanged',
+        error: i === 0 ? '面判定失败' : '',
+        reasonCode: i === 0 ? 'outline-judge-format' : '',
+        note: `n${i}`,
+    }));
+    const preview = renderActivityList(entries);
+    assert.match(preview, /查看更早（1）/);
+    assert.doesNotMatch(preview, /n3/);
+    assert.match(preview, /outline-judge-format/);
+    assert.match(renderActivityList(entries, { expanded: true }), /n3/);
+    assert.match(activityOverlayHtml(), /sp-activity-blocked/);
 });
 
 test('jumpToItem closes the overlay and reports missing targets', async () => {

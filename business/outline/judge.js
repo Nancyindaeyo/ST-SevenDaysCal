@@ -56,6 +56,17 @@ export function createOutlineJudge({
         injection?.refresh(candidate.target);
         onCursorChanged?.({ target: candidate.target, raw, cursor });
     };
+    const recordFailure = (messageId, error, reasonCode, note) => {
+        const text = diagnosticMessage(error);
+        onActivity?.({
+            source: 'outline',
+            floorId: messageId,
+            outcome: 'failed',
+            error: text,
+            reasonCode,
+            note: note || `面判定失败。可在【改】里重试，或去面页手改游标。`,
+        });
+    };
 
     const runAdvance = async (messageId = null) => {
         const diagnostic = createGenerationDiagnosticScope('outline-judge', { background: true });
@@ -78,8 +89,10 @@ export function createOutlineJudge({
             const ctx = context?.();
             const config = loadConfig?.() || {};
             if (!config.url || !config.key) {
+                const error = makeDiagnosticError('config-missing');
                 finish(task);
-                return { status: 'skipped' };
+                recordFailure(messageId, error, 'config-missing', '没配 API，面判定没跑。去设置填好后再重试。');
+                return { status: 'failed', error, reason: 'config-missing' };
             }
             const format = beat => `${beat.time ? beat.time + '·' : ''}《${beat.title}》`;
             const prompt = buildOutlineJudgePrompt(
@@ -102,8 +115,9 @@ export function createOutlineJudge({
             if (!/^(?:推进|未推进|没推进|不推进|无推进)$/u.test(decision)) {
                 const error = diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'outline-judge-format' });
                 finish(task); logDiagnostic?.(safeDiagnosticLog('outline', 'parse', error, { background: true }));
+                recordFailure(messageId, error, 'outline-judge-format');
                 if (settings?.().notifyMode === 'full') toast?.(`面自动推进判定失败：${diagnosticMessage(error)}`, true);
-                return { status: 'failed', error };
+                return { status: 'failed', error, reason: 'outline-judge-format' };
             }
             diagnostic.accepted({ phase: 'validation', reasonCode: decision === '推进' ? 'advance' : 'no-advance' });
             if (!shouldAdvanceOutline(answer)) {
@@ -118,7 +132,10 @@ export function createOutlineJudge({
             if (!(stored === true || stored?.ok === true)) {
                 if (!currentAndOwned(task) || !repository.matches(target, baseline)) return { status: 'cancelled' };
                 const status = Number(stored?.status); const saveError = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (stored && typeof stored === 'object') saveError.saveResult = stored; const error = diagnostic.rejected(saveError, { phase: 'save', reasonCode: 'outline-cursor-save-rejected' });
-                finish(task); if (settings?.().notifyMode === 'full') toast?.(`面自动推进失败：${diagnosticMessage(error)}`, true); return { status: 'failed', error };
+                finish(task);
+                recordFailure(messageId, error, 'outline-cursor-save-rejected');
+                if (settings?.().notifyMode === 'full') toast?.(`面自动推进失败：${diagnosticMessage(error)}`, true);
+                return { status: 'failed', error, reason: 'outline-cursor-save-rejected' };
             }
             diagnostic.committed({ reasonCode: stored?.stale ? 'outline-cursor-saved-stale' : 'outline-cursor-saved' });
             if (stored?.stale || !currentAndOwned(task)) { finish(task); return { status: 'cancelled', reason: 'committed-but-stale', committed: true }; }
@@ -141,6 +158,7 @@ export function createOutlineJudge({
             finish(task);
             if (error?.name === 'AbortError' || !repository.isCurrent(target)) return { status: 'cancelled' };
             logDiagnostic?.(safeDiagnosticLog('outline', 'request', error, { background: true }));
+            recordFailure(messageId, error, error?.diagnosticCode || error?.phase || 'outline-judge-request');
             if (settings?.().notifyMode === 'full') toast?.(`面自动推进判定失败：${diagnosticMessage(error)}`, true);
             return { status: 'failed', error };
         } finally {
@@ -159,7 +177,12 @@ export function createOutlineJudge({
         if (!beats.length || current < 1) return { status: 'skipped' };
         const ctx = context?.();
         const config = loadConfig?.() || {};
-        if (!config.url || !config.key) { const error = makeDiagnosticError('config-missing'); logDiagnostic?.(safeDiagnosticLog('outline', 'request', error, { background: true })); return { status: 'failed', error }; }
+        if (!config.url || !config.key) {
+            const error = makeDiagnosticError('config-missing');
+            logDiagnostic?.(safeDiagnosticLog('outline', 'request', error, { background: true }));
+            recordFailure(null, error, 'config-missing', '没配 API，面重定位没跑。去设置填好后再试。');
+            return { status: 'failed', error, reason: 'config-missing' };
+        }
         abort();
         const baseline = outlineBaseline(saved);
         const task = makeOwner(target, baseline);
@@ -180,7 +203,11 @@ export function createOutlineJudge({
             const next = parseOutlineRelocationAnswer(answer, beats.length);
             if (next == null) throw diagnostic.rejected(makeDiagnosticError('parse', { phase: 'parse' }), { phase: 'parse', reasonCode: 'outline-relocation-format' });
             diagnostic.accepted({ phase: 'validation', reasonCode: 'outline-relocation-valid' });
-            if (next === current) { diagnostic.committed({ reasonCode: 'outline-no-change' }); return { status: 'unchanged' }; }
+            if (next === current) {
+                diagnostic.committed({ reasonCode: 'outline-no-change' });
+                onActivity?.({ source: 'outline', outcome: 'unchanged', note: '面重定位后游标不用动', reasonCode: 'outline-no-change' });
+                return { status: 'unchanged' };
+            }
             let stored;
             try { stored = await (repository.setCursorConfirmed || repository.setCursor)(target, next, baseline, { ownerGuard: () => currentAndOwned(task) && !externalSignal?.aborted }); }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'outline-cursor-save-failed' }); }
@@ -190,13 +217,23 @@ export function createOutlineJudge({
             }
             diagnostic.committed({ reasonCode: stored?.stale ? 'outline-cursor-saved-stale' : 'outline-cursor-saved' });
             if (stored?.stale || !currentAndOwned(task) || externalSignal?.aborted) return { status: 'cancelled', reason: 'committed-but-stale', committed: true };
-            try { notifyChanged(task, saved.raw, next); }
+            try {
+                onActivity?.({
+                    source: 'outline',
+                    items: [{ module: 'outline', title: beats[next - 1]?.title || `节点 ${next}`, action: 'cursor' }],
+                    snapshot: { outline: { raw: saved.raw, cursor: current } },
+                    after: { outline: { raw: saved.raw, cursor: next } },
+                    note: '按时旅/手动重定位面游标',
+                });
+                notifyChanged(task, saved.raw, next);
+            }
             catch (error) { diagnostic.uiFailed(error, { reasonCode: 'outline-ui-refresh-failed' }); }
             return { status: 'updated' };
         } catch (error) {
             if (!currentAndOwned(task) || error?.name === 'AbortError' || externalSignal?.aborted) return { status: 'cancelled' };
             if (!repository.matches(target, baseline)) return { status: 'cancelled' };
             logDiagnostic?.(safeDiagnosticLog('outline', 'request', error, { background: true }));
+            recordFailure(null, error, error?.diagnosticCode || 'outline-relocation-format', '面重定位失败。可去面页手改游标。');
             return { status: 'failed', error };
         } finally {
             try { removeBridge(); } catch {}

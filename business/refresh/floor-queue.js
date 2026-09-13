@@ -18,8 +18,14 @@ export const FLOOR_JOB_LABELS = Object.freeze({
     dashed: '冷知识',
 });
 
+export const VISIBLE_SKIP_REASONS = Object.freeze(['no-stamp', 'config-missing', 'no-api']);
+
 export function jobLabel(id) {
     return FLOOR_JOB_LABELS[id] || id;
+}
+
+export function isVisibleSkipReason(reason) {
+    return VISIBLE_SKIP_REASONS.includes(String(reason || ''));
 }
 
 function sortJobs(jobs) {
@@ -31,7 +37,7 @@ function sortJobs(jobs) {
 }
 
 function publicJob(job) {
-    return job ? { id: job.id, label: job.label || jobLabel(job.id), error: job.error || '' } : null;
+    return job ? { id: job.id, label: job.label || jobLabel(job.id), error: job.error || '', reason: job.reason || '' } : null;
 }
 
 export function createFloorJobQueue(env = {}) {
@@ -41,6 +47,7 @@ export function createFloorJobQueue(env = {}) {
     let running = null;
     let queued = [];
     let failed = [];
+    let skipped = [];
     let busy = false;
 
     const snapshot = () => ({
@@ -49,6 +56,7 @@ export function createFloorJobQueue(env = {}) {
         running: publicJob(running),
         queued: queued.map(publicJob),
         failed: failed.map(publicJob),
+        skipped: skipped.map(publicJob),
     });
 
     const notify = () => { try { env.onChange?.(snapshot()); } catch {} };
@@ -69,6 +77,7 @@ export function createFloorJobQueue(env = {}) {
             queued = [];
             running = null;
             failed = [];
+            skipped = [];
             notify();
         }
         if (!busy) floor = incoming;
@@ -96,12 +105,24 @@ export function createFloorJobQueue(env = {}) {
         failed.push({
             ...job,
             error: String(result?.error?.message || result?.error || result?.reason || ''),
+            reason: String(result?.reason || ''),
         });
         try { env.onJobFailed?.(publicJob(job), result, snapshot()); } catch {}
     };
 
+    const markSkipped = (job, result) => {
+        skipped = skipped.filter(item => item.id !== job.id);
+        skipped.push({
+            ...job,
+            error: String(result?.reason || result?.error?.message || result?.error || ''),
+            reason: String(result?.reason || ''),
+        });
+        failed = failed.filter(item => item.id !== job.id);
+    };
+
     const markOk = (job) => {
         failed = failed.filter(item => item.id !== job.id);
+        skipped = skipped.filter(item => item.id !== job.id);
     };
 
     const runOne = async (job) => {
@@ -115,6 +136,7 @@ export function createFloorJobQueue(env = {}) {
         }
         const status = result?.status || 'skipped';
         if (status === 'failed') markFailed(job, result);
+        else if (status === 'skipped' && isVisibleSkipReason(result?.reason)) markSkipped(job, result);
         else markOk(job);
         running = null;
         notify();
@@ -156,7 +178,7 @@ export function createFloorJobQueue(env = {}) {
     };
 
     const retry = async (id) => {
-        const job = failed.find(item => item.id === id);
+        const job = failed.find(item => item.id === id) || skipped.find(item => item.id === id);
         if (!job) return { status: 'skipped', reason: 'no-failed' };
         const result = await runOne({ ...job, run: job.retry || job.run });
         if (result?.status !== 'failed') markOk(job);
@@ -165,6 +187,7 @@ export function createFloorJobQueue(env = {}) {
 
     const resetFailed = () => {
         failed = [];
+        skipped = [];
         notify();
     };
 
@@ -178,5 +201,6 @@ export function createFloorJobQueue(env = {}) {
         snapshot,
         get busy() { return busy; },
         get failed() { return failed.map(publicJob); },
+        get skipped() { return skipped.map(publicJob); },
     };
 }

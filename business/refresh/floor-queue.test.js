@@ -43,6 +43,17 @@ test('a new idle floor drops leftover failures so the red glow can go out', asyn
     assert.equal(queue.snapshot().failed.length, 0);
 });
 
+test('visible skips stay on the queue without counting as failures', async () => {
+    const queue = createFloorJobQueue({ identityCurrent: () => true });
+    queue.beginFloor({ chatId: 'c', floorId: 4 });
+    queue.enqueue({ id: 'advance', run: async () => ({ status: 'skipped', reason: 'no-stamp' }) });
+    queue.enqueue({ id: 'outline', run: async () => ({ status: 'skipped', reason: 'same-day' }) });
+    const snap = await queue.drain();
+    assert.equal(snap.failed.length, 0);
+    assert.equal(snap.skipped[0].id, 'advance');
+    assert.equal(snap.skipped[0].reason, 'no-stamp');
+});
+
 test('retry runs only the failed job', async () => {
     let alignTries = 0;
     const queue = createFloorJobQueue({ identityCurrent: () => true });

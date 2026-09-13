@@ -21,7 +21,12 @@ export function createFloorAutomationRerunner(env = {}) {
             if (!blocked.has(plan.source)) await plan.run?.();
         }
         env.remember?.();
-        return { status: 'updated', rerun: plans.filter(plan => !blocked.has(plan.source)).map(plan => plan.source), blocked: [...blocked] };
+        const blockedList = [...blocked];
+        env.onBlocked?.(blockedList.map(source => {
+            const plan = plans.find(item => item.source === source);
+            return plan?.label || source;
+        }));
+        return { status: 'updated', rerun: plans.filter(plan => !blocked.has(plan.source)).map(plan => plan.source), blocked: blockedList };
     };
 
     return {

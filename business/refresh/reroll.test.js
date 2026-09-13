@@ -43,6 +43,7 @@ test('rerunner blocks only diverged tasks and deduplicates one swipe signature',
             { source: 'outline', restore: async () => ({ status: 'unchanged' }), run: async () => calls.push('outline') },
         ],
         toast: message => calls.push(message),
+        onBlocked: labels => calls.push(['blocked', labels.join(',')]),
     });
 
     const first = await rerunner.run(3);
@@ -52,5 +53,6 @@ test('rerunner blocks only diverged tasks and deduplicates one swipe signature',
     assert.equal(calls.includes('outline'), true);
     assert.equal(calls.includes('dashed'), false);
     assert.match(calls[0], /冷知识/);
+    assert.deepEqual(calls.find(item => Array.isArray(item) && item[0] === 'blocked'), ['blocked', '冷知识']);
     assert.equal(second.reason, 'duplicate');
 });

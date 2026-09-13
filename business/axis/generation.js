@@ -53,6 +53,14 @@ export function createAxisGenerationController(env = {}) {
                 if (added.length) runUi(() => env.sync?.(), 'axis-sync-failed');
                 runUi(() => env.render?.(), 'axis-render-failed');
                 runUi(() => env.notify?.(added.length ? `已补录 ${added.length} 条纪念日` : '通读全程后没有够格补录的新里程碑（这很正常）', added.length > 0), 'axis-notify-failed');
+                runUi(() => env.onActivity?.({
+                    source: 'supplement',
+                    floorId: env.latestFloor?.(),
+                    outcome: added.length ? 'patched' : 'unchanged',
+                    reasonCode: added.length ? 'supplement-valid' : 'supplement-empty',
+                    note: added.length ? `已补录 ${added.length} 条纪念日` : '通读全程后没有够格补录的新里程碑（这很正常）',
+                    items: added.map(item => ({ module: 'axis', title: item.name || '纪念日', action: 'add' })),
+                }), 'axis-activity-failed');
                 return { status: 'updated', added };
             }
             if (!participantCurrent(participant) || env.context?.().chatId !== chatId) return cancelOwned();
@@ -69,14 +77,36 @@ export function createAxisGenerationController(env = {}) {
             if (axisState.almanacAbortController !== ctrl) return { status: 'cancelled' };
             axisState.isGeneratingAlmanac = false; axisState.almanacAbortController = null;
             if (error?.name === 'AbortError') { env.render?.(); return { status: 'cancelled' }; }
-            if (participantCurrent(participant) && env.context?.().chatId === chatId) { env.render?.(); env.error?.(error, supplement); }
+            if (participantCurrent(participant) && env.context?.().chatId === chatId) {
+                env.render?.();
+                env.error?.(error, supplement);
+                if (supplement) env.onActivity?.({
+                    source: 'supplement',
+                    floorId: env.latestFloor?.(),
+                    outcome: 'failed',
+                    error: String(error?.message || error || '补录失败').slice(0, 200),
+                    reasonCode: error?.reasonCode || error?.diagnosticCode || 'axis-generation-failed',
+                    note: '补录失败。可在【改】里重试，或回轴页再点补录。',
+                });
+            }
             return { status: 'failed', error };
         }
     };
     const trigger = async (supplement = false) => {
         const participant = env.captureParticipantIdentity?.() || null;
         if (axisState.isGeneratingAlmanac) return { status: 'skipped' };
-        const cfg = env.config?.(); if (!cfg?.url || !cfg?.key) { env.missingApi?.(); return { status: 'failed', reason: 'api' }; }
+        const cfg = env.config?.(); if (!cfg?.url || !cfg?.key) {
+            env.missingApi?.();
+            if (supplement) env.onActivity?.({
+                source: 'supplement',
+                floorId: env.latestFloor?.(),
+                outcome: 'failed',
+                error: '请先配置 API',
+                reasonCode: 'config-missing',
+                note: '没配 API，补录没跑。去设置填好后再重试。',
+            });
+            return { status: 'failed', reason: 'config-missing' };
+        }
         if (!env.context?.().chatId) { env.missingChat?.(); return { status: 'failed', reason: 'chat' }; }
         if (!supplement && (env.loadItems?.() || []).length) { const ok = await env.confirm?.(); if (!ok) return { status: 'cancelled' }; }
         if (!participantCurrent(participant)) return { status: 'cancelled' };

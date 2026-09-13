@@ -33,6 +33,8 @@ test('jump view maps modules onto the right page and sheet', () => {
     assert.deepEqual(jumpViewOf('lines'), { view: 'lines', sheet: 'events' });
     assert.deepEqual(jumpViewOf('dashed'), { view: 'lines', sheet: 'dashed' });
     assert.deepEqual(jumpViewOf('outline'), { view: 'outline', sheet: null });
+    assert.deepEqual(jumpViewOf('ledger'), { view: 'almanac', sheet: 'ledger' });
+    assert.equal(canJumpActivityItem({ module: 'ledger', title: '伤情' }), true);
     assert.equal(canJumpActivityItem({ module: 'point', title: '体检' }), true);
     assert.equal(canJumpActivityItem({ module: 'dashed', ref: 'd1' }), true);
     assert.equal(canJumpActivityItem({ module: 'point' }), false);

@@ -1,4 +1,5 @@
 export const ACTIVITY_CAP = 24;
+export const ACTIVITY_LIST_PREVIEW = 3;
 export const ALIGN_ROUND_CAP = 3;
 
 export const ACTIVITY_SOURCES = Object.freeze({
@@ -27,6 +28,7 @@ export const ACTIVITY_OUTCOMES = Object.freeze({
     patched: 'patched',
     unchanged: 'unchanged',
     failed: 'failed',
+    skipped: 'skipped',
 });
 
 export const ACTIVITY_ACTIONS = Object.freeze({
@@ -49,6 +51,7 @@ export const ACTIVITY_MODULES = Object.freeze({
     outline: '面',
     dashed: '冷知识',
     ledger: '刻度',
+    axis: '轴',
 });
 
 export function activityId(now = Date.now(), random = Math.random) {
@@ -160,9 +163,10 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         cause: normalizeCause(source.cause),
         outcome,
         error: String(source.error || '').trim().slice(0, 200),
+        reasonCode: String(source.reasonCode || '').trim().slice(0, 80),
         items,
-        snapshot: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.snapshot),
-        after: outcome === 'failed' || outcome === 'unchanged' ? null : normalizeActivitySnapshot(source.after),
+        snapshot: outcome === 'failed' || outcome === 'unchanged' || outcome === 'skipped' ? null : normalizeActivitySnapshot(source.snapshot),
+        after: outcome === 'failed' || outcome === 'unchanged' || outcome === 'skipped' ? null : normalizeActivitySnapshot(source.after),
         undone: source.undone === true,
         undoneRefs: Array.isArray(source.undoneRefs) ? source.undoneRefs.map(value => String(value || '')).filter(Boolean).slice(0, 40) : [],
         stale: source.stale === true,

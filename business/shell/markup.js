@@ -606,14 +606,14 @@ export function panelMarkup({
                                             </div>
                                             <hr class="sp-mem-divider">
                                             <div class="sp-diagnostics-block">
-                                                <label class="sp-cfg-group">请求诊断</label>
-                                                <p class="sp-cfg-hint"><strong>适合发给开发者。</strong>复制最近 30 条安全诊断日志；不含正文、提示词、API Key 或 URL。</p>
-                                                <button id="sp-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-regular fa-copy"></i> 复制最近诊断日志</button>
+                                                <label class="sp-cfg-group">安全诊断包</label>
+                                                <p class="sp-cfg-hint"><strong>可以公开。</strong>版本、开关、本楼队列、【改】卡片头、最近 30 条安全日志。无正文、无提示词、无 Key / URL。</p>
+                                                <button id="sp-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-regular fa-copy"></i> 复制安全诊断包</button>
                                             </div>
                                             <div class="sp-diagnostics-block">
-                                                <div class="sp-diagnostics-label">当前聊天诊断包</div>
-                                                <p class="sp-cfg-hint">包含两楼 AI 输入与原始回复，可能含剧情。它不是完整可导入备份，也不会包含 API 密钥、地址或请求头。</p>
-                                                <button id="sp-current-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-solid fa-file-export"></i> 导出当前聊天诊断包</button>
+                                                <div class="sp-diagnostics-label">导出给助手</div>
+                                                <p class="sp-cfg-hint"><strong>只发给改这个插件的人。</strong>上面那一层，加上本聊天账本和最近两楼各模块最新一次完整输入 / 原始回复。默认不附正文。不含 Key、地址或请求头。</p>
+                                                <button id="sp-current-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-solid fa-file-export"></i> 导出给助手</button>
                                             </div>
                                         </div>
                                     </details>

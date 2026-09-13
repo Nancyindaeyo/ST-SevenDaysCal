@@ -1215,6 +1215,8 @@ test('missing latest stamp or axis-only date change does not advance', async () 
     await missing.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });
     assert.equal(missing.calls(), 0);
     assert.match(missing.toasts.at(-1) || '', /没打上时间戳/);
+    assert.equal(missing.activities.at(-1)?.outcome, 'skipped');
+    assert.equal(missing.activities.at(-1)?.reasonCode, 'no-stamp');
 
     const axis = automaticLinesFeature('updated', { mode: 'days', chat: stampChat(['1-1', '1-2']) });
     await axis.feature.onDateAftermath({ chatId: 'feature-chat', messageId: 1 });

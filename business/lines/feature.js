@@ -325,6 +325,7 @@ export function createLinesFeature(env = {}) {
       floorId: messageId,
       outcome: "failed",
       error: note,
+      reasonCode: result?.reason || result?.error?.diagnosticCode || "",
       note,
     });
     if (cause === "auto" && result.status === "failed")
@@ -686,10 +687,17 @@ export function createLinesFeature(env = {}) {
     const latestDay = latestStampDay(chat, mid, env.parseClock);
     if (!latestDay) {
       env.toast?.("这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。");
+      env.onActivity?.({
+        source: "advance",
+        floorId: mid,
+        outcome: "skipped",
+        reasonCode: "no-stamp",
+        note: "这楼没打上时间戳，日期制推进先停着。可在【改】里手动补。",
+      });
       await appendInlineBlock(mid, false);
       await finishDashed(env.didReconcile?.(mid) === true);
       lifecycle.consumeRerollStampDay();
-      return false;
+      return { status: "skipped", reason: "no-stamp" };
     }
     const previousSwipeDay = credential.stampDay || lifecycle.rerollStampDay;
     const previousFloorDay = previousStampDay(chat, mid, env.parseClock);

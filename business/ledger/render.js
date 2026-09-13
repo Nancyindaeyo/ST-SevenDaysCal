@@ -88,7 +88,7 @@ export function ledgerRowHtml(e, cal, archived = false) {
         : '';
     // 第一行＝元信息头（类型 + 人物 + 操作钮）；事由独占整行放在头下方，长了就自己逐行换、不再挤钮组。
     const cls = `sp-ledger-row sp-ledger-${ledgerTypeClass(e.类型)}${locked ? ' sp-ledger-locked' : ''}${paused ? ' sp-ledger-paused' : ''}${archived ? ' sp-ledger-archived' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}`;
-    return `<div class="${cls}" data-id="${escapeAttr(e.id)}">
+    return `<div class="${cls}" data-id="${escapeAttr(e.id)}" data-jump-mod="ledger" data-jump-ref="${escapeAttr(e.id)}" data-jump-key="${escapeAttr(e.事由)}">
         <div class="sp-ledger-r1">${checkbox}${badge}${who}${batchOn ? '' : acts}</div>
         <div class="sp-ledger-gist-row"><span class="sp-ledger-gist">${escapeHtml(e.事由)}</span></div>
         ${r15}

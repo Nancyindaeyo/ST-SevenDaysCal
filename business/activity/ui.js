@@ -1,5 +1,6 @@
 import { formatCalendarDate } from '../axis/date-format.js';
 import {
+    ACTIVITY_LIST_PREVIEW,
     actionLabel,
     canUndoActivity,
     causeLabel,
@@ -45,7 +46,8 @@ export function renderQueueStatus(queue = null) {
     const failedJobs = queue?.failed || [];
     const queuedJobs = queue?.queued || [];
     const running = queue?.running;
-    if (!running && !queuedJobs.length && !failedJobs.length) {
+    const skippedJobs = queue?.skipped || [];
+    if (!running && !queuedJobs.length && !failedJobs.length && !skippedJobs.length) {
         return `<div class="sp-activity-queue-live is-idle"><span class="sp-activity-queue-idle">这楼后台空闲</span></div>`;
     }
     const runningHtml = running
@@ -57,7 +59,12 @@ export function renderQueueStatus(queue = null) {
     const failedHtml = failedJobs.map(job => (
         `<button type="button" class="sp-activity-queue-fail" data-queue-retry="${escape(job.id)}" title="重试${escape(job.label)}">${escape(job.label)}失败 · 重试</button>`
     )).join('');
-    return `<div class="sp-activity-queue-live${failedJobs.length ? ' has-failed' : ''}">${runningHtml}${queuedHtml}${failedHtml}</div>`;
+    const skippedHtml = skippedJobs.map(job => {
+        const reason = String(job.reason || job.error || '跳过');
+        const hint = reason === 'no-stamp' ? '缺戳' : reason === 'config-missing' || reason === 'no-api' ? '没配 API' : reason;
+        return `<button type="button" class="sp-activity-queue-skip" data-queue-retry="${escape(job.id)}" data-skip-reason="${escape(reason)}" title="${escape(job.label)}跳过">${escape(job.label)}跳过 · ${escape(hint)}</button>`;
+    }).join('');
+    return `<div class="sp-activity-queue-live${failedJobs.length ? ' has-failed' : ''}${skippedJobs.length ? ' has-skipped' : ''}">${runningHtml}${queuedHtml}${failedHtml}${skippedHtml}</div>`;
 }
 
 export function activityOverlayHtml() {
@@ -90,6 +97,9 @@ export function activityOverlayHtml() {
                 <button type="button" class="sp-btn sp-btn-primary sp-activity-readvance">重试自动推进</button>
                 <button type="button" class="sp-btn sp-activity-catchup">手动推进到今天</button>
             </div>
+        </div>
+        <div id="sp-activity-blocked" class="sp-activity-restyle" hidden>
+            <p>这楼重 roll 后，这些项因为后来手改过没法自动撤回重跑：<span id="sp-activity-blocked-list"></span>。请在本页手改，或先撤回【改】里还能撤的卡片再重试。</p>
         </div>
         <p class="sp-activity-section-kicker sp-activity-recent-kicker">最近</p>
         <div class="sp-settings-body" id="sp-activity-body"></div>
@@ -137,9 +147,14 @@ function itemListHtml(entry, { undo = false, entries = [] } = {}) {
         `<li><span>${escape(itemWho(item))}</span><em>${escape(actionLabel(item.action, item.module))}</em>${jumpButton(item)}${undo ? undoItemButton(entry, item, entries) : ''}</li>`
     )).join('');
     if (items) return `<ul class="sp-activity-items">${items}</ul>`;
-    if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || (isAdvanceEntry(entry) ? '推进失败' : '对齐失败'))}</p>`;
-    if (entry.outcome === 'unchanged') return '<p class="sp-cfg-hint">API 跑过了，点和线都不用改</p>';
+    if (entry.outcome === 'failed') return `<p class="sp-cfg-hint">${escape(entry.error || (isAdvanceEntry(entry) ? '推进失败' : '这次失败了'))}</p>${reasonHint(entry)}`;
+    if (entry.outcome === 'skipped') return `<p class="sp-cfg-hint">${escape(entry.note || entry.error || '这次跳过了')}</p>${reasonHint(entry)}`;
+    if (entry.outcome === 'unchanged') return `<p class="sp-cfg-hint">${escape(entry.note || '没有变化')}</p>`;
     return '<p class="sp-cfg-hint">没有条目变化</p>';
+}
+
+function reasonHint(entry) {
+    return entry?.reasonCode ? `<p class="sp-cfg-hint sp-activity-reason">${escape(entry.reasonCode)}</p>` : '';
 }
 
 function cardButtons(entry, entries) {
@@ -149,7 +164,7 @@ function cardButtons(entry, entries) {
         : canUndoActivity(entry, entries)
             ? button('sp-activity-undo', '撤回')
             : '';
-    const retry = isAlignEntry(entry) || isAdvanceEntry(entry) || (isRetryableEntry(entry) && entry.outcome === 'failed')
+    const retry = entry.outcome !== 'skipped' && (isAlignEntry(entry) || isAdvanceEntry(entry) || (isRetryableEntry(entry) && entry.outcome === 'failed'))
         ? button('sp-activity-retry', '重试') : '';
     const quote = (entry.note || (entry.items || []).length) ? button('sp-activity-quote', '拿到间里聊') : '';
     const shiftFix = entry.source === 'shift' && !entry.undone && entry.snapshot
@@ -167,6 +182,7 @@ function cardMeta(entry) {
 function roundStatus(entry) {
     if (entry.undone) return '已撤回';
     if (entry.outcome === 'failed') return '失败';
+    if (entry.outcome === 'skipped') return '跳过';
     if (entry.outcome === 'unchanged') return '没有变化';
     if (entry.stale) return '这楼重 roll 了';
     const count = (entry.items || []).length;
@@ -199,7 +215,8 @@ export function renderPaceDetail(paceId, entries = []) {
             <span class="sp-align-round-status">${escape(roundStatus(entry))}</span>
         </div>
         ${stale}
-        ${itemListHtml(entry)}
+        ${itemListHtml(entry, { undo: true, entries })}
+        ${cardButtons(entry, entries)}
     </div>`;
 }
 
@@ -207,11 +224,16 @@ export function renderAlignRounds(entries = []) {
     return renderPaceDetail('align', entries);
 }
 
-export function renderActivityList(entries = []) {
+export function renderActivityList(entries = [], { expanded = false } = {}) {
     if (!entries.length) {
         return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">上面能看见这楼正在跑谁、后面排谁。自动对齐、推进、补录、刻度、面、冷知识跑完会记在下面，失败可重试。</p></div>`;
     }
-    return `<ol class="sp-activity-list">${entries.slice(0, 3).map(entry => {
+    const preview = Math.max(1, ACTIVITY_LIST_PREVIEW);
+    const shown = expanded ? entries : entries.slice(0, preview);
+    const more = !expanded && entries.length > preview
+        ? `<button type="button" class="sp-btn sp-activity-more">查看更早（${entries.length - preview}）</button>`
+        : '';
+    return `<ol class="sp-activity-list">${shown.map(entry => {
         const stale = entry.stale && !entry.undone
             ? '<p class="sp-activity-stale">这楼重 roll 了</p>'
             : '';
@@ -228,7 +250,8 @@ export function renderActivityList(entries = []) {
             </div>
             ${stale}
             ${note}
+            ${entry.reasonCode && (entry.outcome === 'failed' || entry.outcome === 'skipped') && (entry.items || []).length ? reasonHint(entry) : ''}
             ${itemListHtml(entry, { undo: true, entries })}
         </li>`;
-    }).join('')}</ol>`;
+    }).join('')}</ol>${more}`;
 }

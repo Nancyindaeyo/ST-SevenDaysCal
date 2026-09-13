@@ -24,6 +24,8 @@ export function createActivityFeature(env = {}) {
     let watched = { floorId: -1, signature: '' };
     let restyled = false;
     let paceOpen = '';
+    let listExpanded = false;
+    let blockedReroll = [];
 
     const chatId = () => env.chatId?.() ?? null;
     const $in = sel => env.query?.(sel);
@@ -61,7 +63,9 @@ export function createActivityFeature(env = {}) {
     };
     const paint = () => {
         const $body = $in?.('#sp-activity-body');
-        if ($body?.length) $body.html(renderActivityList(list()));
+        if ($body?.length) $body.html(renderActivityList(list(), { expanded: listExpanded }));
+        $in?.('#sp-activity-blocked')?.prop?.('hidden', !blockedReroll.length);
+        $in?.('#sp-activity-blocked-list')?.text?.(blockedReroll.join('、'));
         const $badge = $in?.('.sp-activity-badge');
         if ($badge?.length) {
             $badge.text(unread > 9 ? '9+' : String(unread)).prop('hidden', unread <= 0);
@@ -86,6 +90,7 @@ export function createActivityFeature(env = {}) {
             paint();
         } else {
             paceOpen = '';
+            listExpanded = false;
             if (immediate) $overlay.stop?.(true).css({ display: 'none', opacity: 0 });
             else $overlay.stop?.(true).animate?.({ opacity: 0 }, 150, function () { env.$(this).css('display', 'none'); }) || $overlay.css({ display: 'none' });
         }
@@ -108,7 +113,7 @@ export function createActivityFeature(env = {}) {
             ? input.items
             : diffSnapshots(snapshot || {}, after || {});
         const outcome = input.outcome || '';
-        if (!items.length && !snapshot && outcome !== 'failed' && outcome !== 'unchanged') return null;
+        if (!items.length && !snapshot && outcome !== 'failed' && outcome !== 'unchanged' && outcome !== 'skipped') return null;
         const entry = store.prepend(chatId(), normalizeActivityEntry({
             ...input,
             items,
@@ -392,6 +397,15 @@ export function createActivityFeature(env = {}) {
         click('.sp-activity-queue-fail', function () {
             void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
         });
+        click('.sp-activity-queue-skip', function () {
+            const reason = String(env.$(this).attr('data-skip-reason') || '');
+            if (reason === 'no-stamp') void env.fillLatestStamp?.();
+            else void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
+        });
+        click('.sp-activity-more', () => {
+            listExpanded = true;
+            paint();
+        });
         click('.sp-activity-readvance', () => { void readvance({ cause: 'retry' }); });
         clickId('.sp-activity-shift-align', convertShiftToAlign);
         clickId('.sp-activity-shift-again', rerollShift);
@@ -449,12 +463,33 @@ export function createActivityFeature(env = {}) {
             unread = 0;
             restyled = false;
             paceOpen = '';
+            listExpanded = false;
+            blockedReroll = [];
             watched = { floorId: -1, signature: '' };
             store.clearMemory();
             if (open) paint();
         },
+        setBlockedReroll(labels = []) {
+            blockedReroll = (Array.isArray(labels) ? labels : []).map(value => String(value || '').trim()).filter(Boolean).slice(0, 12);
+            paint();
+            return blockedReroll;
+        },
+        compactEntries(limit = 8) {
+            return list().slice(0, Math.max(1, Number(limit) || 8)).map(entry => ({
+                source: entry.source,
+                outcome: entry.outcome,
+                error: entry.error,
+                reasonCode: entry.reasonCode,
+                note: entry.note,
+                floorId: entry.floorId,
+                items: entry.items,
+                ts: entry.ts,
+            }));
+        },
         get unread() { return unread; },
         get restyled() { return restyled; },
         get paceOpen() { return paceOpen; },
+        get listExpanded() { return listExpanded; },
+        get blockedReroll() { return blockedReroll.slice(); },
     };
 }
