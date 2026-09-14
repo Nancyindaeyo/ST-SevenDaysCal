@@ -1,5 +1,6 @@
 import { classifyGenerationError, createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
 import { horizonExistingSummary, pointHorizonGap } from './horizon.js';
+import { generatedStore, rawAdapter } from '../history/versions.js';
 // 点任务控制器的宿主边界：owner/lifecycle 由宿主提供，模块只负责统一清理与中止。
 export function splitAbortController(controller) {
     if (!controller || typeof controller.abort !== 'function' || !controller.signal || typeof controller.signal.addEventListener !== 'function') throw new TypeError('需要原生 AbortController');
@@ -109,13 +110,19 @@ export function createPointController(env) {
             const html = env.render(merged, subject, view, env.calendar()); if (env.editing?.() || !env.canCommit(owner, travelContext) || !sameOwnerIdentity(owner, view, char) || !canonicalMatches(owner.canonical)) return { status: 'cancelled' };
             diagnostic.accepted({ phase: 'validation', reasonCode: 'point-valid' });
             let stored;
-            try { stored = await (env.writeConfirmed || env.write)(key, { raw: merged, userName: subject, ts: Date.now() }, { ownerGuard: () => env.canCommit(owner, travelContext) && sameOwnerIdentity(owner, view, char) }); if (!(stored === true || stored?.ok === true)) { const rejected = Object.assign(new Error(stored?.reason || 'save-rejected'), { saveResult: stored }); throw rejected; } }
+            try {
+                const current = env.read(key) || {};
+                const archived = generatedStore(current, merged, rawAdapter);
+                stored = await (env.writeConfirmed || env.write)(key, { ...archived.value, raw: merged, userName: subject, ts: Date.now() }, { ownerGuard: () => env.canCommit(owner, travelContext) && sameOwnerIdentity(owner, view, char) });
+                if (!(stored === true || stored?.ok === true)) { const rejected = Object.assign(new Error(stored?.reason || 'save-rejected'), { saveResult: stored }); throw rejected; }
+            }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'point-commit-failed' }); }
             diagnostic.committed({ reasonCode: 'point-saved' });
             if (stored?.stale || !env.canCommit(owner, travelContext)) return { status: 'cancelled', reason: 'committed-but-stale', committed: true };
             env.state.isGenerating = false; env.state.scheduleAbortController = null; env.setButton('done'); if (view === 'char') env.setChar(char);
             try {
                 env.sync();
+                env.refreshStoryClock?.();
                 const same = env.view() === view && (view !== 'char' || env.char() === char);
                 if (same) { env.setCached(html); if (env.panelVisible()) { env.setBody(html); if (env.notify() !== 'off') env.toast('点已生成'); } else env.toast('点已生成，点击查看', () => { if (!canOwnerCallback(owner)) return; env.showPanel(); env.setBody(html); }); }
                 else env.toast('点已生成，点击查看', () => { if (!canOwnerCallback(owner)) return; env.setView(view, char); env.setCached(html); env.showPanel(); env.setBody(html); });
@@ -183,13 +190,19 @@ export function createPointController(env) {
             if (env.editing?.() || !participantCurrent(owner) || !env.canCommit(owner, travelContext) || !canonicalMatches(owner.canonical)) return { status: 'cancelled' };
             diagnostic.accepted({ phase: 'validation', reasonCode: 'point-valid' });
             let stored;
-            try { stored = await (env.writeConfirmed || env.write)(key, { raw: merged, userName: subject, ts: Date.now() }, { ownerGuard: () => env.canCommit(owner, travelContext) && participantCurrent(owner) }); if (!(stored === true || stored?.ok === true)) { const rejected = Object.assign(new Error(stored?.reason || 'save-rejected'), { saveResult: stored }); throw rejected; } }
+            try {
+                const current = env.read(key) || {};
+                const archived = generatedStore(current, merged, rawAdapter);
+                stored = await (env.writeConfirmed || env.write)(key, { ...archived.value, raw: merged, userName: subject, ts: Date.now() }, { ownerGuard: () => env.canCommit(owner, travelContext) && participantCurrent(owner) });
+                if (!(stored === true || stored?.ok === true)) { const rejected = Object.assign(new Error(stored?.reason || 'save-rejected'), { saveResult: stored }); throw rejected; }
+            }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'point-commit-failed' }); }
             diagnostic.committed({ reasonCode: 'point-saved' }); syncSucceeded = true;
             if (fillGap) env.recordFill?.({ previous, merged, added: owner.fillAdded || 0 });
             if (stored?.stale || !env.canCommit(owner, travelContext)) return { status: 'cancelled', reason: 'committed-but-stale', committed: true, targetDate: today };
             try {
                 env.sync();
+                env.refreshStoryClock?.();
                 if (env.view() === view && (view !== 'char' || env.char() === char)) { env.setCached(env.render(merged, subject, view, env.calendar())); if (env.panelVisible()) env.setBody(env.cached()); }
                 if (auto ? env.notify() === 'full' : env.notify() !== 'off') env.toast(fillGap ? `点已补上后面 ${owner.fillAdded} 天` : `点已同步到 ${env.monthName(today.month)}${today.day}日`);
             } catch (error) { diagnostic.uiFailed(error, { reasonCode: 'point-ui-refresh-failed' }); }

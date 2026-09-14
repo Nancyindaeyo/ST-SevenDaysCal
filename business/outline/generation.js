@@ -17,6 +17,7 @@ export function createOutlineGeneration({
     openSettings,
     now = () => Date.now(),
     isEditing = () => false,
+    refreshStoryClock,
 } = {}) {
     let owner = null;
     let busy = false;
@@ -115,6 +116,7 @@ export function createOutlineGeneration({
             finish(task);
             try {
                 injection?.refresh(target);
+                refreshStoryClock?.();
                 const html = renderer.render(normalizedRaw, 1);
                 if (ui?.isOutlineMode?.()) {
                     ui.setOutline(html);

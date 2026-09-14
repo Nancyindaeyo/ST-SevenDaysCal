@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { booksAreEmpty, planBootstrapSteps } from './queue.js';
+import { booksAreEmpty, planBootstrapSteps, automationAllowed, storyClockAllowed } from './queue.js';
 import { createBootstrapFeature } from './feature.js';
 
 test('empty books queue outline then point then lines, axis ledger and dashed only if needed', () => {
@@ -25,6 +25,20 @@ test('empty books queue outline then point then lines, axis ledger and dashed on
         ledgerCaptureEnabled: true, ledgerEmpty: false,
     }), ['outline', 'point', 'lines', 'axis']);
     assert.deepEqual(planBootstrapSteps({ hasPoint: true }), []);
+});
+
+test('empty books stop story clock and all auto jobs; later only the existing book may auto', () => {
+    assert.equal(storyClockAllowed({}), false);
+    assert.equal(automationAllowed('align', {}), false);
+    assert.equal(automationAllowed('ledger-capture', { ledgerCaptureEnabled: true }), false);
+    assert.equal(storyClockAllowed({ hasPoint: true }), true);
+    assert.equal(automationAllowed('align', { hasPoint: true }), true);
+    assert.equal(automationAllowed('advance', { hasPoint: true }), false);
+    assert.equal(automationAllowed('advance', { hasLines: true }), true);
+    assert.equal(automationAllowed('outline', { hasPoint: true }), false);
+    assert.equal(automationAllowed('outline', { hasOutline: true }), true);
+    assert.equal(automationAllowed('dashed', { hasLines: true, dashedEnabled: true }), true);
+    assert.equal(automationAllowed('dashed', { hasLines: true }), false);
 });
 
 test('bootstrap stops on failure and retries the same step', async () => {

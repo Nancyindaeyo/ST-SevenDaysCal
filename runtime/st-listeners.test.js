@@ -73,7 +73,7 @@ function floorHost(over = {}) {
             recordResult: (...a) => calls.push(['date.record', a[1]?.source]),
             runOnce: () => calls.push('date.runOnce'),
         },
-        pace: { consumeFloor: (...a) => { consumed.push(a); return true; } },
+        pace: { consumeFloor: (...a) => { consumed.push(a); return a[2]?.blocked !== true; } },
         getAlmanacJudgeInterval: () => 3,
         getLedgerCaptureInterval: () => 4,
         getLedgerJudgeInterval: () => 5,
@@ -172,6 +172,29 @@ test('almanac API fallback consumes the latest floor then remembers', async () =
     assert.equal(h.consumed[0][0], 'date');
     assert.ok(h.calls.includes('date.runOnce'));
     assert.ok(h.calls.includes('remember'));
+});
+
+test('empty books skip date stamp landing and API fallback', async () => {
+    const h = floorHost({
+        booksAreEmpty: () => true,
+        relandStoryClockAnchor: () => ({ status: 'ok' }),
+    });
+    await createChatFloorHandlers(h).almanacJudge(2);
+    assert.equal(h.consumed.length, 0);
+    assert.ok(!h.calls.includes('date.runOnce'));
+    assert.ok(!h.calls.some(c => Array.isArray(c) && c[0] === 'date.record'));
+});
+
+test('empty books do not consume ledger capture or judge', async () => {
+    const h = floorHost({ booksAreEmpty: () => true });
+    await createChatFloorHandlers(h).ledgerCapture(2);
+    await createChatFloorHandlers(h).ledgerJudge(2);
+    assert.equal(h.consumed.length, 2);
+    assert.equal(h.consumed[0][2].blocked, true);
+    assert.equal(h.consumed[1][2].blocked, true);
+    assert.ok(!h.calls.find(c => Array.isArray(c) && c[0] === 'enqueue'));
+    assert.ok(!h.calls.includes('ledgerCapture'));
+    assert.ok(!h.calls.includes('ledgerJudge'));
 });
 
 test('ledger capture stays off unless enabled and latest', async () => {

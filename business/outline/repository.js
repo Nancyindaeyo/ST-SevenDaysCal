@@ -1,4 +1,5 @@
 import { outlineBaseline, outlineCursor, parseOutline, clampOutlineCursor, sameOutlineBaseline } from './schema.js';
+import { generatedStore, manualStore, rawAdapter } from '../history/versions.js';
 
 const HISTORY_CAP = 20;
 
@@ -21,17 +22,22 @@ export function createOutlineRepository({ captureIdentity, isCurrent, readStore,
     const readOutline = target => readKind(target, 'outline');
     const baseline = target => outlineBaseline(readOutline(target));
     const matches = (target, expected) => current(target) && sameOutlineBaseline(readOutline(target), expected);
-    const commitOutline = (target, patch, expected = null) => {
+    const withRaw = (saved, patch, archive) => {
+        if (!Object.prototype.hasOwnProperty.call(patch || {}, 'raw')) return { ...(saved || {}), ...patch };
+        const changed = (archive ? generatedStore : manualStore)(saved || {}, patch.raw, rawAdapter);
+        return { ...changed.value, ...patch, history: changed.value.history, generatedAt: changed.value.generatedAt };
+    };
+    const commitOutline = (target, patch, expected = null, options = {}) => {
         if (!current(target)) return false;
         const saved = readOutline(target);
         if (expected && !sameOutlineBaseline(saved, expected)) return false;
-        return writeKind(target, 'outline', { ...(saved || {}), ...patch });
+        return writeKind(target, 'outline', withRaw(saved, patch, options.archive === true));
     };
     const commitOutlineConfirmed = async (target, patch, expected = null, options = {}) => {
         if (!current(target)) return false;
         const saved = readOutline(target);
         if (expected && !sameOutlineBaseline(saved, expected)) return false;
-        return writeKindConfirmed(target, 'outline', { ...(saved || {}), ...patch }, options);
+        return writeKindConfirmed(target, 'outline', withRaw(saved, patch, options.archive !== false), options);
     };
     const setCursor = (target, cursor, expected = null) => {
         const saved = readOutline(target);

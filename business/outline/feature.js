@@ -85,6 +85,7 @@ export function createOutlineFeature(env = {}) {
         openSettings: env.openSettings,
         now: env.now,
         isEditing: () => editing,
+        refreshStoryClock: env.refreshStoryClock,
     });
     const chat = createOutlineChat({
         repository,

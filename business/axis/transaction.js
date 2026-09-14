@@ -1,4 +1,5 @@
 import { axisState } from './state.js';
+import { generatedStore, axisAdapter } from '../history/versions.js';
 
 export function createAxisTransactionController(env = {}) {
     const participantCurrent = participant => !participant || env.sameParticipantIdentity?.(participant, env.captureParticipantIdentity?.()) !== false;
@@ -40,7 +41,13 @@ export function createAxisTransactionController(env = {}) {
         const prevCal = env.readCal?.() ?? null;
         const prevAlmanac = env.readAlmanac?.() ?? null;
         const nextCal = { ...cal, ts };
-        const nextAlmanac = { items: nextItems, ts };
+        const archivedAlmanac = generatedStore(
+            { ...(prevAlmanac && typeof prevAlmanac === 'object' ? prevAlmanac : {}), caldesc: prevCal && typeof prevCal === 'object' ? prevCal : null },
+            { items: nextItems, caldesc: cal },
+            axisAdapter,
+            ts,
+        );
+        const nextAlmanac = { ...archivedAlmanac.value, ts };
         const persist = async (key, value) => {
             if (!key || typeof env.writeConfirmed !== 'function') return { ok: false, reason: 'missing-writer' };
             try {

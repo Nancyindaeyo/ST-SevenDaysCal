@@ -13,6 +13,7 @@
 
 const { getContext = () => null } = await import('../../../../../extensions.js').catch(() => ({}));
 import { getChatRoot, persistExternalRoots, registerExternalStorageContext } from '../../runtime/external-chat-storage.js';
+import { generatedStore, ledgerAdapter } from '../history/versions.js';
 
 registerExternalStorageContext(getContext);
 
@@ -169,6 +170,15 @@ export function snapshotLedgerState() {
     return cloneState(current || freshMeta());
 }
 
+export function captureStateFromRoot(m) {
+    if (!m) return { initialized: false, explicitInitialized: false };
+    return {
+        initialized: m.initialized === true || (Array.isArray(m.entries) && m.entries.length > 0) || Number(m.seq) > 0,
+        explicitInitialized: m.initialized === true,
+    };
+}
+export function getCaptureState() { return captureStateFromRoot(ledger()); }
+
 export async function replaceLedgerStateAtomic(snapshot, owner = null) {
     const m = ledger(true);
     const ctx = getContext?.();
@@ -181,6 +191,12 @@ export async function replaceLedgerStateAtomic(snapshot, owner = null) {
     m.entries = entries;
     m.seq = seq;
     m.version = SCHEMA_VERSION;
+    if (input.initialized === true) m.initialized = true;
+    else delete m.initialized;
+    if (Array.isArray(input.history)) m.history = cloneState(input.history);
+    else delete m.history;
+    if (input.generatedAt != null) m.generatedAt = input.generatedAt;
+    else delete m.generatedAt;
     try {
         const saved = await persistAwaitable(ctx, { target: owner?.target, ownerGuard: owner?.guard });
         if (saved && (saved.ok !== true || saved.commitState === 'unknown')) {
@@ -193,6 +209,9 @@ export async function replaceLedgerStateAtomic(snapshot, owner = null) {
             m.entries = before.entries;
             m.seq = before.seq;
             m.version = before.version;
+            if (before.initialized === true) m.initialized = true; else delete m.initialized;
+            if (Array.isArray(before.history)) m.history = before.history; else delete m.history;
+            if (before.generatedAt != null) m.generatedAt = before.generatedAt; else delete m.generatedAt;
         }, error);
     }
 }
@@ -242,12 +261,19 @@ export async function addEntriesAtomic(items) {
 }
 
 // 捕获专用一次保存：新增与现有条目 patch 同事务，任一步失败都恢复内存。
-export async function applyCapturePlanAtomic({ additions = [], patches = [] } = {}, owner = null, runtime = null) {
+export async function applyCapturePlanAtomic({ additions = [], patches = [], metaPatch = null } = {}, owner = null, runtime = null) {
     const m = runtime?.state || ledger(true); if (!m) return { added: [], patched: [] };
     const ctx = runtime?.context || getContext?.(); const readContext = runtime?.contextReader || getContext; const persist = runtime?.save || ((bound, options) => persistAwaitable(bound, options));
     const guard = () => !owner || (readContext?.()?.chatId === owner.chatId && (owner.guard ? owner.guard() : true));
     if (!guard()) throw Object.assign(new Error('capture-stale-chat'), { phase: 'capture-stale-chat' });
-    const before = cloneState({ entries: m.entries, seq: m.seq });
+    const before = cloneState(m);
+    const restoreCapture = () => {
+        m.entries = before.entries;
+        m.seq = before.seq;
+        if (before.initialized === true) m.initialized = true; else delete m.initialized;
+        if (Array.isArray(before.history)) m.history = before.history; else delete m.history;
+        if (before.generatedAt != null) m.generatedAt = before.generatedAt; else delete m.generatedAt;
+    };
     try {
         if (!validLedgerIdentity(m.entries, m.seq)) throw Object.assign(new Error('capture-state-invalid'), { phase: 'capture-state-invalid' });
         const applied = [];
@@ -273,21 +299,37 @@ export async function applyCapturePlanAtomic({ additions = [], patches = [] } = 
             applied.push(entry.id);
         }
         m.entries.push(...added);
+        if (metaPatch && typeof metaPatch === 'object') {
+            if (Object.prototype.hasOwnProperty.call(metaPatch, 'initialized')) {
+                if (metaPatch.initialized === true) m.initialized = true;
+                else delete m.initialized;
+            }
+        }
+        if (added.length || applied.length) {
+            const archived = generatedStore(before, { entries: cloneState(m.entries), seq: m.seq }, ledgerAdapter);
+            if (archived.changed) {
+                m.history = archived.value.history;
+                m.generatedAt = archived.value.generatedAt;
+            }
+        }
+        if (!added.length && !applied.length && !(metaPatch && typeof metaPatch === 'object' && Object.keys(metaPatch).length)) {
+            return { added: [], patched: [] };
+        }
         if (!validLedgerIdentity(m.entries, m.seq) || (before.entries.length > 0 && m.entries.length < before.entries.length)) throw Object.assign(new Error('capture-plan-invalid'), { phase: 'capture-state-invalid' });
         if (!guard()) throw Object.assign(new Error('capture-stale-chat'), { phase: 'capture-stale-chat' });
         const saved = await persist(ctx, { ownerGuard: guard, target: owner?.target });
-        if (saved?.commitState === 'unknown') await handleUnknownPersistence(saved, () => { m.entries = before.entries; m.seq = before.seq; }, () => persist(ctx, { compensate: true, target: owner?.target }));
+        if (saved?.commitState === 'unknown') await handleUnknownPersistence(saved, restoreCapture, () => persist(ctx, { compensate: true, target: owner?.target }));
         if (saved && saved.ok === false) throw Object.assign(new Error(saved.reason || 'capture-save-failed'), { phase: 'capture-save-failed', saveResult: saved });
-        if (!validLedgerIdentity(m.entries, m.seq) || (before.entries.length > 0 && m.entries.length < before.entries.length)) await compensateOrFail(persist, ctx, owner?.target, before, () => { m.entries = before.entries; m.seq = before.seq; }, Object.assign(new Error('capture-state-invalid'), { phase: 'capture-state-invalid' }));
+        if (!validLedgerIdentity(m.entries, m.seq) || (before.entries.length > 0 && m.entries.length < before.entries.length)) await compensateOrFail(persist, ctx, owner?.target, before, restoreCapture, Object.assign(new Error('capture-state-invalid'), { phase: 'capture-state-invalid' }));
         if (!guard()) {
             if (saved?.commitState === 'legacy-unconfirmed') {
-                m.entries = before.entries; m.seq = before.seq;
+                restoreCapture();
                 throw Object.assign(new Error('capture-stale-chat'), { phase: 'capture-stale-chat', saveResult: saved });
             }
-            await compensateOrFail(persist, ctx, owner?.target, before, () => { m.entries = before.entries; m.seq = before.seq; }, Object.assign(new Error('capture-stale-chat'), { phase: 'capture-stale-chat' }));
+            await compensateOrFail(persist, ctx, owner?.target, before, restoreCapture, Object.assign(new Error('capture-stale-chat'), { phase: 'capture-stale-chat' }));
         }
         return { added, patched: applied.map(id => ({ id })) };
-    } catch (error) { m.entries = before.entries; m.seq = before.seq; throw error; }
+    } catch (error) { restoreCapture(); throw error; }
 }
 
 export async function reconcileEntriesAtomic(sources, chatLength, owner = null, runtime = null) {
@@ -310,7 +352,14 @@ export async function applyJudgePatchesAtomic(patches = [], owner = null, runtim
     const ctx = runtime?.context || getContext?.(); const readContext = runtime?.contextReader || getContext; const persist = runtime?.save || ((bound, options) => persistAwaitable(bound, options));
     const guard = () => !owner || (readContext?.()?.chatId === owner.chatId && (owner.guard ? owner.guard() : true));
     if (!guard()) throw Object.assign(new Error('judge-stale-chat'), { phase: 'judge-stale-chat' });
-    const before = cloneState(m.entries); const applied = [];
+    const beforeStore = cloneState(m);
+    const before = beforeStore.entries;
+    const applied = [];
+    const restoreJudge = () => {
+        m.entries = before;
+        if (beforeStore.history) m.history = beforeStore.history; else delete m.history;
+        if (beforeStore.generatedAt != null) m.generatedAt = beforeStore.generatedAt; else delete m.generatedAt;
+    };
     try {
         if (!validLedgerIdentity(m.entries, m.seq)) throw Object.assign(new Error('judge-state-invalid'), { phase: 'judge-state-invalid' });
         for (const change of Array.isArray(patches) ? patches : []) {
@@ -320,20 +369,27 @@ export async function applyJudgePatchesAtomic(patches = [], owner = null, runtim
             if (change.close) entry.状态 = '已了结';
             applied.push(entry.事由);
         }
+        if (applied.length) {
+            const archived = generatedStore(beforeStore, { entries: cloneState(m.entries), seq: m.seq }, ledgerAdapter);
+            if (archived.changed) {
+                m.history = archived.value.history;
+                m.generatedAt = archived.value.generatedAt;
+            }
+        }
         if (!guard()) throw Object.assign(new Error('judge-stale-chat'), { phase: 'judge-stale-chat' });
         const saved = await persist(ctx, { ownerGuard: guard, target: owner?.target });
-        if (saved?.commitState === 'unknown') await handleUnknownPersistence(saved, () => { m.entries = before; }, () => persist(ctx, { compensate: true, target: owner?.target }));
+        if (saved?.commitState === 'unknown') await handleUnknownPersistence(saved, restoreJudge, () => persist(ctx, { compensate: true, target: owner?.target }));
         if (saved && saved.ok === false) throw Object.assign(new Error(saved.reason || 'judge-save-failed'), { phase: 'judge-save-failed', saveResult: saved });
-        if (!validLedgerIdentity(m.entries, m.seq)) await compensateOrFail(persist, ctx, owner?.target, { entries: before, seq: m.seq }, () => { m.entries = before; }, Object.assign(new Error('judge-state-invalid'), { phase: 'judge-state-invalid' }));
+        if (!validLedgerIdentity(m.entries, m.seq)) await compensateOrFail(persist, ctx, owner?.target, { entries: before, seq: m.seq }, restoreJudge, Object.assign(new Error('judge-state-invalid'), { phase: 'judge-state-invalid' }));
         if (!guard()) {
             if (saved?.commitState === 'legacy-unconfirmed') {
-                m.entries = before;
+                restoreJudge();
                 throw Object.assign(new Error('judge-stale-chat'), { phase: 'judge-stale-chat', saveResult: saved });
             }
-            await compensateOrFail(persist, ctx, owner?.target, { entries: before }, () => { m.entries = before; }, Object.assign(new Error('judge-stale-chat'), { phase: 'judge-stale-chat' }));
+            await compensateOrFail(persist, ctx, owner?.target, { entries: before }, restoreJudge, Object.assign(new Error('judge-stale-chat'), { phase: 'judge-stale-chat' }));
         }
         return { ok: true, applied };
-    } catch (error) { m.entries = before; error.phase ||= 'judge-save-failed'; throw error; }
+    } catch (error) { restoreJudge(); error.phase ||= 'judge-save-failed'; throw error; }
 }
 
 // 测试/宿主注入 seam：复用本 repository 的 normalize 与原子事务，不依赖 ST runtime。

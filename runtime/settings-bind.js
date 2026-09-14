@@ -235,6 +235,22 @@ export function bindSettingsPanel(env = {}) {
             env.rememberPace?.();
         },
     });
+    $in('input[name="sp-ledger-history-scope"]').on('change', function () {
+        settings().ledgerHistoryScope = ['all', 'custom'].includes(this.value) ? this.value : 'recent';
+        save();
+    });
+    bindCount($in, '#sp-ledger-history-limit', 'ledgerHistoryLimit', {
+        settings, persist: save, min: 1, max: 500, fallback: 50,
+    });
+    $in('#sp-ledger-history-start, #sp-ledger-history-end').on('change', function () {
+        const start = Math.max(0, Math.floor(Number($in('#sp-ledger-history-start').val()) || 0));
+        const end = Math.max(start, Math.floor(Number($in('#sp-ledger-history-end').val()) || start));
+        settings().ledgerHistoryStartFloor = start;
+        settings().ledgerHistoryEndFloor = end;
+        $in('#sp-ledger-history-start').val(String(start));
+        $in('#sp-ledger-history-end').val(String(end));
+        save();
+    });
     bindCheck($in, '#sp-inline-render-enabled', 'inlineRenderEnabled', {
         settings, persist: save, after: () => env.refreshInline?.(true),
     });

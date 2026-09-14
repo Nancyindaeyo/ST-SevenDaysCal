@@ -91,6 +91,12 @@ export function bindAlmanacPanel($almanac, env = {}) {
         else if ($(this).hasClass('sp-alm-edit')) env.openEditor?.(id);
         else env.deleteItem?.(id);
     });
+    $almanac.on('click', '.sp-book-history[data-history]', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const kind = $(this).attr('data-history');
+        if (kind === 'axis' || kind === 'ledger') void env.openHistory?.(kind);
+    });
     $almanac.on('click', '#sp-abort-almanac', () => env.abortGen?.());
     $almanac.on('click', function (e) {
         if (!state.almanacMode || state._almanacEditor || state._almanacSheet !== 'calendar') return;

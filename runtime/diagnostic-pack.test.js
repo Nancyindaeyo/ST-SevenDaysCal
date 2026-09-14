@@ -4,7 +4,7 @@ import { buildSafeDiagnosticPack, compactActivityEntries, dayKey, jobsFromQueue,
 
 test('safe pack keeps flags, queue jobs and activity heads without snapshots', () => {
     const pack = buildSafeDiagnosticPack({
-        pluginVersion: '3.7.8',
+        pluginVersion: '3.7.9',
         settings: { pluginEnabled: true, linesMode: 'days', apiKey: 'secret', apiUrl: 'https://x' },
         chat: { floorCount: 4, latestAiFloor: 3, stampDay: '5-4', axisToday: '5-4', sameFloor: false },
         queue: {
@@ -35,12 +35,12 @@ test('safe pack keeps flags, queue jobs and activity heads without snapshots', (
 
 test('assistant pack v2 wraps the existing chat dump with runtime', () => {
     const merged = mergeAssistantDiagnosticPackage({ business: { x: 1 }, diagnostics: [] }, {
-        pluginVersion: '3.7.8',
+        pluginVersion: '3.7.9',
         userNote: '解析挂了',
         runtime: { jobs: [] },
     });
     assert.equal(merged.version, 2);
-    assert.equal(merged.pluginVersion, '3.7.8');
+    assert.equal(merged.pluginVersion, '3.7.9');
     assert.equal(merged.runtime.jobs.length, 0);
     assert.equal(merged.business.x, 1);
 });

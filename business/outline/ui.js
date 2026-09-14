@@ -218,6 +218,9 @@ export function createOutlineUi(host = {}) {
             if (host.openRefresh?.(['outline'])) return;
             void controllers.generation.trigger({ reroll: true, module: 'outline' });
         });
+        $root.on('click.spOutlineFeature', '.sp-book-history[data-history="outline"]', () => {
+            void host.openHistory?.();
+        });
         $root.on('click.spOutlineFeature', '#sp-abort-outline', () => controllers.generation.abort());
     };
     const bindControllers = value => { controllers = value; };

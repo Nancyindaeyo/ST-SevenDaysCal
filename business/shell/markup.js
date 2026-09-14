@@ -542,6 +542,11 @@ export function panelMarkup({
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-capture-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerCaptureInterval) || 5))))}"><span>条 AI 回复标注一次</span><span class="sp-pace-remain" data-pace-remain="ledger-capture"></span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-judge-interval" class="sp-input sp-interval-input" type="number" min="1" max="30" value="${escapeAttr(String(Math.max(1, Math.min(30, Number(getSettings().ledgerJudgeInterval) || 4))))}"><span>条 AI 回复更新一次现状</span><span class="sp-pace-remain" data-pace-remain="ledger-judge"></span></label>
                                             <p class="sp-cfg-hint">总开关在这里。关着时两项节奏都不跑。</p>
+                                            <p class="sp-cfg-group">首次历史溯源范围</p>
+                                            <label class="sp-mode-opt"><input type="radio" name="sp-ledger-history-scope" value="recent" ${getSettings().ledgerHistoryScope !== 'all' && getSettings().ledgerHistoryScope !== 'custom' ? 'checked' : ''}><span>最近</span><input id="sp-ledger-history-limit" class="sp-input sp-interval-input" type="number" min="1" max="500" value="${escapeAttr(String(Math.max(1, Math.min(500, Number(getSettings().ledgerHistoryLimit) || 50))))}"><span>个有效历史角色回复（默认）</span></label>
+                                            <label class="sp-mode-opt"><input type="radio" name="sp-ledger-history-scope" value="all" ${getSettings().ledgerHistoryScope === 'all' ? 'checked' : ''}><span>全部有效历史角色回复</span></label>
+                                            <label class="sp-mode-opt"><input type="radio" name="sp-ledger-history-scope" value="custom" ${getSettings().ledgerHistoryScope === 'custom' ? 'checked' : ''}><span>自定真实楼号</span><input id="sp-ledger-history-start" class="sp-input sp-interval-input" type="number" min="0" value="${escapeAttr(String(Math.max(0, Number(getSettings().ledgerHistoryStartFloor) || 0)))}"><span>至</span><input id="sp-ledger-history-end" class="sp-input sp-interval-input" type="number" min="0" value="${escapeAttr(String(Math.max(0, Number(getSettings().ledgerHistoryEndFloor) || 0)))}"><span>楼</span></label>
+                                            <p class="sp-cfg-hint">范围只用于首次从旧到新查当前候选的来源；包含已隐藏的角色回复，排除用户楼与明确系统提示，每批最多 6 个有效楼。它与上面的自动触发间隔是两回事。</p>
                                         </div>
                                     </details>
                                 </div>
@@ -636,6 +641,7 @@ export function panelMarkup({
                             <div class="sp-schedule-header sp-outline-header">
                                 <span class="sp-outline-title">故事面</span>
                                 <span class="sp-schedule-label" id="sp-outline-node-count">0 个节点</span>
+                                <button type="button" class="sp-panel-refresh sp-book-history" data-history="outline" title="查看历史版本" aria-label="查看历史版本"><i class="fa-solid fa-clock-rotate-left"></i></button>
                                 <button class="sp-panel-refresh sp-refresh-outline" title="打开刷新账本" aria-label="打开刷新账本"><i class="fa-solid fa-rotate-right"></i></button>
                             </div>
                             <div class="sp-outline-beats" id="sp-outline-beats">

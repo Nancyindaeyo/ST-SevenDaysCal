@@ -107,6 +107,7 @@ export function createChatFloorHandlers(h) {
         // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
         almanacJudge: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.booksAreEmpty?.()) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
             const renderKey = h.buildDateRenderKey?.(messageId);
@@ -134,7 +135,7 @@ export function createChatFloorHandlers(h) {
             if (!isLatestChatFloor(chat, messageId)) return;
             if (!h.pace?.consumeFloor?.('ledgerCapture', messageId, {
                 interval: h.getLedgerCaptureInterval?.(),
-                blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_CAPTURE),
+                blocked: h.booksAreEmpty?.() || h.isAutomationSuppressed?.(messageId, modules.LEDGER_CAPTURE),
             })) return;
             const run = () => h.runLedgerCaptureStep?.(false, { automationFloor: Number(messageId) });
             if (typeof h.enqueueJob === 'function') h.enqueueJob({ id: 'ledger-capture', run });
@@ -148,7 +149,7 @@ export function createChatFloorHandlers(h) {
             if (!isLatestChatFloor(chat, messageId)) return;
             if (!h.pace?.consumeFloor?.('ledgerJudge', messageId, {
                 interval: h.getLedgerJudgeInterval?.(),
-                blocked: h.isAutomationSuppressed?.(messageId, modules.LEDGER_JUDGE),
+                blocked: h.booksAreEmpty?.() || h.isAutomationSuppressed?.(messageId, modules.LEDGER_JUDGE),
             })) return;
             const run = () => h.runLedgerJudgeStep?.(false, { automationFloor: Number(messageId) });
             if (typeof h.enqueueJob === 'function') h.enqueueJob({ id: 'ledger-judge', run });

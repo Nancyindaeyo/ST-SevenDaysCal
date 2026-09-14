@@ -28,6 +28,14 @@ export function bindLinesPanel(env = {}) {
         lines.refreshPanel();
     });
     $wrap.on('click', '.sp-lines-dashed-add', () => lines.dashed.openDialog());
+    $wrap.on('click', '.sp-book-history[data-history="lines"]', function (e) {
+        e.stopPropagation();
+        void env.openHistory?.('lines');
+    });
+    $wrap.on('click', '.sp-book-history[data-history="dashed"]', function (e) {
+        e.stopPropagation();
+        void env.openHistory?.('dashed');
+    });
     $wrap.on('click', '.sp-lines-dashed-lock', function () { lines.dashed.toggle($(this).attr('data-id')); });
     $wrap.on('click', '.sp-lines-dashed-delete', function () { lines.dashed.remove($(this).attr('data-id')); });
 

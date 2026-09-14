@@ -22,6 +22,8 @@ test('commit writes calendar then almanac with the same chat guard', async () =>
     assert.equal(writes[0].key.kind, 'caldesc');
     assert.equal(writes[1].key.kind, 'almanac');
     assert.equal(writes[0].value.id, 'new');
+    assert.equal(writes[1].value.caldesc.id, 'new');
+    assert.equal(writes[1].value.history[0].payload.caldesc.id, 'old');
 });
 
 test('commit restores the calendar if the almanac write fails', async () => {

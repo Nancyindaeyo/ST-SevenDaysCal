@@ -115,6 +115,7 @@ import {
     loadAlmanac,
     saveAlmanacItems,
     saveAlmanacItemsConfirmed,
+    readAxisHistoryStore,
     almTypeMeta,
     almDateLabel,
     monthDayFromDayKey,
@@ -203,6 +204,9 @@ const TERMINAL_STAGES = TERMINAL_LINE_STAGES;
 import { pointState } from './business/point/state.js';
 import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
+import { automationAllowed, booksAreEmpty } from './business/bootstrap/queue.js';
+import { openModuleHistory, historyToolbarState } from './business/history/dialog.js';
+import { rawAdapter, itemsAdapter, axisAdapter, ledgerAdapter } from './business/history/versions.js';
 import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } from './business/bootstrap/ui.js';
 import { isGregorian as isGregorianCalendar, addCalendarDays } from './business/calendar/date.js';
 import { buildPrompt, buildHorizonFillPrompt } from './business/point/prompt.js';
@@ -517,7 +521,11 @@ bindApiClient({
 
 // 点渲染回调注入：render.js 的点日期上下文、标签与辅助渲染函数需访问本文件的
 // almTodayAnchor/almWeekdayRef/almWeekdayFor/makeInjectBtn，经 bindPointRender 注入以避免反向依赖（循环引用）。
-bindPointRender({ almTodayAnchor, almWeekdayRef, almWeekdayFor, makeInjectBtn, settings: getSettings });
+bindPointRender({
+    almTodayAnchor, almWeekdayRef, almWeekdayFor, makeInjectBtn, settings: getSettings,
+    chatId: () => getContext().chatId,
+    readPointStore: () => readStore(getCacheKey(currentView, charViewName)) || {},
+});
 bindPointRepository({ keyDesc, readStore, renderSchedule, loadCalendar: loadCalDesc });
 const pointActions = createPointActions({
     inShadow: $inAll,
@@ -613,6 +621,7 @@ const pointController = createPointController({
     }),
     render: renderSchedule,
     sync: syncLatestScheduleBlock,
+    refreshStoryClock: () => refreshStoryClockInjection({ announce: true }),
     setChar: value => { charViewName = value; },
     setCached: html => { pointState.cachedSchedule = html; },
     notify: () => getSettings().notifyMode,
@@ -697,6 +706,7 @@ const ledgerCaptureController = createLedgerCaptureController({
     refreshInline: refreshInlineWindow,
     render: () => { if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel(); },
     setProgress: () => { if (axisState.almanacMode) renderAlmanacPanel(); },
+    captureState: () => ledger.getCaptureState(),
 });
 const reconcileLedgerSources = async (owner = null) => {
     const logSourceError = (error, counts = {}) => { try { const save = error?.saveResult; console.error('[SP ledger source reconcile]', { phase: error?.phase || 'source-state-invalid', cause: error?.code || error?.phase || 'unknown', reason: save?.reason || null, commitState: save?.commitState || null, saveReason: save?.saveReason || null, path: save?.path || null, httpStatus: save?.status || null, dispatched: save?.dispatched ?? null, counts: { cleaned: counts.cleaned || 0, remapped: counts.remapped || 0, pending: counts.pending || 0, lockedMissing: counts.lockedMissing || 0, kept: counts.kept || 0, deleted: counts.deleted || 0 } }); } catch {} };
@@ -859,7 +869,20 @@ bindLedgerRender({
     renderLedgerControls,
 });
 
-const almToolbarHtml = () => renderAxisToolbar(actionMenuHtml);
+const almToolbarHtml = () => renderAxisToolbar(actionMenuHtml, {
+    axis: historyToolbarState({
+        hasChat: !!getContext().chatId,
+        busy: axisState.isGeneratingAlmanac,
+        store: readAxisHistoryStore(),
+        adapter: axisAdapter,
+    }),
+    ledger: historyToolbarState({
+        hasChat: !!getContext().chatId,
+        busy: ledgerCaptureController.isBusy || ledgerJudgeController.isBusy,
+        store: ledger.snapshotLedgerState(),
+        adapter: ledgerAdapter,
+    }),
+});
 const axisItemUi = createAxisItemUi({
     typeMeta: almTypeMeta, weekdays: ALM_WEEKDAYS, weekdayFor: almWeekdayFor,
     clampInt: almClampInt, yearLength: calYearLen, itemCoversDoy: almItemCoversDoy,
@@ -1034,7 +1057,7 @@ bindStoryClock({
 const storyClockController = createStoryClockController({
     context: getContext,
     pluginEnabled,
-    enabled: () => getSettings().storyClockEnabled !== false,
+    enabled: () => getSettings().storyClockEnabled !== false && !booksAreEmpty(readBooksFlags()),
     settings: getSettings,
     peerState: () => extensionStoryClockState({ extensionNames, disabledExtensions: extension_settings.disabledExtensions, extensionSuffix: '/ST-QianQianJie', peerSettings: extension_settings.qianqianjie }),
 });
@@ -1593,6 +1616,7 @@ function scheduleFloorDrain() {
     }, 0);
 }
 function enqueueFloorJob(job) {
+    if (!automationAllowed(job?.id, readBooksFlags())) return false;
     const ok = floorQueue.enqueue(job);
     if (ok) scheduleFloorDrain();
     return ok;
@@ -1672,6 +1696,7 @@ const linesFeature = createLinesFeature({
     freezeSnapshot: freezeSnapshotToFloor,
     isPanelActive: () => linesMode, notifyMode: () => getSettings().notifyMode,
     toast: (message, error) => showToast(message, null, error),
+    refreshStoryClock: () => refreshStoryClockInjection({ announce: true }),
     onActivity: entry => activityFeature.record(entry),
     parseClock: mes => parseStoryClockPure(mes),
     latestFloorAdvance: floorId => activityFeature.latestAdvanceForFloor(floorId),
@@ -1802,6 +1827,7 @@ const outlineFeature = createOutlineFeature({
         isPanelVisible: () => $(`#${MODAL_ID}`).is(':visible'),
         toast: (message, error) => showToast(message, null, error),
         openRefresh: selected => openRefreshFor(selected),
+        openHistory: () => openBookHistory('outline'),
         closedSuccess: () => showToast('面已生成，点击查看', () => {
             if (!outlineMode) $in('.sp-view-btn[data-view="outline"]').trigger('click');
             showPanel();
@@ -1811,6 +1837,7 @@ const outlineFeature = createOutlineFeature({
     logDiagnostic: diagnostic => console.warn('[SP outline failure]', diagnostic),
     emptyOutlineHtml: () => booksEmptyHtml('outline'),
     sameFloor: () => sameFloorGate.pending(),
+    refreshStoryClock: () => refreshStoryClockInjection({ announce: true }),
 });
 let bootstrapFeature = null;
 function bootstrapStatus(result) {
@@ -1848,7 +1875,10 @@ bootstrapFeature = createBootstrapFeature({
     },
     setProgress: html => paintBootstrapProgress(html),
     toast: (message, error) => showToast(message, null, error),
-    onDone: () => paintCurrentBookAfterBootstrap(),
+    onDone: () => {
+        paintCurrentBookAfterBootstrap();
+        try { refreshStoryClockInjection({ announce: true }); } catch {}
+    },
 });
 let spaceMode = false;
 const spaceFeature = createSpaceFeature({
@@ -1878,7 +1908,7 @@ const spaceFeature = createSpaceFeature({
         },
         readWorldInfo: ctx => buildWorldInfoContext(ctx),
         readMemory: () => getMemText(),
-        readRecent: ctx => buildRecentChatContext(ctx),
+        readRecent: ctx => buildRecentChatContext(ctx, 6, Infinity),
         readCardExtras,
         readAlmanacText: () => getAlmanacInjectText(),
         readCalendarText: () => getCalDescInjectText(),
@@ -2541,6 +2571,7 @@ jQuery(async () => {
             floorSig: _floorSig,
             rememberPace,
             isAutomationSuppressed,
+            booksAreEmpty: () => booksAreEmpty(readBooksFlags()),
             relandStoryClockAnchor,
             buildDateRenderKey,
             consumeDateBootstrap,
@@ -3120,6 +3151,164 @@ const panelHost = createPanelHost({
     },
 });
 
+function sameHistorySnapshot(left, right) {
+    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
+}
+
+function openBookHistory(kind) {
+    const chatId = getContext()?.chatId;
+    if (!chatId) {
+        showToast('请先打开一个聊天', null, true);
+        return Promise.resolve(false);
+    }
+    const stillHere = () => getContext()?.chatId === chatId;
+    const shared = {
+        dialog: customDialog,
+        toast: (message, error) => showToast(message, null, error),
+        chatId,
+    };
+    if (kind === 'point') {
+        const key = getCacheKey(currentView, charViewName);
+        if (!key) { showToast('当前没有可恢复的点', null, true); return Promise.resolve(false); }
+        const read = () => readStore(key) || {};
+        return openModuleHistory({
+            ...shared,
+            title: '点 · 历史版本',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
+            adapter: rawAdapter,
+            preview: payload => String(payload || '').trim() || '此版本没有内容',
+            summary: payload => String(payload || '').trim() ? '有内容' : '空',
+            afterRestore: () => {
+                refreshCachedSchedule(currentView, charViewName, {
+                    setCached: html => { pointState.cachedSchedule = html; },
+                    setBody,
+                    visible: true,
+                });
+                syncLatestScheduleBlock();
+                refreshInlineWindow(true);
+                refreshStoryClockInjection({ announce: true });
+            },
+        });
+    }
+    if (kind === 'lines') {
+        const key = getLinesCacheKey();
+        const read = () => readStore(key) || {};
+        return openModuleHistory({
+            ...shared,
+            title: '线 · 历史版本',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
+            adapter: rawAdapter,
+            preview: payload => String(payload || '').trim() || '此版本没有内容',
+            summary: payload => String(payload || '').trim() ? '有内容' : '空',
+            afterRestore: () => {
+                linesFeature.refreshPanel();
+                syncLatestInlineBlock();
+                refreshInlineWindow(true);
+                refreshStoryClockInjection({ announce: true });
+            },
+        });
+    }
+    if (kind === 'dashed') {
+        const key = keyDesc('dashed', 'user', '');
+        const read = () => readStore(key) || {};
+        return openModuleHistory({
+            ...shared,
+            title: '冷知识 · 历史版本',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
+            adapter: itemsAdapter,
+            preview: payload => {
+                const items = Array.isArray(payload) ? payload : [];
+                return items.length ? items.map((item, index) => `${index + 1}. ${item?.text || ''}`).join('\n') : '此版本没有冷知识';
+            },
+            summary: payload => `${Array.isArray(payload) ? payload.length : 0} 条`,
+            afterRestore: () => {
+                linesFeature.refreshPanel();
+                refreshInlineWindow(true);
+            },
+        });
+    }
+    if (kind === 'outline') {
+        const key = keyDesc('outline', 'user', '');
+        const read = () => readStore(key) || {};
+        return openModuleHistory({
+            ...shared,
+            title: '面 · 历史版本',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
+            adapter: rawAdapter,
+            preview: payload => String(payload || '').trim() || '此版本没有内容',
+            summary: payload => String(payload || '').trim() ? '有内容' : '空',
+            afterRestore: () => {
+                outlineFeature.refreshPanel();
+                outlineFeature.injection?.refresh?.();
+                refreshStoryClockInjection({ announce: true });
+            },
+        });
+    }
+    if (kind === 'axis') {
+        const read = () => readAxisHistoryStore();
+        return openModuleHistory({
+            ...shared,
+            title: '轴 · 历史版本',
+            restoreNote: '会恢复节日表和历法描述，不会改「今天」的日期锚点。',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: async value => {
+                const saved = await writeStoreConfirmed(getAlmanacKey(), value, { ownerGuard: stillHere });
+                if (!(saved === true || saved?.ok === true) || saved?.stale) return saved;
+                if (value?.caldesc) saveCalDesc(value.caldesc, { archive: false });
+                return saved;
+            },
+            adapter: axisAdapter,
+            preview: payload => {
+                const cal = payload?.caldesc;
+                const calLine = cal?.era || cal?.id ? `历法：${cal.era || cal.id}` : '历法：默认';
+                const items = Array.isArray(payload?.items) ? payload.items : [];
+                const list = items.length ? items.map(item => `• ${item?.name || ''} ${item?.month || ''}/${item?.day || ''}`).join('\n') : '没有节日条目';
+                return `${calLine}\n${list}`;
+            },
+            summary: payload => `${Array.isArray(payload?.items) ? payload.items.length : 0} 条`,
+            afterRestore: () => {
+                if (axisState.almanacMode) renderAlmanacPanel();
+                syncLatestAlmanacBlock();
+                syncLatestScheduleBlock();
+            },
+        });
+    }
+    if (kind === 'ledger') {
+        const read = () => ledger.snapshotLedgerState();
+        return openModuleHistory({
+            ...shared,
+            title: '刻度 · 历史版本',
+            confirmRestore: true,
+            confirmTitle: '确认恢复刻度历史版本',
+            confirmBody: '会整表回到这一版，之后标注进去的条目也会一起消失。确定恢复？',
+            readStore: read,
+            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
+            writeStore: value => ledger.replaceLedgerStateAtomic(value, { guard: stillHere }),
+            adapter: ledgerAdapter,
+            preview: payload => {
+                const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+                return entries.length ? entries.map(entry => `• ${entry?.事由 || entry?.id || ''}（${entry?.状态 || ''}）`).join('\n') : '此版本没有刻度条目';
+            },
+            summary: payload => `${Array.isArray(payload?.entries) ? payload.entries.length : 0} 条`,
+            afterRestore: () => {
+                if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel();
+                refreshLedgerInjection();
+                refreshInlineWindow(true);
+            },
+        });
+    }
+    return Promise.resolve(false);
+}
+
 function injectModal() {
     panelHost.mount();
 
@@ -3133,6 +3322,7 @@ function injectModal() {
         generate: triggerGenerateLines,
         abort: abortLinesGen,
         openRefresh: () => openRefreshFor(['lines']),
+        openHistory: kind => openBookHistory(kind),
         advance: () => advanceQueue.run({ trigger: 'manual' }),
     });
     bindRefreshBar({
@@ -3153,6 +3343,7 @@ function injectModal() {
         charViewName: () => charViewName,
         deleteEvent: triggerDeletePointEvent,
         abort: abortScheduleGen,
+        openHistory: () => openBookHistory('point'),
         alignStartDate: () => pointActions.alignStartDate(),
         rollToToday: () => pointActions.rollToToday(),
     });
@@ -3228,6 +3419,7 @@ function injectModal() {
         generate: triggerGenerateAlmanac,
         supplement: triggerSupplementAnniversary,
         openManager: openCalendarManager,
+        openHistory: kind => openBookHistory(kind),
         closeActionMenus,
         togglePin: toggleAlmanacPin,
         deleteItem: deleteAlmanacItem,
@@ -3988,26 +4180,23 @@ async function getAllWorldNames(ctx) {
 // only outline+wi+memText, so the last few floors of the main chat were
 // invisible to the assistant — feels like it "ignores context".
 // Returns a formatted block or '' when the chat is empty.
-async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = 20000) {
+async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = Infinity) {
     const chat = ctx?.chat;
     if (!Array.isArray(chat) || !chat.length) return '';
     const charName = ctx.name2 || '角色';
     const s = getSettings();
     const stripOpts = { keepTags: s.keepTags, extraTags: s.extraTags };
-    // Walk from the end backwards, collect up to N visible AI entries.
     const rows = [];
-    for (let i = chat.length - 1; i >= 0 && rows.length < floorCount; i--) {
-        const m = chat[i];
-        if (!m || m.is_user || m.is_system) continue;   // only visible AI narrative
+    for (const m of selectVisibleChatHistory(chat, floorCount)) {
         const raw = String(m.mes || '');
         if (!raw.trim()) continue;
         const cleaned = memory.extractStoryText(raw, stripOpts).trim();
         if (!cleaned) continue;
         const speaker = m.name || charName;
-        const capped = cleaned.length > perMessageChars
+        const capped = Number.isFinite(perMessageChars) && cleaned.length > perMessageChars
             ? cleaned.slice(0, perMessageChars) + '…'
             : cleaned;
-        rows.unshift(`【${speaker}】${capped}`);
+        rows.push(`【${speaker}】${capped}`);
     }
     if (!rows.length) return '';
     return `【最近对话】以下是主聊天中最近几层对话原文，供理解当前剧情走向。\n\n${rows.join('\n\n')}`;

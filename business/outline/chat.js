@@ -47,7 +47,7 @@ export function createOutlineChat({
     const applyRaw = (target, raw, button = null) => {
         const normalizedRaw = normalizeOutlineResponse(raw);
         if (!repository.isCurrent(target) || !normalizedRaw) return false;
-        if (!repository.commitOutline(target, { raw: normalizedRaw, ts: now(), cursor: 1 })) return false;
+        if (!repository.commitOutline(target, { raw: normalizedRaw, ts: now(), cursor: 1 }, null, { archive: true })) return false;
         injection?.refresh(target);
         ui?.setOutline?.(renderer.render(normalizedRaw, 1));
         ui?.markApplied?.(button);

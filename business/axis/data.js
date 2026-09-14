@@ -5,6 +5,7 @@ import { saveSettingsDebounced } from '../../../../../../script.js';
 import { extractDayFromTime } from '../../utils/cn-date.js';
 import { getContext } from '../../../../../extensions.js';
 import { validateCalendarDescriptor as validateFormalCalendarDescriptor } from '../calendar/validator.js';
+import { generatedStore, axisAdapter } from '../history/versions.js';
 const ALM_TYPES = ['festival', 'birthday', 'anniversary', 'custom'];
 
 function almId() { return 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -44,8 +45,30 @@ function loadAlmanac() {
     return items.map(it => normalizeAlmItem(it)).filter(Boolean);
 }
 
-function saveAlmanacItems(items) { return writeStore(getAlmanacKey(), { items, ts: Date.now() }); }
-function saveAlmanacItemsConfirmed(items, options = {}) { return writeStoreConfirmed(getAlmanacKey(), { items, ts: Date.now() }, options); }
+function saveAlmanacItems(items) {
+    const current = readStore(getAlmanacKey()) || {};
+    return writeStore(getAlmanacKey(), { ...current, items, ts: Date.now() });
+}
+function axisHistoryBaseline(store, caldesc) {
+    const current = store && typeof store === 'object' && !Array.isArray(store) ? { ...store } : {};
+    if (caldesc !== undefined && !Object.prototype.hasOwnProperty.call(current, 'caldesc')) current.caldesc = caldesc;
+    return current;
+}
+function archiveAxisSnapshot(store, items, caldesc, now = Date.now()) {
+    return generatedStore(store && typeof store === 'object' ? store : {}, { items: Array.isArray(items) ? items : [], caldesc: caldesc ?? null }, axisAdapter, now);
+}
+function readAxisHistoryStore() {
+    const alm = readStore(getAlmanacKey()) || {};
+    const cal = readStore(getCalDescKey());
+    return { ...alm, caldesc: alm.caldesc ?? (cal ? normalizeCalDesc(cal) : null) };
+}
+function saveAlmanacItemsConfirmed(items, options = {}) {
+    const now = Date.now();
+    const current = readStore(getAlmanacKey()) || {};
+    const caldesc = cloneCalDesc(loadCalDesc());
+    const archived = archiveAxisSnapshot(axisHistoryBaseline(current, current.caldesc), items, caldesc, now);
+    return writeStoreConfirmed(getAlmanacKey(), { ...archived.value, ts: now }, options);
+}
 
 function almTypeMeta(type) {
     switch (type) {
@@ -311,10 +334,17 @@ function normalizeCalDesc(raw) {
     return { kind: explicitKind, id, revision, weekdayCycle, era, displayStyle, months, ...epoch };
 }
 
-function saveCalDesc(desc) {
+function saveCalDesc(desc, { archive = true } = {}) {
     const n = normalizeCalDesc(desc);
     if (!n) return false;
+    const prev = normalizeCalDesc(readStore(getCalDescKey()));
     writeStore(getCalDescKey(), { ...n, ts: Date.now() });
+    if (archive && prev && JSON.stringify(prev) !== JSON.stringify(n)) {
+        const now = Date.now();
+        const current = readStore(getAlmanacKey()) || {};
+        const archived = archiveAxisSnapshot(axisHistoryBaseline(current, prev), Array.isArray(current.items) ? current.items : [], n, now);
+        writeStore(getAlmanacKey(), { ...archived.value, ts: now });
+    }
     return true;
 }
 
@@ -491,6 +521,8 @@ export {
     loadAlmanac,
     saveAlmanacItems,
     saveAlmanacItemsConfirmed,
+    archiveAxisSnapshot,
+    readAxisHistoryStore,
     almTypeMeta,
     almDateLabel,
     monthDayFromDayKey,

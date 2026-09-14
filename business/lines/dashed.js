@@ -1,5 +1,7 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
 import { tickFloorGate } from '../refresh/floor-tick.js';
+import { generatedStore, itemsAdapter } from '../history/versions.js';
+import { historyButtonHtml } from '../history/dialog.js';
 
 // 虚线／冷知识线子模块：宿主只注入平台能力与刷新回调。
 export const DASHED_TOPIC_CONFIG = Object.freeze([
@@ -131,10 +133,20 @@ export function createDashedModule(env = {}) {
     const readTheme = () => String(readMeta().theme || env.getSettings?.()?.dashedTheme || '');
     const keep = () => normalizeDashedKeepCount(env.getSettings().dashedKeepCount);
     let autoFloor = -1, autoCount = 0, lastAutoRunFloor = -1;
-    const commit = (items, ts = now()) => { const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false); const theme = readTheme(); if (result.items.length) return { ...result, ok: env.writeStore(key(), { items: result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) })), ts, theme }) === true }; env.writeStore(key(), { items: [], ts, theme }); return { ...result, ok: true }; };
+    const commit = (items, ts = now()) => {
+        const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false);
+        const theme = readTheme();
+        const meta = readMeta();
+        const mapped = result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) }));
+        const ok = env.writeStore(key(), { ...meta, items: mapped, ts, theme }) === true;
+        return { ...result, ok: result.items.length ? ok : true };
+    };
     const commitConfirmed = async (items, ts, ownerGuard) => {
         const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false);
-        const value = result.items.length ? { items: result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) })), ts } : null;
+        const mapped = result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) }));
+        const theme = readTheme();
+        const archived = generatedStore(readMeta(), mapped, itemsAdapter, ts);
+        const value = mapped.length ? { ...archived.value, ts, theme } : null;
         const writer = env.writeStoreConfirmed || env.writeStore;
         const saved = await writer?.(key(), value, { ownerGuard });
         return { ...result, ok: saved === true || saved?.ok === true, stale: saved?.stale === true, saveResult: saved && typeof saved === 'object' ? saved : null };
@@ -159,9 +171,11 @@ export function createDashedModule(env = {}) {
     function cleanup(notify = false) { if (env.getSettings().dashedCleanupEnabled === false) return 0; const current = read(), preview = pruneDashedItems(current, keep(), true); if (!preview.removed.length) return 0; commit(current); refresh(); if (notify && env.getSettings().notifyMode !== 'off') env.toast(`已清理 ${preview.removed.length} 条较旧冷知识`); return preview.removed.length; }
     function inlineHtml() { if (env.getSettings().dashedEnabled !== true) return ''; const items = parse(1); let inner = busy ? '<div class="sp-dashed-inline-empty"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>' : items.length ? '<div class="sp-dashed-inline-empty">补了一条，去线页看</div>' : ''; if (!inner) return ''; return '<div class="sp-dashed-inline-sub"><div class="sp-dashed-inline-hint"><span>冷知识</span><button class="sp-inline-refresh-dashed' + (busy ? ' sp-refresh-busy' : '') + '" title="换一条冷知识"><i class="fa-solid fa-rotate-right"></i></button></div>' + inner + '</div>'; }
     function panelHtml() { const items = read(), s = busy ? '<div class="sp-lines-dashed-status"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>' : panelError ? `<div class="sp-lines-dashed-error"><i class="fa-solid fa-circle-exclamation"></i> ${env.escapeHtml(panelError)}</div>` : ''; if (!items.length) return `${s}<div class="sp-empty sp-lines-dashed-empty"><i class="fa-solid fa-lightbulb"></i><p>还没有冷知识，可以点击右上角新增</p></div>`; return `${s}<div class="sp-lines-dashed-list">${items.map((item, i) => `<div class="sp-beat sp-lines-dashed-item${item.locked ? ' sp-lines-dashed-pinned' : ''}" data-jump-mod="dashed" data-id="${env.escapeAttr(item.id)}" data-jump-ref="${env.escapeAttr(item.id)}" data-jump-key="${env.escapeAttr(String(item.text || '').slice(0, 40))}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-actions"><button type="button" class="sp-lines-dashed-lock" data-id="${env.escapeAttr(item.id)}" title="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}" aria-label="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}"><i class="fa-solid ${item.locked ? 'fa-lock' : 'fa-lock-open'}"></i></button><button type="button" class="sp-lines-dashed-delete" data-id="${env.escapeAttr(item.id)}" title="删除这条冷知识" aria-label="删除这条冷知识"><i class="fa-solid fa-xmark"></i></button></span></div><div class="sp-beat-scene">${env.escapeHtml(item.text)}</div></div>`).join('')}</div>`; }
-    function toolbarHtml({ onEvents, lineBusy, generationBusy }) {
+    function toolbarHtml({ onEvents, lineBusy, generationBusy, eventsHistory = {}, dashedHistory = {} }) {
         const dashedBusy = busy ? ' sp-refresh-busy' : '';
-        return `<div class="sp-lines-toolbar-inner"><div class="sp-lines-sheet-toggle"><button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">平行事件</button><button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">冷知识</button></div><div class="sp-lines-tools">${onEvents ? `<button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="打开刷新账本" aria-label="打开刷新账本"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button><button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="推进：缺的后天会先补上，再演化平行事件" aria-label="推进"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>` : `<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="新增冷知识" aria-label="新增冷知识"${busy ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}</div></div>`;
+        const eventsHistoryBtn = historyButtonHtml({ disabled: eventsHistory.historyDisabled, title: eventsHistory.historyTitle, module: 'lines' });
+        const dashedHistoryBtn = historyButtonHtml({ disabled: dashedHistory.historyDisabled, title: dashedHistory.historyTitle, module: 'dashed' });
+        return `<div class="sp-lines-toolbar-inner"><div class="sp-lines-sheet-toggle"><button type="button" class="sp-lines-sheet-btn${onEvents ? ' sp-lines-sheet-active' : ''}" data-sheet="events">平行事件</button><button type="button" class="sp-lines-sheet-btn${onEvents ? '' : ' sp-lines-sheet-active'}" data-sheet="dashed">冷知识</button></div><div class="sp-lines-tools">${onEvents ? `${eventsHistoryBtn}<button class="sp-panel-refresh sp-refresh-lines${lineBusy}" title="打开刷新账本" aria-label="打开刷新账本"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-rotate-right"></i></button><button class="sp-panel-refresh sp-advance-lines${lineBusy}" title="推进：缺的后天会先补上，再演化平行事件" aria-label="推进"${generationBusy ? ' disabled' : ''}><i class="fa-solid fa-forward"></i></button>` : `${dashedHistoryBtn}<button class="sp-panel-refresh sp-lines-dashed-add${dashedBusy}" title="新增冷知识" aria-label="新增冷知识"${busy ? ' disabled' : ''}><i class="fa-solid fa-plus"></i></button>`}</div></div>`;
     }
     async function rerunAutoFloor(messageId, { latestStory = '', reroll = true } = {}) {
         const mid = Number(messageId);

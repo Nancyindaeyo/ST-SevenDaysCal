@@ -13,6 +13,24 @@ export function booksAreEmpty(flags = {}) {
     return !flags.hasOutline && !flags.hasPoint && !flags.hasLines;
 }
 
+export function storyClockAllowed(flags = {}) {
+    return !booksAreEmpty(flags);
+}
+
+export function automationAllowed(jobId, flags = {}) {
+    if (booksAreEmpty(flags)) return false;
+    switch (String(jobId || '')) {
+        case 'align': return !!(flags.hasPoint || flags.hasLines);
+        case 'advance': return !!flags.hasLines;
+        case 'supplement': return !!flags.hasAlmanac;
+        case 'ledger-capture':
+        case 'ledger-judge': return flags.ledgerCaptureEnabled === true;
+        case 'outline': return !!flags.hasOutline;
+        case 'dashed': return flags.dashedEnabled === true;
+        default: return true;
+    }
+}
+
 export function planBootstrapSteps(flags = {}) {
     if (!booksAreEmpty(flags)) return [];
     const steps = [];

@@ -23,6 +23,8 @@ import { createSwipeLinesStore } from "./swipe-store.js";
 import { publicCueChips, stripInternalLineLines } from "./vectors/codec.js";
 import { vectorGlyphSvg } from "./vectors/glyph.js";
 import { commitLineWidget } from "./widget.js";
+import { generatedStore, rawAdapter, itemsAdapter } from "../history/versions.js";
+import { historyToolbarState } from "../history/dialog.js";
 
 const LINE_EDGE_COLORS = Object.freeze({
   ordinary: "#6aab8a",
@@ -376,7 +378,7 @@ export function createLinesFeature(env = {}) {
     const writer = env.writeStoreConfirmed || env.writeStore;
     const stored = await writer?.(
       key,
-      { raw, ts: Date.now() },
+      generatedStore(env.readSaved?.() || {}, raw, rawAdapter).value,
       {
         ownerGuard: () =>
           env.chatId?.() === chatId &&
@@ -408,6 +410,7 @@ export function createLinesFeature(env = {}) {
         if (!silent && env.notifyMode?.() !== "off") env.toast?.("线已生成");
       }
       syncInline(chatId);
+      env.refreshStoryClock?.();
       if (!env.isPanelActive?.() && !silent) env.toast?.("线已生成，点击查看");
     });
     return ui.ok ? true : { ok: true, uiError: ui.error };
@@ -895,11 +898,16 @@ export function createLinesFeature(env = {}) {
   };
   let sheet = "events";
   const renderBody = (body) => {
+    const hasChat = !!env.chatId?.();
+    const eventsHistory = historyToolbarState({ hasChat, busy: runtime.busy, store: env.readSaved?.() || {}, adapter: rawAdapter });
+    const dashedHistory = historyToolbarState({ hasChat, busy: dashed?.isBusy?.(), store: env.readDashedStore?.() || dashed?.readMeta?.() || {}, adapter: itemsAdapter });
     env.renderPanelDom?.({
       toolbar: dashed?.toolbarHtml?.({
         onEvents: sheet === "events",
         lineBusy: runtime.busy ? " sp-refresh-busy" : "",
         generationBusy: runtime.busy,
+        eventsHistory,
+        dashedHistory,
       }),
       body: sheet === "dashed" ? dashed?.panelHtml?.() : String(body || ""),
     });

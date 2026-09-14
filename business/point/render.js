@@ -14,6 +14,8 @@ import { weatherChipHtml } from '../../utils/format.js';
 import * as store from '../../store.js';
 import { renderActionMenu } from '../utils/action-menu.js';
 import { pointTodayDayIndex } from './shift.js';
+import { historyButtonHtml, historyToolbarState } from '../history/dialog.js';
+import { rawAdapter } from '../history/versions.js';
 
 let env = null;
 export function bindPointRender(e) { env = e; }
@@ -104,10 +106,17 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     const pinBtn = perspective === 'char'
         ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉'}"><i class="fa-solid fa-thumbtack"></i></button>`
         : '';
+    const pointHistory = historyToolbarState({
+        hasChat: !!env?.chatId?.(),
+        busy: !!axisState._almSyncingPoint,
+        store: env?.readPointStore?.() || {},
+        adapter: rawAdapter,
+    });
     const header = `<div class="sp-schedule-header">
         <span class="${chipCls}">${escapeHtml(userName)}</span>
         <span class="sp-schedule-label">的点</span>
         ${pinBtn}
+        ${historyButtonHtml({ disabled: pointHistory.historyDisabled, title: pointHistory.historyTitle, module: 'point' })}
         <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${axisState._almSyncingPoint ? '点正在同步中，稍候…' : '打开刷新账本'}"><i class="fa-solid fa-rotate-right"></i></button>
     </div>` + SP_JUMP_HINT_POINT;
 

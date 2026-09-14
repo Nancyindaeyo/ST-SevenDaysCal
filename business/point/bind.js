@@ -29,6 +29,10 @@ export function bindPointPanel(env = {}) {
 
     $in('#sp-body').on('click', '#sp-gen-schedule-now', env.regen);
     $in('#sp-body').on('click', '.sp-refresh-schedule', env.openRefresh || env.regen);
+    $in('#sp-body').on('click', '.sp-book-history[data-history="point"]', function (e) {
+        e.stopPropagation();
+        void env.openHistory?.();
+    });
     $in('#sp-body').on('click', '.sp-point-pin-char', function () {
         env.pinChar?.($(this).attr('data-name'));
     });
