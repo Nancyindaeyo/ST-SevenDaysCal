@@ -3,13 +3,27 @@ import assert from 'node:assert/strict';
 import { booksAreEmpty, planBootstrapSteps } from './queue.js';
 import { createBootstrapFeature } from './feature.js';
 
-test('empty books queue outline then point then lines, axis and dashed only if needed', () => {
+test('empty books queue outline then point then lines, axis ledger and dashed only if needed', () => {
     assert.equal(booksAreEmpty({}), true);
     assert.deepEqual(planBootstrapSteps({}), ['outline', 'point', 'lines', 'axis']);
     assert.deepEqual(planBootstrapSteps({
         hasOutline: false, hasPoint: false, hasLines: false,
         hasAlmanac: true, dashedEnabled: true, dashedEmpty: true,
     }), ['outline', 'point', 'lines', 'dashed']);
+    assert.deepEqual(planBootstrapSteps({
+        hasOutline: false, hasPoint: false, hasLines: false,
+        hasAlmanac: true, ledgerCaptureEnabled: true, ledgerEmpty: true,
+    }), ['outline', 'point', 'lines', 'ledger-capture']);
+    assert.deepEqual(planBootstrapSteps({
+        hasOutline: false, hasPoint: false, hasLines: false,
+        hasAlmanac: true,
+        ledgerCaptureEnabled: true, ledgerEmpty: true,
+        dashedEnabled: true, dashedEmpty: true,
+    }), ['outline', 'point', 'lines', 'ledger-capture', 'dashed']);
+    assert.deepEqual(planBootstrapSteps({
+        hasOutline: false, hasPoint: false, hasLines: false,
+        ledgerCaptureEnabled: true, ledgerEmpty: false,
+    }), ['outline', 'point', 'lines', 'axis']);
     assert.deepEqual(planBootstrapSteps({ hasPoint: true }), []);
 });
 
@@ -40,4 +54,31 @@ test('bootstrap stops on failure and retries the same step', async () => {
     const second = await feature.retry();
     assert.equal(second.status, 'updated');
     assert.deepEqual(calls, ['outline', 'point', 'point', 'lines']);
+});
+
+test('bootstrap continues when ledger capture finds nothing', async () => {
+    const calls = [];
+    const feature = createBootstrapFeature({
+        chatId: () => 'c1',
+        flags: () => ({
+            hasAlmanac: true,
+            ledgerCaptureEnabled: true,
+            ledgerEmpty: true,
+            dashedEnabled: true,
+            dashedEmpty: true,
+        }),
+        runners: {
+            outline: async () => { calls.push('outline'); return { status: 'updated' }; },
+            point: async () => { calls.push('point'); return { status: 'updated' }; },
+            lines: async () => { calls.push('lines'); return { status: 'updated' }; },
+            'ledger-capture': async () => { calls.push('ledger-capture'); return { status: 'unchanged' }; },
+            dashed: async () => { calls.push('dashed'); return { status: 'updated' }; },
+        },
+        setProgress() {},
+        toast() {},
+        onDone() {},
+    });
+    const result = await feature.start();
+    assert.equal(result.status, 'updated');
+    assert.deepEqual(calls, ['outline', 'point', 'lines', 'ledger-capture', 'dashed']);
 });

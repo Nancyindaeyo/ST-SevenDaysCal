@@ -1814,7 +1814,7 @@ const outlineFeature = createOutlineFeature({
 });
 let bootstrapFeature = null;
 function bootstrapStatus(result) {
-    if (result?.status === 'updated' || result?.status === 'cancelled') return result;
+    if (result?.status === 'updated' || result?.status === 'cancelled' || result?.status === 'unchanged' || result?.status === 'skipped') return result;
     if (result?.status === 'failed') {
         return { status: 'failed', errorMessage: result.errorMessage || diagnosticMessage(result.error) || '生成失败', error: result.error };
     }
@@ -1831,6 +1831,7 @@ bootstrapFeature = createBootstrapFeature({
         },
         lines: async () => bootstrapStatus(await linesFeature.generate()),
         axis: async () => bootstrapStatus(await triggerGenerateAlmanac()),
+        'ledger-capture': async () => bootstrapStatus(await runLedgerCaptureStep(true)),
         dashed: async () => bootstrapStatus(await linesFeature.dashed.run({
             manual: true,
             nearText: true,
@@ -1842,6 +1843,7 @@ bootstrapFeature = createBootstrapFeature({
         abortLinesGen();
         outlineFeature.abortAll('bootstrap-abort');
         abortAlmanacGen();
+        ledgerCaptureController.abort('bootstrap-abort');
         linesFeature.dashed.abort('bootstrap-abort');
     },
     setProgress: html => paintBootstrapProgress(html),
@@ -3508,6 +3510,8 @@ function readBooksFlags() {
         hasLines: !!readStore(getLinesCacheKey())?.raw,
         hasOutline: !!String(outlineFeature?.readRaw?.() || '').trim(),
         hasAlmanac: (loadAlmanac() || []).length > 0,
+        ledgerCaptureEnabled: getSettings().ledgerCaptureEnabled === true,
+        ledgerEmpty: !(ledger.listEntries({ includeClosed: true }) || []).length,
         dashedEnabled: getSettings().dashedEnabled === true,
         dashedEmpty: !(linesFeature?.dashed?.read?.() || []).length,
     };

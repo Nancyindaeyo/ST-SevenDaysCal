@@ -1,10 +1,11 @@
-export const BOOTSTRAP_STEPS = Object.freeze(['outline', 'point', 'lines', 'axis', 'dashed']);
+export const BOOTSTRAP_STEPS = Object.freeze(['outline', 'point', 'lines', 'axis', 'ledger-capture', 'dashed']);
 
 export const BOOTSTRAP_LABELS = Object.freeze({
     outline: '面',
     point: '点',
     lines: '线',
     axis: '轴',
+    'ledger-capture': '刻度标注',
     dashed: '冷知识',
 });
 
@@ -19,6 +20,7 @@ export function planBootstrapSteps(flags = {}) {
     if (!flags.hasPoint) steps.push('point');
     if (!flags.hasLines) steps.push('lines');
     if (!flags.hasAlmanac) steps.push('axis');
+    if (flags.ledgerCaptureEnabled && flags.ledgerEmpty) steps.push('ledger-capture');
     if (flags.dashedEnabled && flags.dashedEmpty) steps.push('dashed');
     return steps;
 }

@@ -4,7 +4,7 @@ export function emptyBooksHtml() {
     return `<div class="sp-empty sp-bootstrap-empty">
         <i class="fa-solid fa-layer-group"></i>
         <p>这串聊天还没有账本</p>
-        <p class="sp-cfg-hint">按 面 → 点 → 线 → 轴 → 冷知识 排队生成，一次一项。失败会停在该项，前面已经写入的保留。</p>
+        <p class="sp-cfg-hint">按 面 → 点 → 线 → 轴 → 刻度标注 → 冷知识 排队生成，一次一项。失败会停在该项，前面已经写入的保留。</p>
         <button type="button" class="sp-gen-btn" id="sp-gen-books-now">生成账本</button>
     </div>`;
 }
