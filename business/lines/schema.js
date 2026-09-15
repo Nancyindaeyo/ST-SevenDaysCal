@@ -114,6 +114,10 @@ function extractLinesWidget(source) {
     const inner = String(source).slice(start, start + close.index);
     return /<\/?storylines_widget\b/i.test(inner) ? null : inner;
 }
+function normalizeTicketId(value) {
+    const match = String(value || '').trim().match(/^TICKET-(\d+)(?=$|[\s:：(（[【])/i);
+    return match ? `TICKET-${match[1]}` : null;
+}
 export function parseLineCard(body) {
     const block = tolerantBlocks(body)[0];
     if (!block) return null;
@@ -129,12 +133,13 @@ export function validateLinesResponse(raw) {
     const model = []; const rejected = [];
     for (const [index, block] of blocks.entries()) {
         const parsed = parseLineRow(block.line);
-        const ticketId = block.ticketSeen && /^TICKET-\d+$/i.test(block.ticketId || '') ? block.ticketId.toUpperCase() : null;
+        const ticketId = block.ticketSeen ? normalizeTicketId(block.ticketId) : null;
         const reason = block.ticketSeen && !ticketId ? 'invalid-ticket'
                 : parsed.fieldCount < 6 || !parsed.name || !parsed.when || !block.desc || !block.next ? 'missing-business-field'
                     : null;
         if (reason) { rejected.push({ index, reason }); continue; }
         model.push({ ...normalizeLine({ name: parsed.name, stage: normalizeLineStage(parsed.stage), when: parsed.when, agency: normalizeAgency(parsed.agency), stall: bool(parsed.stall), pin: false, desc: block.desc, next: block.next }), ...(ticketId ? { ticketId } : {}) });
     }
-    return model.length ? { ok: true, model, raw: serializeLines(model), rejected } : { ok: false, reason: rejected[0]?.reason || 'no-lines', rejected };
+    if (rejected.length) return { ok: false, reason: rejected[0].reason, rejected };
+    return model.length ? { ok: true, model, raw: serializeLines(model), rejected } : { ok: false, reason: 'no-lines', rejected };
 }

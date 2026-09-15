@@ -59,6 +59,15 @@ test('release schema accepts complete output and preserves uncapped narrative', 
     assert.equal(longResult.model[0].desc.length, 300);
     assert.equal(longResult.model[0].next.length, 240);
 });
+test('line response normalizes copied ticket descriptions and never accepts partial records', () => {
+    const verboseTicket = validateLinesResponse('<storylines_widget>\nLine: 新线|起线|今天|world|false|false\nTicket: TICKET-2：默契形成；第三方请求\nDesc: 当前状态\nNext: 下一步\n</storylines_widget>');
+    assert.equal(verboseTicket.ok, true);
+    assert.equal(verboseTicket.model[0].ticketId, 'TICKET-2');
+
+    const partial = validateLinesResponse('<storylines_widget>\nLine: 完整线|起线|今天|world|false|false\nDesc: 当前状态\nNext: 下一步\n\nLine: 坏票线|起线|今天|world|false|false\nTicket: TICKET-2-extra\nDesc: 当前状态\nNext: 下一步\n</storylines_widget>');
+    assert.equal(partial.ok, false);
+    assert.equal(partial.reason, 'invalid-ticket');
+});
 test('arbitrary record wrappers are removed across response, storage, cards, and manual injection', () => {
     const wrappedResponse = `<storylines_widget>
 <record data-id="first">Line: 雾港来信|起线|今夜|world|false|false
