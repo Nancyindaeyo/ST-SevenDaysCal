@@ -239,8 +239,8 @@ import { filterRerollItems, shouldRunPendingPointFollowup } from './runtime/refa
 import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
 import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
-import { parseLines as parseCanonicalLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
-import { buildLinesPrompt as buildCanonicalLinesPrompt } from './business/lines/prompt.js';
+import { parseLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
+import { buildLinesPrompt } from './business/lines/prompt.js';
 import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
 import { syncVectorGlyphTheme } from './business/lines/vectors/glyph.js';
@@ -297,7 +297,7 @@ const chatSurfaceOwnsDom = Boolean(chatSurfaceRegistration && isManagedChatSurfa
 function refreshInlineWindow(immediate = false) { return inlineHost.refresh(immediate); }
 function _clearAllInlineBoxes() { return inlineHost.clear(); }
 function syncLatestAlmanacBlock(expectedChatId = null) { return inlineHost.syncLatest(expectedChatId); }
-function syncLatestScheduleBlock(expectedChatId = null) { return inlineHost.syncLatest(expectedChatId); }
+const syncLatestScheduleBlock = syncLatestAlmanacBlock;
 function syncLatestInlineBlock(expectedChatId = null) { return inlineHost.syncLines(expectedChatId); }
 async function backfillLinesInlineBlocks() { return inlineHost.backfill(); }
 function initChatObserver() { return inlineHost.initObserver(); }
@@ -498,7 +498,7 @@ const axisDateActions = createAxisDateActions({
 bindApiClient({
     setFabBusy,
     setLastDebugPayload: (v) => { lastDebugPayload = v; },
-    buildMessages,
+    buildMessages: (...args) => generationMessages.buildMessages(...args),
     getDiagnosticContext: () => {
         const ctx = getContext?.() || {};
         let messageId = null;
@@ -564,7 +564,7 @@ const applyPointWidget = createPointWidgetActions({
     getCacheKey: (...args) => getCacheKey(...args),
     readStore,
     writeStore,
-    replaceNthEventLine,
+    replaceNthEventLine: replacePointEventBlock,
     getUserName: () => getContext().name1 || '用户',
     currentView: () => currentView,
     renderSchedule,
@@ -1215,7 +1215,7 @@ const timeTravel = createTimeTravelHost({
     weekdayRef: cal => axisDateContext.weekdayRef(cal),
     weekdays: ALM_WEEKDAYS,
     readOutlineSnapshot: () => outlineFeature.readSnapshot(),
-    readLines: () => parseCanonicalLines(readStore(getLinesCacheKey())?.raw || ''),
+    readLines: () => parseLines(readStore(getLinesCacheKey())?.raw || ''),
     terminalStages: TERMINAL_LINE_STAGES,
     injectionOn: injectEnabled,
     settings: getSettings,
@@ -1688,6 +1688,10 @@ function enqueueStoryDateBeat() {
     scheduleFloorDrain();
 }
 const sameFloorGate = createSameFloorGate();
+const STAGE_COLORS = {
+    起线: '#7de9d9', 延展: '#58e8b3', 成形: '#d6b85a', 收束: '#2a8a5d', 淡出: '#888888',
+};
+const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">想调整这些线？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
 // 线·swipe 重算：楼层单调递增闸（区分真·新楼层 vs swipe/历史重渲染），及"待重算 swipe"标记。
 const linesFeature = createLinesFeature({
     jumpHint: () => SP_JUMP_HINT_LINES,
@@ -1745,7 +1749,7 @@ const linesFeature = createLinesFeature({
         button: ($btn, editIdx) => { if ($btn) $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> ${editIdx != null ? `已改第 ${editIdx} 条` : '已加到线'}`); showToast(editIdx != null ? `已替换线·第 ${editIdx} 条` : '已加到线'); },
     },
     readRaw: () => readStore(getLinesCacheKey())?.raw || '',
-    empty: () => renderEmptyLinesState(),
+    empty: () => booksEmptyHtml('lines'),
     loading: () => loadingHtml('正在推演线', 'sp-abort-lines'),
     renderPanelDom: ({ toolbar, body }) => { $in('#sp-lines-toolbar').html(toolbar); $in('#sp-lines-list').html(body); },
     injectionEnv: {
@@ -1813,7 +1817,7 @@ const outlineFeature = createOutlineFeature({
     enqueueJob: enqueueFloorJob,
     automationModule: AUTOMATION_MODULES.OUTLINE,
     bridgeAbortSignal,
-    buildChatMessages: args => composeCreativeChatMessages(args),
+    buildChatMessages: args => generationMessages.composeCreativeChat(args),
     postCompletion: ({ config, ...options }) => postChatCompletion({ cfg: config, ...options }),
     temperature: GEN_TEMPERATURE,
     chatPlaceholder: getCreativeChatPlaceholder,
@@ -1911,7 +1915,7 @@ const spaceFeature = createSpaceFeature({
         readPointRaw: () => readCacheRaw(getCacheKey('user', '')),
         numberedPoints: numberedPointList,
         readLineRaw: () => readStore(getLinesCacheKey())?.raw || '',
-        parseLines: parseCanonicalLines,
+        parseLines,
         readLedgerText: () => {
             try {
                 const items = ledger.listEntries() || [];
@@ -2179,11 +2183,6 @@ const taDrawer = createTaDrawer({
     removePin: name => store.removePinnedChar(name),
     refreshPinIcon: () => refreshCharPinIcon(),
 });
-function updateTaTriggerLabel() { taDrawer.updateLabel(); }
-function openTaDrawer() { taDrawer.show(); }
-function closeTaDrawer() { taDrawer.close(); }
-function toggleTaDrawer() { taDrawer.toggle(); }
-
 // 通用操作菜单只描述动作；具体页面决定何时显示、如何处理动作。
 const ACTION_MENU_CONFIGS = Object.freeze({
     almanac: Object.freeze([
@@ -2489,8 +2488,8 @@ jQuery(async () => {
         reloadPanel() {
             const panelOpen = $(`#${MODAL_ID}`).is(':visible') && !pointState.isGenerating;
             paintScheduleHome($in, $inAll, { sub: 'user', wraps: panelOpen });
-            closeTaDrawer();
-            updateTaTriggerLabel();
+            taDrawer.close();
+            taDrawer.updateLabel();
             pointState.cachedSchedule = loadCachedForCurrentChat();
             if (!panelOpen) return;
             $inAll('.sp-outline-btn').removeClass('sp-btn-active');
@@ -2651,33 +2650,8 @@ jQuery(async () => {
     // 这里兜底把已挂的悬浮球藏掉、把注入清干净）。开启态无需动——上面各首屏路径已正常挂载。
     if (!pluginEnabled()) applyPluginEnabled(false);
 });
-// ─── Config helpers ───────────────────────────────────────────────────────────
 
-// ─── Plugin settings (persisted in ST's settings.json) ────────────────────────
-
-
-// 剔除参数：解析用户输入（换行/逗号分隔的参数名）成去空去重的数组。
-// 用于规避不接受某些参数（如 Gemini 代理不认 frequency_penalty）的兼容端点报 400。
-
-
-// 机械任务分流用 cfg：仅供「记忆摘要 / 大纲推进判定」这类机械调用。
-// 设了 utilityPresetId 且该预设有 url+key → 用该预设快照；否则退回主 cfg（loadCfg）。
-// 其他生成类调用按各自调用方读取配置；空/无效时遵循现行默认路径。
-
-
-// ─── API 存储快切：预设仓库 ────────────────────────────────────────────────────
-// 预设是「整套 API 配置的命名快照」。切换后立即填入并应用该快照。
-
-
-// 把一套 cfg（loadCfg 形状）存成预设。有 id 且已存在→覆盖(改名+更新内容)，否则新建。
-// 返回被写入/新建的预设 id。
-
-
-// 给已存预设改名（就地，不动 url/key/model 等）。空名→保留原名。
-
-
-// 插件总开关（③）
-// pluginEnabled 关 = 全隐身；injectEnabled 关 = 掐线/面/刻度潜伏注入（受 pluginEnabled 统辖）。
+// 插件总开关：关则隐身并撤注入；injectEnabled 受它统辖。
 const pluginLifecycle = createPluginLifecycle({
     context: () => getContext?.() || {},
     chatRevision: () => pointTaskOwners.currentChatRevision(),
@@ -3089,7 +3063,7 @@ const panelHost = createPanelHost({
     syncingPoint: () => axisState._almSyncingPoint,
     toast: showToast,
     pointGenerating: () => pointState.isGenerating,
-    triggerGenerate,
+    triggerGenerate: () => pointController.triggerGenerate(),
     setCurrentView: view => { currentView = view; },
     setCharViewName: name => { charViewName = name; },
     getCharViewName: () => charViewName,
@@ -3102,8 +3076,8 @@ const panelHost = createPanelHost({
     cachedScheduleHtml: () => pointState.cachedSchedule,
     setBody,
     showEmptyGenerate,
-    updateTaTriggerLabel,
-    closeTaDrawer,
+    updateTaTriggerLabel: () => taDrawer.updateLabel(),
+    closeTaDrawer: () => taDrawer.close(),
     pushRecentCharName: name => store.pushRecentCharName(name),
     getContext,
     guessCharName,
@@ -3121,7 +3095,7 @@ const panelHost = createPanelHost({
         return true;
     },
     taDrawerOpen: () => taDrawer.isOpen(),
-    openTaDrawer,
+    openTaDrawer: () => taDrawer.show(),
     $in, $inAll, $,
     clearShadows() { _spShadow = null; _spDialogShadow = null; },
     buildMarkup() {
@@ -3345,7 +3319,7 @@ function injectModal() {
     bindLinesPanel({
         $, $in, $chat: $('#chat'),
         lines: linesFeature,
-        generate: triggerGenerateLines,
+        generate: () => linesFeature.generate(),
         abort: abortLinesGen,
         openRefresh: () => openRefreshFor(['lines']),
         openHistory: kind => openBookHistory(kind),
@@ -3367,7 +3341,7 @@ function injectModal() {
         pinChar: onCharPinToggle,
         currentView: () => currentView,
         charViewName: () => charViewName,
-        deleteEvent: triggerDeletePointEvent,
+        deleteEvent: (...args) => pointActions.deleteEvent(...args),
         abort: abortScheduleGen,
         openHistory: () => openBookHistory('point'),
         alignStartDate: () => pointActions.alignStartDate(),
@@ -3384,8 +3358,8 @@ function injectModal() {
         close: closeActionMenus,
         pointView: () => ({ view: currentView, charName: charViewName }),
         pointEdit: (day, ev, view) => pointActions.editDescription(day, ev, view),
-        pointPin: (day, ev) => triggerTogglePointPin(day, ev),
-        pointDelete: (day, ev, view) => triggerDeletePointEvent(day, ev, view),
+        pointPin: (day, ev) => pointActions.togglePin(day, ev),
+        pointDelete: (day, ev, view) => pointActions.deleteEvent(day, ev, view),
         inject: iid => injectToST(_injectTexts[iid]),
         lineEdit: idx => linesFeature.actions.edit(idx),
         linePin: idx => linesFeature.actions.pin(idx),
@@ -3477,8 +3451,8 @@ function injectModal() {
             activity: activityFeature,
             theaterOn: () => theaterMode,
             get theater() { return theaterFeature; },
-            closeTaDrawer,
-            toggleTaDrawer,
+            closeTaDrawer: () => taDrawer.close(),
+            toggleTaDrawer: () => taDrawer.toggle(),
             pointGenerating: () => pointState.isGenerating,
             markSideTab(view, $btn) {
                 $inAll('.sp-side-tab.sp-view-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
@@ -3505,7 +3479,7 @@ function injectModal() {
                 else if (linesRuntime.busy) linesFeature.renderBody(loadingHtml('正在推演线', 'sp-abort-lines'));
                 else {
                     const cached = loadCachedLinesForCurrentChat();
-                    linesFeature.renderBody(cached || renderEmptyLinesState());
+                    linesFeature.renderBody(cached || booksEmptyHtml('lines'));
                 }
             },
             paintTheater() {
@@ -3516,7 +3490,7 @@ function injectModal() {
             paintSchedule() {
                 $inAll('.sp-sub-btn').removeClass('sp-view-active').attr({ 'aria-selected': 'false', tabindex: '-1' });
                 $inAll(`.sp-sub-btn[data-view="${currentView}"]`).addClass('sp-view-active').attr({ 'aria-selected': 'true', tabindex: '0' });
-                updateTaTriggerLabel();
+                taDrawer.updateLabel();
                 if (bootstrapFeature?.busy) setBody(bootstrapFeature.progressHtml());
                 else if (pointState.isGenerating) setBody(loadingHtml('正在规划', 'sp-abort-generate'));
                 else if (pointState.cachedSchedule) setBody(pointState.cachedSchedule);
@@ -3670,7 +3644,6 @@ function injectModal() {
 function onRegenClick() { return panelHost.onRegenClick(); }
 function setView(view, charName) { return panelHost.setView(view, charName); }
 function switchToCharView() { return panelHost.switchToCharView(); }
-function confirmCharView() { return panelHost.confirmCharView(); }
 function activateCharView(name) { return panelHost.activateCharView(name); }
 function onCharPinToggle(name) { return panelHost.onCharPinToggle(name); }
 function refreshCharPinIcon() { return panelHost.refreshCharPinIcon(); }
@@ -3881,10 +3854,6 @@ function loadingHtml(baseText, abortId) {
 }
 
 // ─── Generation ───────────────────────────────────────────────────────────────
-
-async function triggerGenerate() {
-    return pointController.triggerGenerate();
-}
 
 // 前置阶段（世界书组装等）不可打断，若只 abort 不即时复位界面，用户点"中止"会觉得没反应。
 // 被中止的旧管线随后走各自 run* 的身份守卫（controller !== myCtrl）静默丢弃，不覆盖界面。
@@ -4312,10 +4281,6 @@ const generationMessages = createGenerationMessagesHost({
     buildRecentChatContext,
     buildCreativeChatSystemPrompt,
 });
-// historyLimit：最近可见 AI 楼条数，默认 3；0 = 不喂近景。
-async function buildMessages(ctx, prompt, userName, charName, historyLimit = 3, opts = {}) {
-    return generationMessages.buildMessages(ctx, prompt, userName, charName, historyLimit, opts);
-}
 
 // ─── Inject ───────────────────────────────────────────────────────────────────
 
@@ -4345,8 +4310,6 @@ function injectToST(text) {
     showToast(prev.trim() ? '已追加到输入框' : '已注入到输入框');
     return true;
 }
-
-// ─── Outline chat ─────────────────────────────────────────────────────────────
 
 // Turn AI reply text into safe rendered HTML via ST's own messageFormatting
 // (markdown + sanitizer + quote-wrap), so 间/面/棱 match the main chat area.
@@ -4379,12 +4342,6 @@ function renderAiMessageHtml(text) {
     return escapeHtml(String(text ?? '')).replace(/\n/g, '<br>');
 }
 
-
-// idx0 从 0 起。就地替换 calendar_widget 内第 idx0 个 Event: 行（保留其 Day/Future 归属与缩进），找不到返回 null。
-function replaceNthEventLine(raw, idx0, newEventLine) {
-    return replacePointEventBlock(raw, idx0, newEventLine);
-}
-
 function readCacheRaw(desc) {
     const saved = readStore(desc);
     return saved?.raw || '';
@@ -4410,13 +4367,9 @@ const axisWidgetActions = createAxisWidgetActions({
     done: ($btn, label) => $btn.prop('disabled', true).html(`<i class="fa-solid fa-check"></i> ${label}`),
     error: message => { showToast(message, null, true); return { ok: false }; },
     notify: message => showToast(message),
-    commitCalendar: commitCalendarDesc,
+    commitCalendar: cal => axisTransactionController.commit(cal),
     notifyEra: cal => { if (getSettings().notifyMode !== 'off') showToast(`历法已更新：${cal.era ? cal.era + '·' : ''}${calendarSummary(cal)}`); },
 });
-
-async function composeCreativeChatMessages(args) {
-    return generationMessages.composeCreativeChat(args);
-}
 
 // 写剪贴板：优先 navigator.clipboard（需安全上下文），失败/不可用则退回 execCommand。
 // 酒馆常跑在非 https 的 WebView 里，clipboard API 可能缺失或抛权限错——execCommand 兜底保证手机也能复制。
@@ -4438,8 +4391,6 @@ async function copyPlainText(text) {
         return ok;
     } catch { return false; }
 }
-
-// ─── 棱（小剧场）render ─────────────────────────────────────────────────────────
 
 function setTheaterBody(html) { $in('#sp-theater-body').html(html); }
 
@@ -4779,7 +4730,7 @@ function storeClearHost() {
         refreshOutlineEmpty: kind => { outlineFeature.refreshAfterStoreClear(kind); syncLatestInlineBlock(); },
         refreshLinesEmpty() {
             linesRuntime.reset();
-            if (linesMode) linesFeature.renderBody(renderEmptyLinesState());
+            if (linesMode) linesFeature.renderBody(booksEmptyHtml('lines'));
             refreshLinesInjection();
             syncLatestInlineBlock();
         },
@@ -4827,26 +4778,6 @@ function refreshEditorsAfterStoreClear(kind) {
 function refreshEditorsFromCurrentStore(kind) {
     dispatchStoreClearRefreshFromStore(kind, storeClearHost());
 }
-
-function renderEmptyLinesState() {
-    return booksEmptyHtml('lines');
-}
-
-async function triggerGenerateLines() {
-    return linesFeature.generate();
-}
-
-function buildLinesPrompt(userName, charName, perspective = 'user', previousRaw = '', scale = 'auto', vectorContext = {}, adultMode = 'off') {
-    return buildCanonicalLinesPrompt(userName, charName, perspective, previousRaw, scale, vectorContext, adultMode);
-}
-
-function parseLines(raw) { return parseCanonicalLines(raw); }
-
-const STAGE_COLORS = {
-    起线: '#7de9d9', 延展: '#58e8b3', 成形: '#d6b85a', 收束: '#2a8a5d', 淡出: '#888888',
-};
-
-const SP_JUMP_HINT_LINES = `<div class="sp-jump-hint">想调整这些线？<button type="button" class="sp-jump-link">和「间」聊聊 →</button></div>`;
 
 function closeActionMenus(except = null) {
     closeOpenActionMenus($inAll, $, except);
@@ -4897,7 +4828,6 @@ function readCalendarDraftForm() {
     };
 }
 
-async function commitCalendarDesc(cal) { return axisTransactionController.commit(cal); }
 async function maybeApplyBoundCalendarTemplate(options = {}) { return axisTransactionController.applyBound(options); }
 function almCalMonth() {
     if (Number.isFinite(axisState._almanacCalMonth)) return axisState._almanacCalMonth;
@@ -5259,10 +5189,6 @@ function showToast(msg, onClick, isError = false) {
     else if (isError) $t.css('cursor', 'pointer').on('click', () => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); });   // 失败 toast 停留久，允许点掉提前消失，免堆叠挡视线
     setTimeout(() => { $t.removeClass('sp-toast-show'); setTimeout(() => $t.remove(), 350); }, holdMs);
 }
-
-// 点行内 actions 已迁入 business/point/actions.js；这里仅保留薄事件转发。
-const triggerTogglePointPin = (...args) => pointActions.togglePin(...args);
-const triggerDeletePointEvent = (...args) => pointActions.deleteEvent(...args);
 
 // 聊天输入框随内容自增高：先归零再按 scrollHeight 撑，CSS 用 max-height 封顶后转滚动条。
 // 清空发送后也调一次即可缩回单行。

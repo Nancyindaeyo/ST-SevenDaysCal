@@ -12,6 +12,16 @@
 - [路线图](./路线图.md)：当前功能优化、代码精简/拆分、待新增功能。
 - [index.js 拆分](./engineering/index拆分.md)：仍在执行的装配根拆分顺序。
 
+## 跑测试
+
+仓内契约测试是各目录下的 `*.test.js`，走 Node 内置 test runner。Windows 上不要写 `node --test .`，会报找不到 `.`。
+
+在仓库根目录执行：
+
+```
+node scripts/run-tests.mjs
+```
+
 ## 目录约定
 
 - `engineering/`：仍有效的工程维护方案。

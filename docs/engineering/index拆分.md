@@ -27,12 +27,7 @@
 - 节拍条：把 `paintPace` / `readPaceSnapshot` 迁入 `business/refresh/pace-host.js`，DOM 端口仍由装配根注入。
 - 引导落地：继续压薄已有 space feature 的 `applyGuideDraft` 封装，不新增万能层。
 
-## 可以顺手清掉的小债
-
-- 删除 `index.js` 中实现已经迁走后留下的空节标题。
-- 两个都只调用 `inlineHost.syncLatest()` 的同步函数保留语义名或统一端口，不继续复制实现。
-- `buildLinesPrompt`、`parseLines` 等纯转发可改为直接使用已导入实现。
-- 不把为解决声明提升 / TDZ 的 deferred 包装误删成“死代码”。
+机械清理（空节标题、相同 `syncLatest` 实现、纯转发 `parseLines` / `buildLinesPrompt`、仅测试使用的 `recall.js` 抽块）已做完。仓内测试入口是 `node scripts/run-tests.mjs`。不要把为声明提升 / TDZ 留下的 deferred 包装误删成死代码。
 
 ## 建议永远留在装配根
 
@@ -49,4 +44,4 @@
 
 ## 执行节奏
 
-一次只搬一块，先补或确认目标块的契约测试，再跑仓内全部 `*.test.js`。插件开关 / 后台中止已迁出；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。
+一次只搬一块，先补或确认目标块的契约测试，再跑 `node scripts/run-tests.mjs`。插件开关 / 后台中止已迁出；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。
