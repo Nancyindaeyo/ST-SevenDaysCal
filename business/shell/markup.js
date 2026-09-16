@@ -67,6 +67,10 @@ export function panelMarkup({
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><line x1="6" y1="8" x2="18" y2="8"/><path d="M6 8 L8.2 13.5 L3.8 13.5 Z"/><path d="M18 8 L20.2 13.5 L15.8 13.5 Z"/></svg></span>
                             <span class="sp-tab-label">律</span>
                         </button>
+                        <button id="sp-tab-stage" class="sp-side-tab sp-view-btn" data-view="stage" role="tab" aria-controls="sp-stage-wrap" aria-selected="false" tabindex="-1">
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg></span>
+                            <span class="sp-tab-label">日台</span>
+                        </button>
                     </nav>
                     <div class="sp-sidebar-spacer"></div>
                     <nav class="sp-sidebar-tabs sp-sidebar-util" aria-label="工具">
@@ -707,6 +711,8 @@ export function panelMarkup({
                             <p class="sp-cfg-hint sp-law-hint">默认关。勾选后每轮塞进主楼，还要开设置里的「允许潜伏注入主楼 AI」。和世界书蓝灯 D0 同类，但这份只跟这次聊天走。笺永不进模型。</p>
                             <textarea id="sp-law-input" class="sp-input sp-law-textarea" placeholder="不要写怀孕&#10;称呼保持您"></textarea>
                         </div>
+
+                        <div class="sp-stage-wrap" id="sp-stage-wrap" role="tabpanel" aria-labelledby="sp-tab-stage" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
 
                         <div class="sp-almanac-wrap" id="sp-almanac-wrap" role="tabpanel" aria-labelledby="sp-tab-almanac" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
                     </div><!-- /sp-main -->

@@ -8,6 +8,7 @@ test('axis item actions remain discoverable to assistive technology', () => {
         assert.match(source, /aria-label="编辑此历项"/);
         assert.match(source, /aria-label="删除此历项"/);
         assert.match(source, /aria-hidden="true"/);
+        assert.match(source, /data-jump-mod="almanac"/);
     });
 });
 

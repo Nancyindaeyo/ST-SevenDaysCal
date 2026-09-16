@@ -5744,6 +5744,71 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     line-height: 1.55;
 }
 
+#sp-stage-wrap {
+    overflow: hidden;
+}
+.sp-stage-body {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 10px 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.sp-stage-today {
+    margin: 0;
+}
+.sp-stage-section {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sp-stage-h {
+    margin: 0;
+    font-size: var(--sp-fs-74);
+    font-weight: 600;
+    opacity: 0.72;
+}
+.sp-stage-empty {
+    font-size: var(--sp-fs-74);
+    opacity: 0.55;
+    padding: 6px 2px;
+}
+.sp-stage-row {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    width: 100%;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--sp-divider);
+    border-radius: 9px;
+    background: var(--sp-sheet-bg);
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background var(--sp-dur-fast) var(--sp-ease-standard, ease);
+}
+.sp-stage-row:hover {
+    background: var(--sp-hover-bg);
+}
+.sp-stage-row-title {
+    min-width: 0;
+    font-size: var(--sp-fs-82);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.sp-stage-row-meta {
+    margin-left: auto;
+    flex: 0 0 auto;
+    font-size: var(--sp-fs-68);
+    opacity: 0.55;
+}
+
 /* 角色层 / 聊天桶 / 缩略卡片 共用列容器 */
 .sp-anchor-char-list, .sp-anchor-chat-list, .sp-anchor-item-list { display: flex; flex-direction: column; gap: 8px; }
 

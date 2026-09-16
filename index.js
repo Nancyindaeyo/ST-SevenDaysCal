@@ -32,6 +32,8 @@ import { createSlipFeature } from './business/slip/feature.js';
 import { enterSlipSidebar } from './business/slip/ui.js';
 import { createLawFeature } from './business/law/feature.js';
 import { enterLawSidebar } from './business/law/ui.js';
+import { collectStageSnapshot, buildFestivalRows } from './business/stage/snapshot.js';
+import { createStageFeature, enterStageSidebar } from './business/stage/feature.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -168,7 +170,7 @@ import {
 } from './business/axis/ui.js';
 import {
     bindAxisAnchor,
-    almTodayAnchor, almDaysUntil, almDaysBetweenFull, almWeekdayRef, almWeekdayFor,
+    almTodayAnchor, almTodayAnchorEvidence, almStoryYear, almDaysUntil, almDaysBetweenFull, almWeekdayRef, almWeekdayFor, sortAlmanacUpcoming,
 } from './business/axis/anchor.js';
 import { getAlmanacInjectText } from './business/axis/inject.js';
 import { createAxisPanel } from './business/axis/panel.js';
@@ -209,6 +211,7 @@ bindExternalChatStorage({ getContext, coreModule: scriptCore, fetchImpl: (...arg
 const TERMINAL_STAGES = TERMINAL_LINE_STAGES;
 
 import { pointState } from './business/point/state.js';
+import { formatPointDayDate } from './business/point/event-when.js';
 import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
 import { automationAllowed, booksAreEmpty } from './business/bootstrap/queue.js';
@@ -245,7 +248,7 @@ import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
 import { parseLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
 import { buildLinesPrompt } from './business/lines/prompt.js';
-import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay } from './business/lines/strategy.js';
+import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay, activeLines } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
 import { syncVectorGlyphTheme } from './business/lines/vectors/glyph.js';
 import { createOutlineFeature } from './business/outline/feature.js';
@@ -1285,6 +1288,7 @@ const _iSub  = t => `<div class="sp-intro-sub">${t}</div>`;
 const _iKey  = (icon, name, desc) => `<div class="sp-intro-key"><i class="fa-solid ${icon}"></i><b>${name}</b><span>${desc}</span></div>`;
 const _iSvgKey = (svg, name, desc) => `<div class="sp-intro-key">${svg}<b>${name}</b><span>${desc}</span></div>`;
 const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg>';
+const _stageIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg>';
 
 const MODULE_INTROS = {
     schedule:
@@ -1368,6 +1372,10 @@ const MODULE_INTROS = {
     law:
         _iLede('「律」是这一次聊天的短合同：几条必须遵守的红线或文风句。默认不进模型；勾选「注入主楼」并且设置里的潜伏注入总闸也开着，才每轮塞进主楼。') +
         _iSub('和世界书蓝灯 D0 同类，但这份只跟这次聊天走。笺永不进模型。律不审稿、不代写正文。'),
+    stage:
+        _iLede('「日台」把今天该演什么收成一屏：点的今天、近七天节日、到期或持续的刻度、时机写近日的线。柏宝书管世界现在怎样；日台管作者打算这几天演什么。') +
+        _iSub('只读、不注入、不另建一本账。点一条就跳到原来那本账。没有可靠「今天」时不猜现实日期。') +
+        _iSvgKey(_stageIntroSvg, '日台', '台上一点：今天的演出单，不是第二份摘要'),
 };
 
 let lastDebugPayload = null;
@@ -1484,7 +1492,7 @@ const apiPresetUi = createApiPresetUi({
 
 let settingsOpen   = false;
 let currentView        = 'user';  // 'user' | 'char'
-let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺/律），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
+let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺/律/日台），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
 let outlineMode         = false;
 let linesMode           = false;
@@ -1988,6 +1996,43 @@ const lawFeature = createLawFeature({
     injectEnabled,
     $in,
 });
+function collectStageSnapshotHost() {
+    const cal = loadCalDesc();
+    const evidence = almTodayAnchorEvidence();
+    const anchor = evidence || almTodayAnchor();
+    const todayLabel = evidence
+        ? formatPointDayDate({ year: almStoryYear(evidence), month: evidence.month, day: evidence.day })
+        : '';
+    let days = [];
+    try {
+        const saved = readStore(getCacheKey('user', ''));
+        if (saved?.raw) days = parseCalendar(saved.raw, cal)?.days || [];
+    } catch { days = []; }
+    const festivals = buildFestivalRows(loadAlmanac() || [], {
+        cal,
+        anchor,
+        daysUntil: almDaysUntil,
+        dayOfYear: almDayOfYear,
+        coversDoy: almItemCoversDoy,
+        clampInt: almClampInt,
+        yearLen: calYearLen,
+        sort: sortAlmanacUpcoming,
+    });
+    const ledgerEntries = (ledger.listEntries() || []).map(entry => ({
+        ...entry,
+        due: ledgerDueInfo(entry),
+    }));
+    let lines = [];
+    try {
+        lines = activeLines(readStore(getLinesCacheKey())?.raw || '');
+    } catch { lines = []; }
+    return collectStageSnapshot({ todayLabel, days, festivals, ledger: ledgerEntries, lines });
+}
+const stageFeature = createStageFeature({
+    collect: collectStageSnapshotHost,
+    jump: openActivityItem,
+    $in,
+});
 let theaterMode          = false;
 let beatFeature          = null;
 const refreshController = createRefreshController({
@@ -2456,6 +2501,7 @@ jQuery(async () => {
         space: spaceFeature,
         slip: slipFeature,
         law: lawFeature,
+        stage: stageFeature,
         activity: activityFeature,
         dashed: linesFeature.dashed,
         theater: theaterFeature,
@@ -2705,6 +2751,7 @@ const pluginLifecycle = createPluginLifecycle({
     space: spaceFeature,
     slip: slipFeature,
     law: lawFeature,
+    stage: stageFeature,
     dashed: linesFeature.dashed,
     refresh: refreshController,
     floorQueue,
@@ -3348,6 +3395,7 @@ function injectModal() {
     spaceFeature.bindUi();
     slipFeature.bindUi();
     lawFeature.bindUi();
+    stageFeature.bindUi();
     beatFeature.bindUi();
     bindLinesPanel({
         $, $in, $chat: $('#chat'),
@@ -3485,6 +3533,7 @@ function injectModal() {
             theaterOn: () => theaterMode,
             slipOn: () => slipFeature.isOpen(),
             lawOn: () => lawFeature.isOpen(),
+            stageOn: () => stageFeature.isOpen(),
             get theater() { return theaterFeature; },
             closeTaDrawer: () => taDrawer.close(),
             toggleTaDrawer: () => taDrawer.toggle(),
@@ -3546,8 +3595,14 @@ function injectModal() {
                 show: () => showPanelView($in, 'law'),
                 feature: lawFeature,
             }),
+            enterStage: () => enterStageSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'stage'),
+                feature: stageFeature,
+            }),
             get slip() { return slipFeature; },
             get law() { return lawFeature; },
+            get stage() { return stageFeature; },
             get coordinate() { return coordinateRuntime?.feature; },
             currentView: () => currentView,
             setView,
@@ -3705,6 +3760,7 @@ function refreshCharPinIcon() { return panelHost.refreshCharPinIcon(); }
 function resetPanelToScheduleHome() {
     slipFeature.close();
     lawFeature.close();
+    stageFeature.close();
     outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
     axisState._almanacEditor = null;
     resetLedgerRenderState();

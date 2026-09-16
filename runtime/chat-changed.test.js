@@ -37,6 +37,7 @@ function host(overrides = {}) {
         space: track(calls, 'space'),
         slip: track(calls, 'slip'),
         law: track(calls, 'law'),
+        stage: track(calls, 'stage'),
         activity: track(calls, 'activity'),
         dashed: track(calls, 'dashed'),
         theater: track(calls, 'theater'),
@@ -84,6 +85,7 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.ok(names.indexOf('space.onChatChanged') < names.indexOf('migrate'));
     assert.ok(names.includes('slip.onChatChanged'));
     assert.ok(names.includes('law.onChatChanged'));
+    assert.ok(names.includes('stage.onChatChanged'));
     assert.ok(names.includes('injLaw'));
     assert.ok(names.includes('refresh.abort'));
     assert.ok(names.includes('floorQueue.abort'));

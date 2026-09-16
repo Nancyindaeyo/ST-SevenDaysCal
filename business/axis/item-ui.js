@@ -19,7 +19,7 @@ export function createAxisItemUi(env = {}) {
         const batchOn = env.batchScope?.() === 'almanac';
         const checked = batchOn && env.batchSelected?.().has(it.id);
         const checkbox = batchOn ? `<input type="checkbox" class="sp-batch-check" ${checked ? 'checked' : ''} aria-label="选择此条">` : '';
-        return `<div class="sp-alm-item sp-alm-type-${meta.cls}${it.pin ? ' sp-alm-pinned' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}" data-id="${it.id}">
+        return `<div class="sp-alm-item sp-alm-type-${meta.cls}${it.pin ? ' sp-alm-pinned' : ''}${batchOn ? ' sp-batch-row' : ''}${checked ? ' sp-batch-checked' : ''}" data-id="${it.id}" data-jump-mod="almanac" data-jump-key="${env.escapeHtml(it.name)}" data-jump-ref="${env.escapeHtml(it.id)}">
         <div class="sp-alm-top">
             ${checkbox}<i class="fa-solid ${meta.icon} sp-alm-date-icon"></i>
             <span class="sp-alm-date-txt">${env.escapeHtml(env.dateLabel(it, ctx?.cal))}</span>

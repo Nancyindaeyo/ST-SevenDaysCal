@@ -49,6 +49,14 @@ test('showPanelView can open 律', () => {
     assert.equal(dom.title.text, '律');
 });
 
+test('showPanelView can open 日台', () => {
+    const dom = fakeDom();
+    showPanelView(dom.$in, 'stage');
+    assert.equal(dom.display['#sp-stage-wrap'], 'flex');
+    assert.equal(dom.display['#sp-body'], 'none');
+    assert.equal(dom.title.text, '日台');
+});
+
 test('schedule home can paint tabs without touching wrap visibility', () => {
     const dom = fakeDom();
     paintScheduleHome(dom.$in, dom.$inAll, { sub: 'user', wraps: false });

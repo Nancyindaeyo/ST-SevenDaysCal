@@ -19,6 +19,7 @@ export async function runChatChanged(h) {
     h.space?.onChatChanged?.({ enabled: h.pluginEnabled?.() });
     h.slip?.onChatChanged?.();
     h.law?.onChatChanged?.();
+    h.stage?.onChatChanged?.();
     h.activity?.onChatChanged?.();
     h.activity?.close?.();
     h.dashed?.abort?.(REASON);

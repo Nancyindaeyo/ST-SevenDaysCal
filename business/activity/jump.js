@@ -28,6 +28,7 @@ export function jumpViewOf(module) {
     if (module === 'dashed') return { view: 'lines', sheet: 'dashed' };
     if (module === 'outline') return { view: 'outline', sheet: null };
     if (module === 'ledger') return { view: 'almanac', sheet: 'ledger' };
+    if (module === 'almanac') return { view: 'almanac', sheet: 'upcoming' };
     return null;
 }
 
