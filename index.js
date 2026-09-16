@@ -8,8 +8,14 @@ import {
     getCreativeChatPlaceholder,
 } from './state.js';
 import * as memory from './memory.js';
-import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK } from './business/theater/constants.js';
+import {
+    createTheaterHost,
+    readTheaterSnapshotContext,
+    saveTheaterSnapshotToCoordinate,
+    theaterParticipantNames,
+    theaterSettingsSlice,
+} from './business/theater/host.js';
 import { refreshFoldHtml } from './business/refresh/bar.js';
 import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createFloorJobQueue } from './business/refresh/floor-queue.js';
@@ -61,7 +67,8 @@ import { bindInjectAndJump, bindPointPanel } from './business/point/bind.js';
 import { bindAdultReveal } from './business/utils/adult-reveal.js';
 import { bindActionMenuDismiss, bindManualActionMenus, closeOpenActionMenus } from './business/utils/action-menu.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
-import { bindApiFields, bindDiagnostics, filterModelList } from './runtime/api-fields-bind.js';
+import { bindApiFields, bindDiagnostics } from './runtime/api-fields-bind.js';
+import { createModelListHost } from './runtime/model-list-host.js';
 import { createDebugPayload } from './runtime/debug-payload.js';
 import { createPaceHost } from './business/refresh/pace-host.js';
 import { bindMemorySettings } from './business/memory/settings-bind.js';
@@ -77,7 +84,6 @@ import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfir
 import * as ledger from './business/ledger/repository.js';
 import { createBestEffortMetadataSaver, createTargetMetadataSaver, dispatchTargetMetadataWithRefresh } from './runtime/target-metadata-save.js';
 import * as theaterDeviceCache from './runtime/theater-device-cache.js';
-import { createTheaterHostPorts } from './runtime/theater-host-ports.js';
 import { selectVisibleChatHistory } from './business/lines/history.js';
 import * as snapshot from './snapshot.js';
 import { createDialogManager } from './modal.js';
@@ -398,17 +404,20 @@ function downloadJsonFile(filename, text) {
 let theaterFeature;
 let memoryPauseNoticeShown = false;
 function createTheaterHostFeature() {
-    const runtime = createTheaterRuntime({
+    return createTheaterHost({
         storage: globalThis.localStorage, coreModule: scriptCore, getContext, callTheaterApi,
         buildWorldInfoContext: (ctx, opts) => buildWorldInfoContext(ctx, opts), readCardExtras: ctx => readCardExtras(ctx), getMemText: () => getMemText(),
-        names: () => ({ userName: getContext().name1 || '用户', charName: getContext().name2 || '角色' }),
-        settings: () => { const s = getSettings(); return { theaterStylePrompt: typeof s.theaterStylePrompt === 'string' ? s.theaterStylePrompt : '', theaterCount: s.theaterCount, theaterPoolBooks: Array.isArray(s.theaterPoolBooks) ? s.theaterPoolBooks : [] }; },
+        names: () => theaterParticipantNames(getContext()),
+        settings: () => theaterSettingsSlice(getSettings()),
         onDiagnostic: diagnostic => { console.warn('[SP theater]', diagnostic); if (getSettings().notifyMode === 'full') showToast('棱生成时有可恢复错误，已尽量保留结果', null, true); },
         stage: text => { if (theaterMode) setTheaterBody(loadingHtml(`正在${text}`, 'sp-abort-theater')); }, renderAiMessageHtml,
         downloadJson: downloadJsonFile,
-        ports: createTheaterHostPorts({ $, $in, inEl, documentRef: globalThis.document, getContext, captureTarget: chatId => runtime?.captureTarget?.(chatId), theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, promptTextarea: options => customDialog.promptTextarea(options), scriptCore, listWorldNames: () => getAllWorldNames(getContext()), syncSettingsPoolList: () => { void renderTheaterPoolList(); }, snapshotContext: () => { const ctx = getContext() || {}; const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return { chatId: ctx.chatId ?? null, chatIdHash: ctx.chatMetadata?.chat_id_hash ?? null, chatName: el?.value || el?.textContent?.trim() || ctx.chatId || '当前聊天', charName: ctx.name2 || '角色' }; }, saveSnapshot: item => { const coordinate = getCoordinateRuntime(); if (!coordinate?.feature?.saveFromTheater) throw new Error('坐标还没就绪'); return coordinate.feature.saveFromTheater(item); } }),
+        ports: { $, $in, inEl, documentRef: globalThis.document, getContext, theaterMode: () => theaterMode, modalId: () => MODAL_ID, setBody: html => setTheaterBody(html), loading: loadingHtml, escapeHtml, escapeAttr, settings: getSettings, saveSettingsDebounced, showToast, showPanel, spConfirm, promptTextarea: options => customDialog.promptTextarea(options), scriptCore },
+        listWorldNames: () => getAllWorldNames(getContext()),
+        syncSettingsPoolList: () => { void renderTheaterPoolList(); },
+        snapshotContext: () => readTheaterSnapshotContext(getContext() || {}, globalThis.document),
+        saveSnapshot: item => saveTheaterSnapshotToCoordinate(item, getCoordinateRuntime),
     });
-    return runtime.feature;
 }
 
 // Shadow-DOM accessors are dependencies of the top-level DI wiring below.
@@ -3187,7 +3196,7 @@ function injectModal() {
         fetchModels,
         syncPreset: () => apiPresetUi.syncState(),
         renderModelList,
-        cachedModels: () => _cachedModels,
+        cachedModels: () => modelList.cached(),
         maskKey,
         parseExcludeParams,
     });
@@ -4134,72 +4143,13 @@ async function deleteAlmanacItem(id) {
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 
-// Inline model list state — cached models from last fetch. Not persisted
-// across page reloads (matches original <select> behavior — user re-fetches
-// if they refresh). Lives only while the tab is open.
-let _cachedModels = [];
-
-function renderModelList(models, filter = '') {
-    _cachedModels = Array.isArray(models) ? models : [];
-    $in('#sp-model-list-count').text(`已加载 ${_cachedModels.length} 个模型`);
-    const shown = filterModelList(_cachedModels, filter);
-    const current = ($in('#sp-cfg-model').val() || '').trim();
-    if (!shown.length) {
-        $in('#sp-model-list-items').html(`<div class="sp-model-list-empty">${String(filter ?? '').trim() ? '无匹配项' : '暂无模型'}</div>`);
-        return;
-    }
-    // Cap the initial render at 200 items with a "show more" tail for MASSIVE lists;
-    // in practice most APIs return <200 so this is defensive.
-    const html = shown.map(m =>
-        `<button type="button" class="sp-model-list-item${m === current ? ' sp-model-list-item-active' : ''}" data-model="${escapeAttr(m)}">${escapeHtml(m)}</button>`
-    ).join('');
-    $in('#sp-model-list-items').html(html);
-}
-
-async function fetchModels() {
-    const rawUrl = $in('#sp-cfg-url').val().trim();
-    const key = ($in('#sp-cfg-key').data('real') || $in('#sp-cfg-key').val()).trim();
-    if (!rawUrl || !key) { showToast('请先填写 URL 和 Key', null, true); return; }
-    const url = normalizeApiUrl(rawUrl);
-    const ctx = getContext();
-
-    const $btn = $in('#sp-fetch-models');
-    $btn.prop('disabled', true).html('<i class="fa-solid fa-spinner fa-spin"></i>');
-    try {
-        // Same proxy strategy as generation: go through ST's /status endpoint
-        // which supports listing OpenAI-compatible models via a POST body.
-        const res = await fetch('/api/backends/chat-completions/status', {
-            method : 'POST',
-            headers: ctx.getRequestHeaders(),
-            body   : JSON.stringify({
-                chat_completion_source: 'openai',
-                reverse_proxy         : url,
-                proxy_password        : key,
-            }),
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`);
-        const data = await res.json();
-        if (data?.error) throw makeDiagnosticError('unknown', { phase: 'request' });
-        const models = (data.data || data.models || [])
-            .map(m => (typeof m === 'string' ? m : m.id))
-            .filter(Boolean).sort();
-        if (!models.length) throw new Error('接口未返回任何模型');
-
-        // Inline model list — no popup, no z-index chaos. Render directly into
-        // the settings body's <details> section so any browser/WebView that can
-        // render <button> can render this. Fixes "popup appears behind plugin"
-        // reports from in-app browsers (WeChat/QQ WebView, etc.) that don't
-        // give <select> the native fullscreen picker treatment.
-        renderModelList(models);
-        // Auto-expand so user sees the result of their action
-        $in('#sp-model-list-section').attr('open', 'open').show();
-        showToast(`已加载 ${models.length} 个模型`);
-    } catch (err) {
-        showToast(`获取模型失败：${diagnosticMessage(err)}`, null, true);
-    } finally {
-        $btn.prop('disabled', false).html('<i class="fa-solid fa-list"></i>');
-    }
-}
+// Inline model list — cached models from last fetch. Not persisted across reloads.
+const modelList = createModelListHost({
+    $in, escapeHtml, escapeAttr, normalizeUrl: normalizeApiUrl, getContext,
+    toast: showToast, diagnosticMessage,
+});
+function renderModelList(models, filter = '') { return modelList.render(models, filter); }
+async function fetchModels() { return modelList.fetch(); }
 
 function toggleSettings() {
     if (!settingsOpen) activityFeature.close();
