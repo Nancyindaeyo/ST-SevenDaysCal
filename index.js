@@ -25,7 +25,7 @@ import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
-import { editOutlineScene, normalizeOutlineResponse, parseOutline } from './business/outline/schema.js';
+import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { createSlipFeature } from './business/slip/feature.js';
@@ -34,9 +34,9 @@ import { createLawFeature } from './business/law/feature.js';
 import { enterLawSidebar } from './business/law/ui.js';
 import { collectStageSnapshot, buildFestivalRows } from './business/stage/snapshot.js';
 import { createStageFeature, enterStageSidebar } from './business/stage/feature.js';
-import { detectLampConflicts, readLampBaiBai } from './business/lamp/detect.js';
 import { createLampFeature, enterLampSidebar } from './business/lamp/feature.js';
-import { intentFromGuide, parseLampIntent } from './business/lamp/intent.js';
+import { createLampHost } from './business/lamp/host.js';
+import { intentFromGuide } from './business/lamp/intent.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -252,7 +252,7 @@ import { filterRerollItems, shouldRunPendingPointFollowup } from './runtime/refa
 import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
 import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
-import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
+import { parseLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
 import { buildLinesPrompt } from './business/lines/prompt.js';
 import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay, activeLines } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
@@ -1830,16 +1830,7 @@ const spaceFeature = createSpaceFeature({
         copyText: copyPlainText,
         confirm: spConfirm,
         toast: (message, error) => showToast(message, null, error),
-        handoffMessage: message => {
-            const text = spaceMessagePlainText(message) || String(message?.content || '');
-            const parsed = parseLampIntent(text);
-            lampFeature.setIntent(parsed.items.length ? parsed : { ...parsed, text, kind: parsed.kind || 'fight' }, { from: 'space', kind: parsed.kind || 'fight' });
-            enterLampSidebar({
-                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
-                show: () => showPanelView($in, 'lamp'),
-                feature: lampFeature,
-            });
-        },
+        handoffMessage: message => lampHost.receiveSpaceMessage(message),
         // 轴动作在本 facade 之后初始化；只在真实点击时读取，严禁顶层提前解引用造成 TDZ。
         widgetActions: () => ({
             point: (body, $button, editIdx) => applyPointWidget(body, $button, editIdx),
@@ -1854,15 +1845,7 @@ const spaceFeature = createSpaceFeature({
     recordGuideActivity: entry => activityFeature.record(entry),
     generateBeat: () => revealBeatAndGenerate(),
     intentFromGuide: state => intentFromGuide(state, { kind: 'fight' }),
-    handoffToLamp: intent => {
-        lampFeature.setIntent(intent, { from: 'guide', kind: intent?.kind || 'fight', hasConflict: true });
-        enterLampSidebar({
-            resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
-            show: () => showPanelView($in, 'lamp'),
-            feature: lampFeature,
-        });
-        showToast('草案已交给灯，确认跑法后再改账');
-    },
+    handoffToLamp: intent => lampHost.handoffFromGuide(intent),
 });
 const slipFeature = createSlipFeature({
     context: getContext,
@@ -1917,229 +1900,47 @@ const stageFeature = createStageFeature({
     $in,
     onOpen: () => beatFeature.ui?.render?.(),
 });
-function applyLampFightExtras(patches = []) {
-    const applied = [];
-    for (const patch of patches || []) {
-        if (patch.target === 'ledger') {
-            const entries = ledger.listEntries() || [];
-            const hit = entries.find(entry => {
-                const name = String(entry.事由 || entry.title || '');
-                return name && (name.includes(patch.title) || patch.title.includes(name));
-            });
-            if (hit && patch.fields?.[1]) {
-                ledger.updateEntry(hit.id, { 现状: patch.fields[1] });
-                applied.push({ module: 'ledger', title: hit.事由 || hit.title, action: 'edit', ref: hit.id });
-            }
-            continue;
-        }
-        if (patch.target === 'almanac') {
-            const items = loadAlmanac() || [];
-            const hit = items.find(item => String(item.name || '') && (item.name.includes(patch.title) || patch.title.includes(item.name)));
-            if (hit && patch.fields?.[1]) {
-                hit.note = patch.fields[1];
-                void saveAlmanacItemsConfirmed(items);
-                applied.push({ module: 'axis', title: hit.name, action: 'edit' });
-            }
-            continue;
-        }
-        if (patch.target === 'dashed') {
-            const items = linesFeature.dashed?.read?.() || [];
-            const hit = items.find(item => {
-                const text = String(item.text || item.title || '');
-                return text && (text.includes(patch.title) || patch.title.includes(text.slice(0, 24)));
-            });
-            if (hit && patch.fields?.[1]) {
-                hit.text = patch.fields[1];
-                linesFeature.dashed?.commit?.(items);
-                applied.push({ module: 'dashed', title: String(hit.text || '').slice(0, 40), action: 'edit', ref: hit.id });
-            }
-            continue;
-        }
-        if (patch.target === 'outline') {
-            const raw = outlineFeature.readRaw?.() || '';
-            const beats = parseOutline(raw);
-            const index = beats.findIndex(beat => {
-                const name = String(beat.title || '');
-                return name && (name.includes(patch.title) || patch.title.includes(name));
-            });
-            if (index >= 0 && patch.fields?.[1]) {
-                const result = editOutlineScene(raw, index, patch.fields[1]);
-                if (result.ok) {
-                    const target = outlineFeature.repository.capture();
-                    const saved = outlineFeature.repository.readOutline(target);
-                    void outlineFeature.repository.commitOutlineConfirmed(target, { raw: result.raw, ts: Date.now(), cursor: saved?.cursor ?? 1 });
-                    outlineFeature.refreshPanel?.();
-                    applied.push({ module: 'outline', title: beats[index].title, action: 'edit' });
-                }
-            }
-        }
-    }
-    return applied;
-}
-function applyLampHandEdit(payload = {}) {
-    const fields = payload.fields || {};
-    const title = String(fields.title || payload.title || '').trim();
-    if (payload.module === 'point') {
-        const key = getCacheKey('user', '');
-        const saved = readStore(key) || {};
-        const cal = loadCalDesc();
-        const parsed = parseCalendar(saved.raw, cal);
-        const days = parsed.allDays || parsed.days || [];
-        let hit = null;
-        const visit = events => {
-            for (const event of events || []) {
-                if ((payload.ref && event.id === payload.ref) || event.title === payload.title) {
-                    hit = event;
-                    return true;
-                }
-            }
-            return false;
-        };
-        for (const day of days) if (visit(day.events)) break;
-        if (!hit) visit(parsed.future?.events);
-        if (hit) {
-            if (title) hit.title = title;
-            if (fields.time) hit.time = fields.time;
-            if (fields.location) hit.location = fields.location;
-            if (fields.desc) hit.desc = fields.desc;
-            void writeStoreConfirmed(key, { ...saved, raw: serializeCalendar(days, parsed.future, parsed.startDate, cal, parsed.startDateToken, parsed.pastDays), ts: Date.now() });
-        }
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    if (payload.module === 'lines') {
-        const key = getLinesCacheKey();
-        const saved = readStore(key) || {};
-        const model = parseLines(saved.raw);
-        const line = model.find(item => (payload.ref && item.id === payload.ref) || item.name === payload.title);
-        if (line) {
-            if (title) line.name = title;
-            if (fields.when) line.when = fields.when;
-            if (fields.desc) line.desc = fields.desc;
-            if (fields.next) line.next = fields.next;
-            void writeStoreConfirmed(key, { ...saved, raw: serializeLines(model), ts: Date.now() });
-        }
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    if (payload.module === 'outline') {
-        const raw = outlineFeature.readRaw?.() || '';
-        const beats = parseOutline(raw);
-        const index = beats.findIndex(beat => beat.title === payload.title);
-        if (index >= 0 && fields.scene) {
-            const result = editOutlineScene(raw, index, fields.scene);
-            if (result.ok) {
-                const target = outlineFeature.repository.capture();
-                const saved = outlineFeature.repository.readOutline(target);
-                void outlineFeature.repository.commitOutlineConfirmed(target, { raw: result.raw, ts: Date.now(), cursor: saved?.cursor ?? 1 });
-                outlineFeature.refreshPanel?.();
-            }
-        }
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    if (payload.module === 'ledger') {
-        const patch = {};
-        if (title) patch.事由 = title;
-        if (fields.现状) patch.现状 = fields.现状;
-        if (payload.ref) ledger.updateEntry(payload.ref, patch);
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    if (payload.module === 'almanac') {
-        const items = loadAlmanac() || [];
-        const hit = items.find(item => item.name === payload.title || item.name === title);
-        if (hit) {
-            if (title) hit.name = title;
-            if (fields.note != null) hit.note = fields.note;
-            void saveAlmanacItemsConfirmed(items);
-        }
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    if (payload.module === 'dashed') {
-        const items = linesFeature.dashed?.read?.() || [];
-        const hit = items.find(item => item.id === payload.ref || String(item.text || '').startsWith(payload.title));
-        if (hit) {
-            if (fields.text) hit.text = fields.text;
-            linesFeature.dashed?.commit?.(items);
-        }
-        lampFeature.refresh();
-        return { status: 'updated' };
-    }
-    lampFeature.refresh();
-    return { status: 'updated' };
-}
-function collectLampSnapshotHost() {
-    const cal = loadCalDesc();
-    let days = [];
-    try {
-        const saved = readStore(getCacheKey('user', ''));
-        if (saved?.raw) days = parseCalendar(saved.raw, cal)?.days || [];
-    } catch { days = []; }
-    const ledgerEntries = (ledger.listEntries() || []).map(entry => ({
-        ...entry,
-        due: ledgerDueInfo(entry),
-    }));
-    let lines = [];
-    try {
-        lines = activeLines(readStore(getLinesCacheKey())?.raw || '');
-    } catch { lines = []; }
-    let hasBaiBai = false;
-    let bbb = null;
-    try {
-        if (getSettings().useBaiBaiBook) {
-            hasBaiBai = true;
-            bbb = readLampBaiBai(globalThis.STBaiBaiBook?.getSnapshot?.());
-        }
-    } catch {
-        hasBaiBai = true;
-    }
-    return {
-        hasBaiBai,
-        conflicts: detectLampConflicts({ days, ledger: ledgerEntries, lines, bbb }),
-        books: {
-            days,
-            lines,
-            ledger: ledgerEntries,
-            outline: (outlineFeature.readSnapshot?.()?.beats || []),
-            almanac: loadAlmanac() || [],
-            dashed: linesFeature.dashed?.read?.() || [],
-        },
-    };
-}
+const lampHost = createLampHost({
+    calendar: loadCalDesc,
+    settings: getSettings,
+    baiBaiSnapshot: () => globalThis.STBaiBaiBook?.getSnapshot?.(),
+    readPoint: () => readStore(getCacheKey('user', '')),
+    writePoint: value => writeStoreConfirmed(getCacheKey('user', ''), value),
+    pointKey: () => getCacheKey('user', ''),
+    readLinesRaw: () => readStore(getLinesCacheKey())?.raw || '',
+    readLines: () => readStore(getLinesCacheKey()) || {},
+    writeLines: value => writeStoreConfirmed(getLinesCacheKey(), value),
+    listLedger: () => ledger.listEntries() || [],
+    updateLedger: (id, patch) => ledger.updateEntry(id, patch),
+    dueInfo: ledgerDueInfo,
+    loadAlmanac,
+    saveAlmanac: items => saveAlmanacItemsConfirmed(items),
+    outline: () => outlineFeature,
+    lines: () => linesFeature,
+    lamp: () => lampFeature,
+    space: () => spaceFeature,
+    activity: () => activityFeature,
+    openSpace: () => openPluginViewWithPrefill('space'),
+    fillSpaceInput: text => $in('#sp-space-input')?.val?.(text),
+    resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+    showLamp: () => showPanelView($in, 'lamp'),
+    toast: message => showToast(message),
+});
 const lampFeature = createLampFeature({
-    collect: collectLampSnapshotHost,
+    collect: () => lampHost.collect(),
     jump: openActivityItem,
     $in,
     $,
     toast: (message, error) => showToast(message, null, error),
     onOpen: () => { $in('#sp-refresh-fold')?.prop?.('open', false); },
-    sendToSpace: async ({ items = [], ask = false } = {}) => {
-        const quote = items.map(item => `${item.title}${item.detail || item.snippet ? `：${item.detail || item.snippet}` : ''}`).filter(Boolean).join('\n');
-        spaceFeature.guide?.leave?.();
-        spaceFeature.ui?.setQuote?.({ quote: quote || '（待改篮是空的）', who: '对账灯' });
-        activityFeature.close();
-        const ok = await openPluginViewWithPrefill('space');
-        if (ask) {
-            $in('#sp-space-input')?.val?.('这段账可能打架了。帮我想清楚该怎么改，最后给灯一份改账意图。不确定跑法就写未写清。');
-        }
-        spaceFeature.ui?.setQuote?.({ quote: quote || '（待改篮是空的）', who: '对账灯' });
-        return { status: ok ? 'quoted' : 'failed' };
-    },
-    clarifyIntent: intent => {
-        spaceFeature.guide?.leave?.();
-        spaceFeature.ui?.setQuote?.({ quote: intent?.text || '', who: '对账灯' });
-        void openPluginViewWithPrefill('space').then(() => {
-            $in('#sp-space-input')?.val?.('上一版意图没写清跑法或条目。请再出一版写清楚的改账意图：跑法、要动哪几本、点名条目怎么改、不要动什么。不要自己改账。');
-        });
-    },
+    sendToSpace: opts => lampHost.sendBasketToSpace(opts),
+    clarifyIntent: intent => lampHost.clarifyIntent(intent),
     runKind: (kind, intent) => {
         if (kind === 'align') return refreshController.align({ selected: intent.modules?.length ? intent.modules.filter(name => name === 'point' || name === 'lines') : ['point', 'lines'], reason: intent.text, cause: 'manual' });
         if (kind === 'regen') return refreshController.regenerate({ selected: intent.modules?.length ? intent.modules.filter(name => name === 'point' || name === 'lines' || name === 'dashed' || name === 'outline') : ['point', 'lines'], reason: intent.text || '灯上按意图重做' });
         return refreshController.fight({ intent, cause: 'manual' });
     },
-    saveItem: payload => applyLampHandEdit(payload),
+    saveItem: payload => lampHost.applyHandEdit(payload),
 });
 let theaterMode          = false;
 let beatFeature          = null;
@@ -2193,7 +1994,7 @@ const refreshController = createRefreshController({
         dashedText: (linesFeature.dashed?.read?.() || []).map(item => item.text || item.body || '').join('\n'),
         outlineRaw: outlineFeature.readRaw?.() || '',
     }),
-    applyFightExtras: patches => applyLampFightExtras(patches),
+    applyFightExtras: patches => lampHost.applyFightExtras(patches),
     onActivity: entry => activityFeature.record(entry),
     floorSignature: _floorSig,
     sameFloor: () => sameFloorGate.pending(),
