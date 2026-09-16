@@ -10,6 +10,8 @@
 - [自动改账与诊断检查](./自动改账与诊断检查.md)：【改】、本楼队列、失败处理和诊断包。
 - [token 预算与 TT-iOS 适配](./token预算与TT-iOS适配.md)：上下文预算、长聊天与 TauriTavern 适配边界。
 - [路线图](./路线图.md)：当前功能优化、代码精简/拆分、待新增功能。
+- [下一轮产品优化](./optimization-next.md)：对账灯工作台、日台 UI、棱导出进模板、坐标存配方、补录改 10 楼一次。
+- [提示词一职一份](./prompts.md)：align / fight / regen / retry 与间意图的边界。
 - [index.js 拆分](./engineering/index拆分.md)：仍在执行的装配根拆分顺序。
 
 ## 跑测试

@@ -47,6 +47,8 @@ export function createSpaceFeature(env = {}) {
         snapshotModules: env.snapshotGuideModules,
         recordActivity: env.recordGuideActivity,
         generateBeat: env.generateBeat,
+        intentFromGuide: env.intentFromGuide,
+        handoffToLamp: env.handoffToLamp,
         onChange: () => {
             if (!env.isOpen?.()) return;
             if (guide.isActive()) ui.renderGuide(guide.snapshot());

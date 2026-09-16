@@ -25,9 +25,12 @@ test('lamp flags stay vs outing, due vs outing, and disjoint 柏宝书 fields', 
     assert.equal(textsRelated('旧宅', '新京'), false);
 });
 
-test('lamp keeps quiet when the books already agree', () => {
+test('lamp keeps quiet when the books already agree, including itinerary multi-place', () => {
     const conflicts = detectLampConflicts({
-        days: [{ dayNumber: 1, events: [{ title: '在家养伤', location: '城南旧宅' }] }],
+        days: [{ dayNumber: 1, events: [
+            { title: '在家养伤', location: '城南旧宅' },
+            { title: '午后出门买药', location: '药铺' },
+        ] }],
         ledger: [{ id: 'L2', 事由: '腿伤未愈', 类型: '持续状态', 现状: '仍在养伤' }],
         lines: [{ name: '远线', when: '月末', stage: '延展' }],
         bbb: {
@@ -48,7 +51,8 @@ test('lamp html never injects and jumps to the 构画 side', () => {
         }),
     });
     assert.match(html, /data-jump-mod="lines"[^>]*data-jump-key="今夜赴约"/);
-    assert.match(html, /只提示/);
+    assert.match(html, /冲突/);
+    assert.match(html, /搜索/);
     assert.doesNotMatch(html, /setExtensionPrompt|【作者合同】/);
 });
 
@@ -73,7 +77,11 @@ test('enter lamp resets other modes then opens', () => {
         $in: sel => sel === '#sp-lamp-wrap' ? {
             length: 1,
             html() { return this; },
-            on(_ev, _sel, handler) { handler.call({ getAttribute: name => ({ 'data-jump-mod': 'lines', 'data-jump-key': '今夜赴约', 'data-jump-ref': '' }[name]) }); return this; },
+            off() { return this; },
+            on(_ev, sel, handler) {
+                if (sel === '.sp-lamp-jump') handler.call({ closest: () => ({ getAttribute: name => ({ 'data-jump-mod': 'lines', 'data-jump-key': '今夜赴约', 'data-jump-ref': '' }[name]) }) }, { preventDefault() {} });
+                return this;
+            },
         } : { length: 0 },
     });
     feature.bindUi();

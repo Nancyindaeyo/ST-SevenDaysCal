@@ -21,6 +21,7 @@ export function panelMarkup({
     collectPaceRows,
     readPaceSnapshot,
     getAlmanacJudgeInterval,
+    getAlmanacSupplementInterval,
     getLedgerReconcileInterval,
     getLinesMode,
     getLinesInterval,
@@ -31,6 +32,14 @@ export function panelMarkup({
             <div class="sp-sheet">
                 <aside class="sp-sidebar">
                     <nav class="sp-sidebar-tabs" aria-label="主视图" role="tablist" aria-orientation="vertical">
+                        <button id="sp-tab-stage" class="sp-side-tab sp-view-btn" data-view="stage" role="tab" aria-controls="sp-stage-wrap" aria-selected="false" tabindex="-1">
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg></span>
+                            <span class="sp-tab-label">日台</span>
+                        </button>
+                        <button id="sp-tab-lamp" class="sp-side-tab sp-view-btn" data-view="lamp" role="tab" aria-controls="sp-lamp-wrap" aria-selected="false" tabindex="-1">
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.2" r="2.6" fill="currentColor" stroke="none"/><path d="M9.2 11.2 L12 18 L14.8 11.2"/><line x1="8" y1="18.5" x2="16" y2="18.5"/></svg></span>
+                            <span class="sp-tab-label">对账灯</span>
+                        </button>
                         <button id="sp-tab-schedule" class="sp-side-tab sp-view-btn sp-view-active" data-view="schedule" role="tab" aria-controls="sp-body" aria-selected="true" tabindex="0">
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.4" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">点</span>
@@ -67,14 +76,6 @@ export function panelMarkup({
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="4" x2="12" y2="20"/><line x1="6" y1="8" x2="18" y2="8"/><path d="M6 8 L8.2 13.5 L3.8 13.5 Z"/><path d="M18 8 L20.2 13.5 L15.8 13.5 Z"/></svg></span>
                             <span class="sp-tab-label">律</span>
                         </button>
-                        <button id="sp-tab-stage" class="sp-side-tab sp-view-btn" data-view="stage" role="tab" aria-controls="sp-stage-wrap" aria-selected="false" tabindex="-1">
-                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg></span>
-                            <span class="sp-tab-label">日台</span>
-                        </button>
-                        <button id="sp-tab-lamp" class="sp-side-tab sp-view-btn" data-view="lamp" role="tab" aria-controls="sp-lamp-wrap" aria-selected="false" tabindex="-1">
-                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.2" r="2.6" fill="currentColor" stroke="none"/><path d="M9.2 11.2 L12 18 L14.8 11.2"/><line x1="8" y1="18.5" x2="16" y2="18.5"/></svg></span>
-                            <span class="sp-tab-label">对账灯</span>
-                        </button>
                     </nav>
                     <div class="sp-sidebar-spacer"></div>
                     <nav class="sp-sidebar-tabs sp-sidebar-util" aria-label="工具">
@@ -107,10 +108,7 @@ export function panelMarkup({
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
 
-                    <div class="sp-panel-tools" id="sp-panel-tools">
-                    ${refreshFoldHtml({ selected: ['point', 'lines'], outlineMode: getSettings().outlineRegenMode || 'current' })}
-                    ${beatFoldHtml()}
-                    </div>
+                    <div class="sp-panel-tools" id="sp-panel-tools" hidden></div>
 
                     ${activityFeature.overlayHtml()}
                     <!-- Settings overlay: covers content-col only, sidebar stays visible -->
@@ -517,6 +515,9 @@ export function panelMarkup({
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-almanac-judge-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacJudgeInterval()))}"><span>条 AI 回复补看一次</span><span class="sp-pace-remain" data-pace-remain="date"></span></label>
                                             <p class="sp-cfg-hint">有完整时间戳时每楼直接读、不调 API。只有漏打戳、或只写了「谷雨」这种没月日的，才隔几楼问一次。关掉＝只认戳。倒数只在真的去补看时往前走。</p>
                                             <hr class="sp-mem-divider">
+                                            <label class="sp-mode-opt"><span>每</span><input id="sp-almanac-supplement-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getAlmanacSupplementInterval ? getAlmanacSupplementInterval() : 10))}"><span>条 AI 楼补录一次纪念日</span><span class="sp-pace-remain" data-pace-remain="supplement"></span></label>
+                                            <p class="sp-cfg-hint">和换日无关。爱心加号仍可手补。简约通知下，自动跑完 0 条不弹窗。</p>
+                                            <hr class="sp-mem-divider">
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile" ${getSettings().ledgerReconcileEnabled === true ? 'checked' : ''}><span>点/线按楼对齐正文</span></label>
                                             <label class="sp-mode-opt"><span>每</span><input id="sp-ledger-reconcile-interval" class="sp-input sp-interval-input" type="number" min="1" value="${escapeAttr(String(getLedgerReconcileInterval()))}"><span>条 AI 回复对齐一次</span><span class="sp-pace-remain" data-pace-remain="align"></span></label>
                                             <label class="sp-mode-opt"><input type="checkbox" id="sp-ledger-reconcile-reroll" ${getSettings().ledgerReconcileReroll !== false ? 'checked' : ''}><span>重 roll／切 swipe 对齐楼时，按新正文再对齐一次</span></label>
@@ -716,9 +717,15 @@ export function panelMarkup({
                             <textarea id="sp-law-input" class="sp-input sp-law-textarea" placeholder="不要写怀孕&#10;称呼保持您"></textarea>
                         </div>
 
-                        <div class="sp-stage-wrap" id="sp-stage-wrap" role="tabpanel" aria-labelledby="sp-tab-stage" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
+                        <div class="sp-stage-wrap" id="sp-stage-wrap" role="tabpanel" aria-labelledby="sp-tab-stage" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
+                            <div class="sp-stage-main" id="sp-stage-main"></div>
+                            <div class="sp-stage-beat-host" id="sp-stage-beat-host">${beatFoldHtml()}</div>
+                        </div>
 
-                        <div class="sp-lamp-wrap" id="sp-lamp-wrap" role="tabpanel" aria-labelledby="sp-tab-lamp" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
+                        <div class="sp-lamp-wrap" id="sp-lamp-wrap" role="tabpanel" aria-labelledby="sp-tab-lamp" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
+                            <div class="sp-lamp-main" id="sp-lamp-main"></div>
+                            <div class="sp-lamp-refresh-host" id="sp-lamp-refresh-host">${refreshFoldHtml({ selected: ['point', 'lines'], outlineMode: getSettings().outlineRegenMode || 'current' })}</div>
+                        </div>
 
                         <div class="sp-almanac-wrap" id="sp-almanac-wrap" role="tabpanel" aria-labelledby="sp-tab-almanac" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
                     </div><!-- /sp-main -->

@@ -47,7 +47,7 @@ export function refreshRegenToast(result) {
 export function bindRefreshBar(env = {}) {
     const $in = env.$in;
     const toast = (message, error) => env.toast?.(message, null, error);
-    const $host = $in('#sp-panel-tools').length ? $in('#sp-panel-tools') : $in('.sp-sheet');
+    const $host = $in('#sp-lamp-refresh-host').length ? $in('#sp-lamp-refresh-host') : ($in('#sp-panel-tools').length ? $in('#sp-panel-tools') : $in('.sp-sheet'));
 
     $host.on('click', '.sp-refresh-all', function () {
         $in('#sp-refresh-bar .sp-refresh-mod').prop('checked', true);

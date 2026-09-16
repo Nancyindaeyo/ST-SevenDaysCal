@@ -8,7 +8,7 @@ export const ACTIVITY_SOURCES = Object.freeze({
     advance: '线推进',
     outline: '面判定',
     guide: '间引导',
-    refresh: '手动刷新',
+    fight: '打架一起改',
     dashed: '冷知识',
     shift: '换日滚点',
     'date-align': '点日期对齐',
@@ -103,7 +103,8 @@ export function isRetryableEntry(entry) {
         || entry?.source === 'ledger-judge'
         || entry?.source === 'bootstrap'
         || entry?.source === 'fill'
-        || entry?.source === 'refresh';
+        || entry?.source === 'refresh'
+        || entry?.source === 'fight';
 }
 
 export function alignSourceOf(options = {}) {

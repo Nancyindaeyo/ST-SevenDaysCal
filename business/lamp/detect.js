@@ -99,14 +99,6 @@ export function detectLampConflicts({ days = [], ledger = [], lines = [], bbb = 
     }
 
     const locations = uniqueUnrelated(events.map(event => event.location));
-    if (locations.length >= 2) {
-        found.push(conflict({
-            id: 'point-places',
-            title: locations[0],
-            detail: `今天的点写了不同地点：${locations.join(' / ')}`,
-            module: 'point',
-        }));
-    }
 
     const bbbLocation = String(bbb?.location || '').trim();
     if (bbbLocation && locations.length && locations.every(place => !textsRelated(place, bbbLocation))) {

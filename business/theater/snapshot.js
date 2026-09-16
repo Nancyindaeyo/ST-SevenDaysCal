@@ -18,6 +18,14 @@ export function buildTheaterSnapshot(piece, ctx = {}, options = {}) {
         kind: 'theater',
         batchId: String(piece?.batchId || ''),
         formName: String(piece?.formName || piece?.templateSource?.title || ''),
+        templateSource: piece?.templateSource?.input
+            ? {
+                title: String(piece.templateSource.title || piece?.formName || ''),
+                input: String(piece.templateSource.input),
+                uid: piece.templateSource.uid,
+                bookName: piece.templateSource.bookName || '',
+            }
+            : undefined,
         note: title.slice(0, SNAP_NOTE_MAX),
         html,
         textPreview: preview,

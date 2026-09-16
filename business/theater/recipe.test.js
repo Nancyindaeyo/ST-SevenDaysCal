@@ -71,13 +71,13 @@ test('parseTheaterPieces reads tagged blocks and falls back to one blob', () => 
     assert.equal(faces[1].title, '问答');
 });
 
-test('export book splits liked pieces into 展现形式 and 主题', () => {
+test('export book only keeps 展现形式 and skips themes', () => {
     const book = buildTheaterExportBook([
         { liked: true, formName: '相性100问', formSeed: '二十问，口吻直白。', themeName: '体检前夜', themeSeed: '亲密而紧张。', raw: '成品不要贴进去' },
         { liked: false, formName: '忽略', raw: 'x' },
     ]);
     const comments = Object.values(book.entries).map(entry => entry.comment);
-    assert.deepEqual(comments, ['展现形式｜相性100问', '主题｜体检前夜']);
+    assert.deepEqual(comments, ['展现形式｜相性100问']);
     assert.equal(Object.values(book.entries)[0].content.includes('成品不要贴进去'), false);
     assert.equal(likedTheaterPieces([[{ liked: true, raw: 'a' }, { liked: false, raw: 'b' }]]).length, 1);
 });

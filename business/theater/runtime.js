@@ -36,7 +36,7 @@ export function createTheaterRuntime(host = {}) {
     });
     const templates = createTheaterTemplates({ context: host.getContext, bookName: THEATER_TEMPLATE_BOOK });
     const pool = createTheaterPool({ loadWorldInfo: name => host.getContext?.()?.loadWorldInfo?.(name) });
-    const exporter = createTheaterExporter({ context: host.getContext, download: host.downloadJson, bookName: THEATER_EXPORT_BOOK });
+    const exporter = createTheaterExporter({ context: host.getContext, download: host.downloadJson, bookName: THEATER_EXPORT_BOOK, templates });
     const generation = createTheaterGeneration({
         write: host.callTheaterApi,
         buildWriteMessages: (input, options, settings, extras) => buildWriteMessages(input, { ...(options?.storyContext || {}), userName: options?.userName || '用户', charName: options?.charName || '角色', sysBlocks: Array.isArray(options?.storyContext?.sysBlocks) ? options.storyContext.sysBlocks : [] }, settings, extras),

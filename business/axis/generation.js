@@ -52,7 +52,7 @@ export function createAxisGenerationController(env = {}) {
                 axisState.isGeneratingAlmanac = false; axisState.almanacAbortController = null;
                 if (added.length) runUi(() => env.sync?.(), 'axis-sync-failed');
                 runUi(() => env.render?.(), 'axis-render-failed');
-                runUi(() => env.notify?.(added.length ? `已补录 ${added.length} 条纪念日` : '通读全程后没有够格补录的新里程碑（这很正常）', added.length > 0), 'axis-notify-failed');
+                runUi(() => env.notify?.(added.length ? `已补录 ${added.length} 条纪念日` : '通读全程后没有够格补录的新里程碑（这很正常）', added.length > 0, { autoEmpty: env.autoSupplement === true && !added.length }), 'axis-notify-failed');
                 runUi(() => env.onActivity?.({
                     source: 'supplement',
                     floorId: env.latestFloor?.(),
@@ -92,7 +92,8 @@ export function createAxisGenerationController(env = {}) {
             return { status: 'failed', error };
         }
     };
-    const trigger = async (supplement = false) => {
+    const trigger = async (supplement = false, options = {}) => {
+        env.autoSupplement = options.auto === true;
         const participant = env.captureParticipantIdentity?.() || null;
         if (axisState.isGeneratingAlmanac) return { status: 'skipped' };
         const cfg = env.config?.(); if (!cfg?.url || !cfg?.key) {

@@ -16,7 +16,7 @@ function gate(raw = {}) {
     };
 }
 
-export const PACE_GATES = Object.freeze(['align', 'advance', 'outline', 'dashed', 'date', 'ledgerCapture', 'ledgerJudge']);
+export const PACE_GATES = Object.freeze(['align', 'advance', 'outline', 'dashed', 'date', 'supplement', 'ledgerCapture', 'ledgerJudge']);
 
 function mapGates(src, map) {
     return Object.fromEntries(PACE_GATES.map(name => [name, map(src[name] || {})]));

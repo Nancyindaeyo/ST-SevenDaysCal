@@ -37,6 +37,7 @@ export function createBeatUi(host = {}) {
         const busy = controller?.busy;
         query('#sp-beat-gen')?.prop?.('disabled', !!busy).html(busy ? '生成中…' : (shots.length ? '<i class="fa-solid fa-rotate-right"></i> 再生成' : '生成本轮拍'));
         if (!shots.length) {
+            query('#sp-beat-fold')?.prop?.('open', !!busy);
             $list.html(busy
                 ? '<div class="sp-empty sp-fold-empty"><i class="fa-solid fa-spinner fa-spin"></i><p>正在写下一拍…</p></div>'
                 : '<div class="sp-empty sp-fold-empty"><p>还没有本轮拍。点「生成本轮拍」；纠偏结束后的提示也可以点进来。</p></div>');
@@ -60,6 +61,7 @@ export function createBeatUi(host = {}) {
                 <textarea class="sp-input sp-beat-shot-body" rows="3">${body}</textarea>
             </article>`;
         }).join(''));
+        query('#sp-beat-fold')?.prop?.('open', true);
     };
 
     const bind = () => {

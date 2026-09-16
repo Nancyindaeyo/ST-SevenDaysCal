@@ -5747,6 +5747,19 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 #sp-stage-wrap {
     overflow: hidden;
 }
+.sp-stage-main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.sp-stage-beat-host {
+    flex: 0 0 auto;
+    max-height: 46%;
+    overflow: auto;
+    border-top: 1px solid var(--sp-divider);
+}
 .sp-stage-body {
     flex: 1;
     min-height: 0;
@@ -5777,8 +5790,9 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-stage-row {
     display: flex;
-    align-items: baseline;
-    gap: 10px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 4px 10px;
     width: 100%;
     margin: 0;
     padding: 8px 10px;
@@ -5796,21 +5810,111 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 }
 .sp-stage-row-title {
     min-width: 0;
+    flex: 1 1 100%;
     font-size: var(--sp-fs-82);
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+    white-space: normal;
 }
 .sp-stage-row-meta {
-    margin-left: auto;
-    flex: 0 0 auto;
+    flex: 1 1 auto;
     font-size: var(--sp-fs-68);
     opacity: 0.55;
+    overflow-wrap: anywhere;
+    white-space: normal;
+}
+
+.sp-anchor-recipe {
+    margin: 8px 12px 0;
+    border: 1px solid var(--sp-divider);
+    border-radius: 9px;
+    padding: 6px 10px;
+}
+.sp-anchor-recipe summary {
+    cursor: pointer;
+    font-size: var(--sp-fs-74);
+}
+.sp-anchor-recipe-pre {
+    white-space: pre-wrap;
+    font-size: var(--sp-fs-70);
+    margin: 8px 0 0;
 }
 
 #sp-lamp-wrap {
     overflow: hidden;
+}
+.sp-lamp-main {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+.sp-lamp-refresh-host {
+    flex: 0 0 auto;
+    max-height: 46%;
+    overflow: auto;
+    border-top: 1px solid var(--sp-divider);
+}
+.sp-lamp-tabs {
+    display: flex;
+    gap: 6px;
+    padding: 8px 12px 0;
+}
+.sp-lamp-tab {
+    font: inherit;
+    color: inherit;
+    background: transparent;
+    border: 1px solid var(--sp-divider);
+    border-radius: 999px;
+    padding: 4px 12px;
+    cursor: pointer;
+}
+.sp-lamp-tab.is-on {
+    border-color: color-mix(in oklab, var(--sp-primary) 45%, var(--sp-divider));
+    color: var(--sp-primary);
+}
+.sp-lamp-search-row {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.sp-lamp-search-row .sp-input {
+    flex: 1;
+    min-width: 0;
+}
+.sp-lamp-row-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+.sp-lamp-basket {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.sp-lamp-intent {
+    white-space: pre-wrap;
+    font-size: var(--sp-fs-74);
+    line-height: 1.45;
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px dashed var(--sp-divider);
+    border-radius: 9px;
+}
+.sp-lamp-kind-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+.sp-lamp-edit {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    margin-top: 6px;
 }
 .sp-lamp-body {
     flex: 1;

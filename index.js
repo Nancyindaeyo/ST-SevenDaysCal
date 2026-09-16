@@ -25,7 +25,7 @@ import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
-import { normalizeOutlineResponse } from './business/outline/schema.js';
+import { editOutlineScene, normalizeOutlineResponse, parseOutline } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { createSlipFeature } from './business/slip/feature.js';
@@ -36,6 +36,7 @@ import { collectStageSnapshot, buildFestivalRows } from './business/stage/snapsh
 import { createStageFeature, enterStageSidebar } from './business/stage/feature.js';
 import { detectLampConflicts, readLampBaiBai } from './business/lamp/detect.js';
 import { createLampFeature, enterLampSidebar } from './business/lamp/feature.js';
+import { intentFromGuide, parseLampIntent } from './business/lamp/intent.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -45,6 +46,7 @@ import { handlePanelViewClick } from './business/shell/view-switch.js';
 import { createPanelWindow, runOpenSchedule } from './business/shell/window.js';
 import { createTaDrawer, guessCharName } from './business/shell/ta-drawer.js';
 import { bindModuleIntro, bindPanelChrome } from './business/shell/chrome.js';
+import { MODULE_INTROS } from './business/shell/module-intros.js';
 import { mountPluginHosts } from './business/shell/hosts.js';
 import { createPanelHost } from './business/shell/panel-host.js';
 import { bindRefreshBar } from './business/refresh/bind.js';
@@ -214,7 +216,7 @@ const TERMINAL_STAGES = TERMINAL_LINE_STAGES;
 
 import { pointState } from './business/point/state.js';
 import { formatPointDayDate } from './business/point/event-when.js';
-import { parseCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
+import { parseCalendar, serializeCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
 import { automationAllowed, booksAreEmpty } from './business/bootstrap/queue.js';
 import { openModuleHistory, historyToolbarState } from './business/history/dialog.js';
@@ -248,7 +250,7 @@ import { filterRerollItems, shouldRunPendingPointFollowup } from './runtime/refa
 import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
 import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
-import { parseLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
+import { parseLines, serializeLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
 import { buildLinesPrompt } from './business/lines/prompt.js';
 import { advanceCatchupNeeded, createAdvanceStrategy, dayCrossedSincePreviousFloor, latestStampDay, activeLines } from './business/lines/strategy.js';
 import { createLinesFeature } from './business/lines/feature.js';
@@ -967,7 +969,10 @@ const axisGenerationController = createAxisGenerationController({
     validate: validateAlmanacResponse, parse: parseAlmanacWidget, merge: mergeAlmanac,
     loadItems: loadAlmanac, saveItems: saveAlmanacItemsConfirmed, dedupKey: almDedupKey, dateLabel: almDateLabel,
     sync: syncLatestAlmanacBlock, render: () => { if (axisState.almanacMode) renderAlmanacPanel(); },
-    notify: (message, generated) => { if (generated) { if (axisState.almanacMode) { if (getSettings().notifyMode !== 'off') showToast(message); } else showToast(message, () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); }); } else if (getSettings().notifyMode !== 'off') showToast(message); },
+    notify: (message, generated, meta = {}) => {
+        if (!generated && meta.autoEmpty && (getSettings().notifyMode || 'lite') === 'lite') return;
+        if (generated) { if (axisState.almanacMode) { if (getSettings().notifyMode !== 'off') showToast(message); } else showToast(message, () => { $in('.sp-view-btn[data-view="almanac"]').trigger('click'); showPanel(); }); } else if (getSettings().notifyMode !== 'off') showToast(message);
+    },
     onActivity: entry => activityFeature.record(entry),
     latestFloor: () => (getContext()?.chat?.length || 0) - 1,
     error: (error, supplement) => showToast(`${supplement ? '补录失败：' : '轴生成失败：'}${diagnosticMessage(error)}`, null, true),
@@ -1281,110 +1286,6 @@ function buildDateRenderKey(messageId) {
 const EXT_BASE = new URL('.', import.meta.url).href;                 // …/ST-SevenDaysCal/
 const ST_BASE  = new URL('../../../../../', import.meta.url).href;   // ST 站点根（public/ 即 /）
 
-// 模块介绍：内容标题旁「?」点开的小气泡文案。键对应侧栏 data-view，面向使用者讲清用途与真实操作。
-// 想改文字直接改这里即可（纯展示，不入库、不注入 AI）。
-// 小百科·图标图例：模块介绍气泡内容。lede（这模块干嘛的·一句话）+ 若干「真 FontAwesome 图标 + 名称 + 一句话」，
-// 图标与界面所见一致，用户对号入座即知每个钮啥意思。渲染端用 .html() 注入（内容全为作者手写、无用户输入，无注入面）。精简为主。
-const _iLede = t => `<p class="sp-intro-lede">${t}</p>`;
-const _iSub  = t => `<div class="sp-intro-sub">${t}</div>`;
-const _iKey  = (icon, name, desc) => `<div class="sp-intro-key"><i class="fa-solid ${icon}"></i><b>${name}</b><span>${desc}</span></div>`;
-const _iSvgKey = (svg, name, desc) => `<div class="sp-intro-key">${svg}<b>${name}</b><span>${desc}</span></div>`;
-const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg>';
-const _stageIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg>';
-const _lampIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="7.2" r="2.6" fill="currentColor" stroke="none"/><path d="M9.2 11.2 L12 18 L14.8 11.2"/><line x1="8" y1="18.5" x2="16" y2="18.5"/></svg>';
-
-const MODULE_INTROS = {
-    schedule:
-        _iLede('「点」从故事里的“今天”开始，为我／TA 安排接下来 3 天的事项，并把更远的事另列在“未来”；它不是人物此刻状态卡。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；是否出现、格式完整与时间合理取决于模型是否遵循提示词和主楼剧情质量，缺失或不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('时间戳换日后会自动滚动点窗口，把下一天当成今天，过期事项进入“过去”；同日只改钟点不滚。【改】里可撤回，也能改成整体平移或再滚一次。想重做内容用顶上的「刷新账本」。') +
-        _iKey('fa-rotate-right', '生成／刷新', '按最新剧情重做未锁事项；新结果会覆盖旧的未锁数据') +
-        _iKey('fa-thumbtack',    '固定 TA',    '只把当前 TA 留在 TA▾ 抽屉，方便下次查看；不是锁定事项') +
-        _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条点的操作都收在这里') +
-        _iKey('fa-pen',          '编辑',       '手动修改这条事项') +
-        _iKey('fa-lock',         '锁定',       '刷新时保住同名事项不被删除；时间、说明等仍可能随新剧情推进') +
-        _iKey('fa-arrow-right-to-bracket', '注入', '把这条点写进输入框，供你确认或修改后发送；不是后台注入') +
-        _iKey('fa-trash',        '删除',       '移除这条事项'),
-    almanac:
-        _iLede('「轴」有“即将到来”“日历”“刻度”三页：前两页管理节日、生日、纪念日与故事历法；刻度页跟踪伤情、约定、周期等会随时间变化的账。时间戳是全局时间锚点，也负责星期判定，由主楼 AI 随回复输出，构画只读取、解析和展示，不会自行生成；主楼未输出或格式不完整时无法凭空补出可靠时间，可能让时间判断失真；没有可靠记录时不猜现实星期。') +
-        _iSub('节日 · 历法') +
-        _iKey('fa-plus',          '添加',       '手动录入节日／生日／纪念日；手动项生成时会保留') +
-        _iKey('fa-wand-magic-sparkles', '生成节日', '按世界观重做一整年：保留手动项和锁定项，替换未锁的旧 AI 日期') +
-        _iKey('fa-heart-circle-plus', '补录纪念日', '只追加剧情中新出现的重大里程碑，可能没有结果；新增项自动锁定') +
-        _iKey('fa-calendar-days', '历法管理',   '查看、编辑月份／天数／纪年和历法模板；换历法遇到无效日期时会先让你选择取消、删除或自动修正') +
-        _iKey('fa-lock',          '锁定',       '以后生成节日时保留这条') +
-        _iKey('fa-pen',           '编辑',       '修改名称、日期、说明等') +
-        _iKey('fa-trash',         '删除',       '移除这条日期') +
-        _iSub('刻度 · 时间账') +
-        _iLede('刻度分持续状态／约定待办／周期三类。自动标注默认关闭；也可在刻度页或楼内“标注池”点［标注］捞取新条、点［更新］按时间刷新现状。潜伏注入也默认关闭，并且必须同时开启“允许潜伏注入主楼 AI（线 / 面 / 刻度）”总开关和刻度自己的“潜伏注入主楼 AI”才生效。') +
-        _iKey('fa-pen',         '编辑',     '手动改字段；保存后自动成为用户锁') +
-        _iKey('fa-lock',        '锁定',     'AI 更新不再改这条；与是否注入主楼是两回事') +
-        _iKey('fa-bell',        '暂停埋入', '暂不注入主楼，但仍留在活跃账上继续跟进；再点恢复') +
-        _iKey('fa-check',       '了结',     '从活跃区移到归档，之后仍可捞回') +
-        _iKey('fa-rotate-left', '捞回',     '归档区：让已了结条目回到活跃区') +
-        _iKey('fa-trash',       '彻底删除', '归档区：不可恢复地删除'),
-    lines:
-        _iLede('「线」有“平行事件”和“冷知识”两页。平行事件追踪仍在发展的伏笔、人物行动与局势；冷知识默认关，开了以后住在这一页，楼内只留一句提示。') +
-        _iSub('新装默认手动推进。要自动时推荐「故事日期变了就走」；走偏了靠点/线按楼对齐，不要等换日。对齐和推进撞车时本楼先对齐、推进下一楼补。塞给主楼要另开总闸和线自己的开关。') +
-        _iKey('fa-rotate-right', '重新生成', '重做未锁定的线；锁定线保留') +
-        _iKey('fa-forward',      '推进',     '更新已有线，并可能新增少量真正独立的事件') +
-        _iKey('fa-plus',         '新增冷知识', '在“冷知识”页选择主题生成；只在冷知识开关开启后可用') +
-        _iKey('fa-ellipsis-vertical', '⋮ 菜单', '每条平行事件的操作都收在这里') +
-        _iKey('fa-pen',          '编辑',     '手动修改这条线') +
-        _iKey('fa-lock',         '锁定',     '重新生成时保留这条线；AI 不能替你创建用户锁') +
-        _iKey('fa-arrow-right-to-bracket', '注入', '把单条线写进输入框，供你确认后发送') +
-        _iKey('fa-trash',        '删除',     '移除这条线'),
-    outline:
-        _iLede('「面」左侧是一整份剧情大纲，右侧是只针对这份面的 AI 讨论。面板上的［重新生成］仍会换整份面；刷新账本勾了面时，可以只改当前节点、往后续写，或整份替换。') +
-        _iSub('自动判定只把「现在演到哪」往后指，绝不整份重写。它和“把当前节点塞给主楼”是两件事。塞给主楼要另开总闸和面自己的开关。') +
-        _iKey('fa-rotate-right',        '重新生成',   '按最新剧情重做并覆盖整份面；刷新条默认只改当前节点') +
-        _iKey('fa-paper-plane',         '发送讨论',   '在右侧向 AI 讨论、修改或索要一版新面') +
-        _iKey('fa-broom',               '清空讨论',   '只清右侧讨论记录，不删除左侧现有面') +
-        _iKey('fa-ellipsis-vertical',   '⋮ 菜单',     '每个节点的操作都收在这里') +
-        _iKey('fa-pen',                 '编辑',       '手动修改这个节点') +
-        _iKey('fa-location-crosshairs', '设为当前',   '把这个节点标成正在进行；已是当前时显示“取消当前”') +
-        _iKey('fa-arrow-right-to-bracket', '注入',    '把单个节点写进输入框，供你确认后发送') +
-        _iKey('fa-copy',                '复制',       '复制这个节点的文字') +
-        _iKey('fa-trash',               '删除',       '只删除这个节点'),
-    space:
-        _iLede('「间」是局外创作顾问：可以聊剧情、设定、人物和世界观，也能把 AI 给出的结构化卡片落到其他模块。这里不会写入正式角色扮演楼层，也不会直接推进剧情。发送新问题时会先清理较旧记录；一轮完整问答结束后，最多可能暂时显示 21 条间内消息。') +
-        _iSub('空窗时可以点「引导设计」：给我灵感或我来描述，问答后确认才写入点／线／面。落地规则：新点追加到“未来”且不会自动锁；改点会替换指定条目。新线追加后自动锁定，改已有线则保留它原来的锁态。轴日期只做去重追加并自动锁定。应用历法会换掉当前月份／天数／纪年；若现有日期不适用，会先让你选择取消、删除冲突日期或自动修正。') +
-        _iKey('fa-compass',       '引导设计',   '收束点／线／面；确认前不改账本。不问番外，不填棱。可顺手出本轮拍') +
-        _iKey('fa-paper-plane',    '发送',       '把问题发给局外创作顾问') +
-        _iKey('fa-pen',            '编辑并重发', '只在你的消息上出现；会从这里截断后续记录并重新提问') +
-        _iKey('fa-copy',           '复制',       '只复制这条消息的普通文字；结构化卡片不会随消息一起复制') +
-        _iKey('fa-trash',          '删除',       '删除单条间内消息') +
-        _iKey('fa-broom',          '清空',       '清掉当前聊天的全部间内记录') +
-        _iKey('fa-plus',           '应用到点／线／轴', '按上面的规则写入对应模块') +
-        _iKey('fa-calendar-check', '应用历法',    '确认冲突处理后换用这套历法'),
-    theater:
-        _iLede('「棱」＝纯文字番外：空框时先跨书抽签冻结每一面，再像兔子镜那样一次请求连写 1～3 面。世界书只给棱读，不要绑到角色卡。喜欢的条目可导出为新世界书「构画-棱-兔子镜母本」，再自己导进兔子镜。要留下某条正文，点收藏进坐标快照。') +
-        _iKey('fa-book', '抽取用世界书', '在棱页顶部勾选。把小回 / 极光 / 小兔导入酒馆后勾上即可，不要绑到角色卡。设置 → 提示词与标签 → 棱 · 写作与抽取世界书里也有同一份清单。') +
-        _iKey('fa-shuffle', '随机模板', '从勾选世界书里随便抽一条「内容」填进输入框。再按一次换另一条。框里有内容时只生成这一条。') +
-        _iKey('fa-wand-magic-sparkles', '生成番外', '可空输入：空着就抽 N 条。框里有字（含随机模板）时只按这一条写。') +
-        _iKey('fa-heart', '喜欢', '勾选后点「导出已选」生成新世界书母本，不是把原书再导一遍。') +
-        _iKey('fa-star', '收藏', '把这条小剧场存进坐标快照，和楼层收藏同一份永久库。草稿只是本机草稿纸，新会挤旧。') +
-        _iSub('［重新生成］再抽一轮。可先改标题再点［收藏］。草稿最多 12 条。'),
-    anchor:
-        _iLede('「坐标」收藏的是 AI 楼层正文的副本，也可以收下棱里的小剧场。方便以后回看，不是完整样式快照。入口受设置 → 通用设置 → 显示与通知管理里的“收藏此楼入口”控制，只会出现在 AI 楼；收藏后可立即选择标签，再点同一枚按钮会取消收藏。') +
-        _iSub('收藏夹可按角色、标签或棱浏览；棱里每一场小剧场单独成一组。删除收藏只删副本，不会删除或改动原楼层。') +
-        _iSvgKey(_coordinateIntroSvg, '坐标形收藏', 'AI 楼上的这枚坐标形按钮：点击收藏，再次点击取消收藏') +
-        _iSub('［标签管理］可新建、改名、改色或删除标签，删标签不会删收藏。收藏全文右上角的［⛶］进入全屏，［×］删除这份收藏副本。手机点句子勾选（长按也能勾），电脑拖选，再点「摘抄选中」。'),
-    slip:
-        _iLede('「笺」是只给你看的作者私笺：下章想坑谁、不要写的东西、这张卡的私设。跟这一次聊天走，和坐标的全局收藏分开。') +
-        _iSub('永远不进主楼、间、引导、点/线/面生成或柏宝书。没有「拿去生成」按钮。切聊天会换一份笺。'),
-    law:
-        _iLede('「律」是这一次聊天的短合同：几条必须遵守的红线或文风句。默认不进模型；勾选「注入主楼」并且设置里的潜伏注入总闸也开着，才每轮塞进主楼。') +
-        _iSub('和世界书蓝灯 D0 同类，但这份只跟这次聊天走。笺永不进模型。律不审稿、不代写正文。'),
-    stage:
-        _iLede('「日台」把今天该演什么收成一屏：点的今天、近七天节日、到期或持续的刻度、时机写近日的线。柏宝书管世界现在怎样；日台管作者打算这几天演什么。') +
-        _iSub('只读、不注入、不另建一本账。点一条就跳到原来那本账。没有可靠「今天」时不猜现实日期。') +
-        _iSvgKey(_stageIntroSvg, '日台', '台上一点：今天的演出单，不是第二份摘要'),
-    lamp:
-        _iLede('「对账灯」只提示打架的账：点还在家养伤、刻度已到期、线却写今夜赴约；装着柏宝书时再对照地点、伤情和未核销计划。') +
-        _iSub('不改任何一侧，不另建一本账，也不注入。点构画那一条跳过去；柏宝书只给对照原文。') +
-        _iSvgKey(_lampIntroSvg, '对账灯', '灯：只照差异，不替你改账'),
-};
-
 let lastDebugPayload = null;
 
 function lastDebugPayloadJson() {
@@ -1671,12 +1572,24 @@ async function retryBootstrapGeneration() {
     return bootstrapFeature.start();
 }
 async function retryRefreshModule(entry) {
+    const kind = String(entry?.kind || (entry?.source === 'fight' ? 'fight' : 'regen'));
+    if (kind === 'fight') return refreshController.fight({ intent: entry.intent || { text: entry.reason, items: entry.items }, cause: 'retry' });
+    if (kind === 'align') {
+        return refreshController.align({
+            selected: ['point', 'lines'],
+            reason: String(entry.reason || ''),
+            cause: 'retry',
+        });
+    }
     const module = String(entry?.items?.[0]?.module || '');
-    if (!module || (module !== 'point' && module !== 'lines' && module !== 'dashed' && module !== 'outline')) return { status: 'skipped' };
+    const selected = module && (module === 'point' || module === 'lines' || module === 'dashed' || module === 'outline')
+        ? [module]
+        : (Array.isArray(entry?.selected) ? entry.selected : ['point', 'lines']);
     return refreshController.regenerate({
-        selected: [module],
-        reason: '【改】重试这次失败的刷新',
-        outlineMode: module === 'outline' ? 'current' : undefined,
+        selected,
+        reason: String(entry.reason || '【改】重试这次失败的刷新'),
+        feedback: String(entry.feedback || ''),
+        outlineMode: entry.outlineMode || (selected.includes('outline') ? 'current' : undefined),
     });
 }
 function syncFabFailed() {
@@ -1692,13 +1605,6 @@ function enqueueStoryDateBeat() {
         enqueueFloorJob({
             id: 'advance',
             run: () => linesFeature.onDateAftermath({ messageId: mid, chatId: ctx.chatId, fromQueue: true }),
-        });
-    }
-    const items = loadAlmanac() || [];
-    if (items.length) {
-        enqueueFloorJob({
-            id: 'supplement',
-            run: () => triggerSupplementAnniversary(),
         });
     }
     if (getSettings().dashedEnabled === true) {
@@ -1974,6 +1880,16 @@ const spaceFeature = createSpaceFeature({
         copyText: copyPlainText,
         confirm: spConfirm,
         toast: (message, error) => showToast(message, null, error),
+        handoffMessage: message => {
+            const text = spaceMessagePlainText(message) || String(message?.content || '');
+            const parsed = parseLampIntent(text);
+            lampFeature.setIntent(parsed.items.length ? parsed : { ...parsed, text, kind: parsed.kind || 'fight' }, { from: 'space', kind: parsed.kind || 'fight' });
+            enterLampSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'lamp'),
+                feature: lampFeature,
+            });
+        },
         // 轴动作在本 facade 之后初始化；只在真实点击时读取，严禁顶层提前解引用造成 TDZ。
         widgetActions: () => ({
             point: (body, $button, editIdx) => applyPointWidget(body, $button, editIdx),
@@ -1987,6 +1903,16 @@ const spaceFeature = createSpaceFeature({
     snapshotGuideModules: names => activityFeature.capture(names),
     recordGuideActivity: entry => activityFeature.record(entry),
     generateBeat: () => revealBeatAndGenerate(),
+    intentFromGuide: state => intentFromGuide(state, { kind: 'fight' }),
+    handoffToLamp: intent => {
+        lampFeature.setIntent(intent, { from: 'guide', kind: intent?.kind || 'fight', hasConflict: true });
+        enterLampSidebar({
+            resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+            show: () => showPanelView($in, 'lamp'),
+            feature: lampFeature,
+        });
+        showToast('草案已交给灯，确认跑法后再改账');
+    },
 });
 const slipFeature = createSlipFeature({
     context: getContext,
@@ -2039,7 +1965,161 @@ const stageFeature = createStageFeature({
     collect: collectStageSnapshotHost,
     jump: openActivityItem,
     $in,
+    onOpen: () => beatFeature.ui?.render?.(),
 });
+function applyLampFightExtras(patches = []) {
+    const applied = [];
+    for (const patch of patches || []) {
+        if (patch.target === 'ledger') {
+            const entries = ledger.listEntries() || [];
+            const hit = entries.find(entry => {
+                const name = String(entry.事由 || entry.title || '');
+                return name && (name.includes(patch.title) || patch.title.includes(name));
+            });
+            if (hit && patch.fields?.[1]) {
+                ledger.updateEntry(hit.id, { 现状: patch.fields[1] });
+                applied.push({ module: 'ledger', title: hit.事由 || hit.title, action: 'edit', ref: hit.id });
+            }
+            continue;
+        }
+        if (patch.target === 'almanac') {
+            const items = loadAlmanac() || [];
+            const hit = items.find(item => String(item.name || '') && (item.name.includes(patch.title) || patch.title.includes(item.name)));
+            if (hit && patch.fields?.[1]) {
+                hit.note = patch.fields[1];
+                void saveAlmanacItemsConfirmed(items);
+                applied.push({ module: 'axis', title: hit.name, action: 'edit' });
+            }
+            continue;
+        }
+        if (patch.target === 'dashed') {
+            const items = linesFeature.dashed?.read?.() || [];
+            const hit = items.find(item => {
+                const text = String(item.text || item.title || '');
+                return text && (text.includes(patch.title) || patch.title.includes(text.slice(0, 24)));
+            });
+            if (hit && patch.fields?.[1]) {
+                hit.text = patch.fields[1];
+                linesFeature.dashed?.commit?.(items);
+                applied.push({ module: 'dashed', title: String(hit.text || '').slice(0, 40), action: 'edit', ref: hit.id });
+            }
+            continue;
+        }
+        if (patch.target === 'outline') {
+            const raw = outlineFeature.readRaw?.() || '';
+            const beats = parseOutline(raw);
+            const index = beats.findIndex(beat => {
+                const name = String(beat.title || '');
+                return name && (name.includes(patch.title) || patch.title.includes(name));
+            });
+            if (index >= 0 && patch.fields?.[1]) {
+                const result = editOutlineScene(raw, index, patch.fields[1]);
+                if (result.ok) {
+                    const target = outlineFeature.repository.capture();
+                    const saved = outlineFeature.repository.readOutline(target);
+                    void outlineFeature.repository.commitOutlineConfirmed(target, { raw: result.raw, ts: Date.now(), cursor: saved?.cursor ?? 1 });
+                    outlineFeature.refreshPanel?.();
+                    applied.push({ module: 'outline', title: beats[index].title, action: 'edit' });
+                }
+            }
+        }
+    }
+    return applied;
+}
+function applyLampHandEdit(payload = {}) {
+    const fields = payload.fields || {};
+    const title = String(fields.title || payload.title || '').trim();
+    if (payload.module === 'point') {
+        const key = getCacheKey('user', '');
+        const saved = readStore(key) || {};
+        const cal = loadCalDesc();
+        const parsed = parseCalendar(saved.raw, cal);
+        const days = parsed.allDays || parsed.days || [];
+        let hit = null;
+        const visit = events => {
+            for (const event of events || []) {
+                if ((payload.ref && event.id === payload.ref) || event.title === payload.title) {
+                    hit = event;
+                    return true;
+                }
+            }
+            return false;
+        };
+        for (const day of days) if (visit(day.events)) break;
+        if (!hit) visit(parsed.future?.events);
+        if (hit) {
+            if (title) hit.title = title;
+            if (fields.time) hit.time = fields.time;
+            if (fields.location) hit.location = fields.location;
+            if (fields.desc) hit.desc = fields.desc;
+            void writeStoreConfirmed(key, { ...saved, raw: serializeCalendar(days, parsed.future, parsed.startDate, cal, parsed.startDateToken, parsed.pastDays), ts: Date.now() });
+        }
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    if (payload.module === 'lines') {
+        const key = getLinesCacheKey();
+        const saved = readStore(key) || {};
+        const model = parseLines(saved.raw);
+        const line = model.find(item => (payload.ref && item.id === payload.ref) || item.name === payload.title);
+        if (line) {
+            if (title) line.name = title;
+            if (fields.when) line.when = fields.when;
+            if (fields.desc) line.desc = fields.desc;
+            if (fields.next) line.next = fields.next;
+            void writeStoreConfirmed(key, { ...saved, raw: serializeLines(model), ts: Date.now() });
+        }
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    if (payload.module === 'outline') {
+        const raw = outlineFeature.readRaw?.() || '';
+        const beats = parseOutline(raw);
+        const index = beats.findIndex(beat => beat.title === payload.title);
+        if (index >= 0 && fields.scene) {
+            const result = editOutlineScene(raw, index, fields.scene);
+            if (result.ok) {
+                const target = outlineFeature.repository.capture();
+                const saved = outlineFeature.repository.readOutline(target);
+                void outlineFeature.repository.commitOutlineConfirmed(target, { raw: result.raw, ts: Date.now(), cursor: saved?.cursor ?? 1 });
+                outlineFeature.refreshPanel?.();
+            }
+        }
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    if (payload.module === 'ledger') {
+        const patch = {};
+        if (title) patch.事由 = title;
+        if (fields.现状) patch.现状 = fields.现状;
+        if (payload.ref) ledger.updateEntry(payload.ref, patch);
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    if (payload.module === 'almanac') {
+        const items = loadAlmanac() || [];
+        const hit = items.find(item => item.name === payload.title || item.name === title);
+        if (hit) {
+            if (title) hit.name = title;
+            if (fields.note != null) hit.note = fields.note;
+            void saveAlmanacItemsConfirmed(items);
+        }
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    if (payload.module === 'dashed') {
+        const items = linesFeature.dashed?.read?.() || [];
+        const hit = items.find(item => item.id === payload.ref || String(item.text || '').startsWith(payload.title));
+        if (hit) {
+            if (fields.text) hit.text = fields.text;
+            linesFeature.dashed?.commit?.(items);
+        }
+        lampFeature.refresh();
+        return { status: 'updated' };
+    }
+    lampFeature.refresh();
+    return { status: 'updated' };
+}
 function collectLampSnapshotHost() {
     const cal = loadCalDesc();
     let days = [];
@@ -2068,12 +2148,48 @@ function collectLampSnapshotHost() {
     return {
         hasBaiBai,
         conflicts: detectLampConflicts({ days, ledger: ledgerEntries, lines, bbb }),
+        books: {
+            days,
+            lines,
+            ledger: ledgerEntries,
+            outline: (outlineFeature.readSnapshot?.()?.beats || []),
+            almanac: loadAlmanac() || [],
+            dashed: linesFeature.dashed?.read?.() || [],
+        },
     };
 }
 const lampFeature = createLampFeature({
     collect: collectLampSnapshotHost,
     jump: openActivityItem,
     $in,
+    $,
+    toast: (message, error) => showToast(message, null, error),
+    onOpen: () => { $in('#sp-refresh-fold')?.prop?.('open', false); },
+    sendToSpace: async ({ items = [], ask = false } = {}) => {
+        const quote = items.map(item => `${item.title}${item.detail || item.snippet ? `：${item.detail || item.snippet}` : ''}`).filter(Boolean).join('\n');
+        spaceFeature.guide?.leave?.();
+        spaceFeature.ui?.setQuote?.({ quote: quote || '（待改篮是空的）', who: '对账灯' });
+        activityFeature.close();
+        const ok = await openPluginViewWithPrefill('space');
+        if (ask) {
+            $in('#sp-space-input')?.val?.('这段账可能打架了。帮我想清楚该怎么改，最后给灯一份改账意图。不确定跑法就写未写清。');
+        }
+        spaceFeature.ui?.setQuote?.({ quote: quote || '（待改篮是空的）', who: '对账灯' });
+        return { status: ok ? 'quoted' : 'failed' };
+    },
+    clarifyIntent: intent => {
+        spaceFeature.guide?.leave?.();
+        spaceFeature.ui?.setQuote?.({ quote: intent?.text || '', who: '对账灯' });
+        void openPluginViewWithPrefill('space').then(() => {
+            $in('#sp-space-input')?.val?.('上一版意图没写清跑法或条目。请再出一版写清楚的改账意图：跑法、要动哪几本、点名条目怎么改、不要动什么。不要自己改账。');
+        });
+    },
+    runKind: (kind, intent) => {
+        if (kind === 'align') return refreshController.align({ selected: intent.modules?.length ? intent.modules.filter(name => name === 'point' || name === 'lines') : ['point', 'lines'], reason: intent.text, cause: 'manual' });
+        if (kind === 'regen') return refreshController.regenerate({ selected: intent.modules?.length ? intent.modules.filter(name => name === 'point' || name === 'lines' || name === 'dashed' || name === 'outline') : ['point', 'lines'], reason: intent.text || '灯上按意图重做' });
+        return refreshController.fight({ intent, cause: 'manual' });
+    },
+    saveItem: payload => applyLampHandEdit(payload),
 });
 let theaterMode          = false;
 let beatFeature          = null;
@@ -2119,6 +2235,15 @@ const refreshController = createRefreshController({
     regenDashed: opts => linesFeature.dashed.run(opts),
     regenOutline: opts => outlineFeature.generation.trigger(opts),
     snapshotModules: names => activityFeature.capture(names),
+    collectFightBooks: () => ({
+        pointRaw: readStore(getCacheKey('user', ''))?.raw || '',
+        linesRaw: readStore(getLinesCacheKey())?.raw || '',
+        ledgerText: (ledger.listEntries() || []).map(entry => `${entry.事由 || entry.title}｜${entry.现状 || ''}`).join('\n'),
+        almanacText: (loadAlmanac() || []).map(item => `${item.name}｜${item.note || ''}`).join('\n'),
+        dashedText: (linesFeature.dashed?.read?.() || []).map(item => item.text || item.body || '').join('\n'),
+        outlineRaw: outlineFeature.readRaw?.() || '',
+    }),
+    applyFightExtras: patches => applyLampFightExtras(patches),
     onActivity: entry => activityFeature.record(entry),
     floorSignature: _floorSig,
     sameFloor: () => sameFloorGate.pending(),
@@ -2149,9 +2274,8 @@ const paceBook = createPaceBook({
     sameFloor: () => sameFloorGate.pending(),
     paintSoon: () => paintPaceSoon(),
 });
-function syncRefreshBar(view = _lastMainView) {
-    const show = view === 'schedule' || view === 'lines' || view === 'outline';
-    $in('#sp-panel-tools').css('display', show ? 'block' : 'none');
+function syncRefreshBar() {
+    $in('#sp-panel-tools').css('display', 'none');
 }
 function collectBeatLedgerContext() {
     const ctx = getContext() || {};
@@ -2721,8 +2845,11 @@ jQuery(async () => {
             dateCoordinator,
             pace: paceBook,
             getAlmanacJudgeInterval,
+            getAlmanacSupplementInterval,
             getLedgerCaptureInterval,
             getLedgerJudgeInterval,
+            loadAlmanac,
+            triggerSupplementAnniversary,
             runJudgeDateStep,
             runLedgerCaptureStep,
             runLedgerJudgeStep,
@@ -2886,6 +3013,11 @@ function getAlmanacJudgeInterval() {
     return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
 }
 
+function getAlmanacSupplementInterval() {
+    const n = Number(getSettings().almanacSupplementInterval);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 10;
+}
+
 // 暗账标注间隔（缺省/非法 → 5；≥1）。抄 getAlmanacJudgeInterval。
 function getLedgerCaptureInterval() {
     const n = Number(getSettings().ledgerCaptureInterval);
@@ -2920,6 +3052,9 @@ function readPaceSnapshot() {
         dateOn: settings.almanacAutoDetect !== false,
         dateUsed: gates.date.counter,
         dateInterval: getAlmanacJudgeInterval(),
+        supplementOn: true,
+        supplementUsed: gates.supplement?.counter || 0,
+        supplementInterval: getAlmanacSupplementInterval(),
         dashedOn: settings.dashedEnabled === true,
         dashedUsed: gates.dashed.counter,
         dashedInterval: Math.max(1, Number(settings.dashedAutoInterval) || 6),
@@ -3231,7 +3366,7 @@ const panelHost = createPanelHost({
                 storyClockStatusCopy, storyClockController,
                 THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK,
                 linesFeature, paceStripHtml, collectPaceRows, readPaceSnapshot,
-                getAlmanacJudgeInterval, getLedgerReconcileInterval, getLinesMode, getLinesInterval,
+                getAlmanacJudgeInterval, getAlmanacSupplementInterval, getLedgerReconcileInterval, getLinesMode, getLinesInterval,
                 outlineFeature,
             }),
         };
@@ -3729,6 +3864,7 @@ function injectModal() {
         resetOutlineJudge: () => outlineFeature.resetJudgeCounter(),
         refreshOutlinePanel: () => outlineFeature.refreshPanel(),
         resetDateCounter: () => paceBook.date.resetCounter(),
+        resetSupplementCounter: () => paceBook.supplement.resetCounter(),
         toast: showToast,
         parseFontFamily: parseFontFamilyFromCss,
         applyUiFont,
@@ -3875,6 +4011,11 @@ function booksEmptyHtml(kind) {
 }
 
 function openRefreshFor(selected) {
+    enterLampSidebar({
+        resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+        show: () => showPanelView($in, 'lamp'),
+        feature: lampFeature,
+    });
     return openRefreshFold($in('#sp-refresh-fold'), selected);
 }
 
@@ -5013,7 +5154,7 @@ async function triggerGenerateAlmanac() { return axisGenerationController.trigge
 
 // 跑补录：复用 axisGenerationController（由 axisState.isGeneratingAlmanac 维护互斥），
 // 但合并阶段走**纯追加去重**（非 mergeAlmanac）+ pin=true，且补 0 条时给出「没有够格」的正常态提示、不报错。
-async function triggerSupplementAnniversary() { return axisGenerationController.trigger(true); }
+async function triggerSupplementAnniversary(options = {}) { return axisGenerationController.trigger(true, options); }
 // ── 手动新增 / 编辑（内联窗，不用弹窗）──
 // 用户明确怕浮层弹窗出问题（会盖住/卡住），故表单直接渲进 #sp-almanac-wrap 里，
 // 走 renderAlmanacPanel 的正常重渲，跟着 CHAT_CHANGED 一起被清，绝不残留浮层。

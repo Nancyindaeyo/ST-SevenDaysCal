@@ -60,6 +60,9 @@ export function collectPaceRows(snap = {}) {
     if (snap.dateOn) push({ id: 'date', label: '补日期', text: formatRemain(snap.dateUsed, snap.dateInterval), strip: false });
     else push({ id: 'date', label: '补日期', text: '关着', off: true, strip: false });
 
+    if (snap.supplementOn) push({ id: 'supplement', label: '补录', text: formatRemain(snap.supplementUsed, snap.supplementInterval) });
+    else push({ id: 'supplement', label: '补录', text: '关着', off: true });
+
     if (!snap.dashedOn) push({ id: 'dashed', label: '冷知识', text: '关着', off: true });
     else if (snap.pendingDashed) push({ id: 'dashed', label: '冷知识', text: '下一楼补', due: true });
     else push({ id: 'dashed', label: '冷知识', text: formatRemain(snap.dashedUsed, snap.dashedInterval) });

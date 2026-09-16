@@ -13,6 +13,7 @@ function gateOf(state = {}, lastFloorKeys = ['lastFloor'], counterKeys = ['count
 
 export function createPaceBook(env = {}) {
     const date = createFloorTicker();
+    const supplement = createFloorTicker();
     const ledgerCapture = createFloorTicker();
     const ledgerJudge = createFloorTicker();
 
@@ -27,6 +28,7 @@ export function createPaceBook(env = {}) {
             outline: gateOf(outline, ['lastFloor', 'lastJudgedMessageId'], ['counter', 'messageCounter']),
             dashed: gateOf(dashed, ['lastFloor', 'autoFloor'], ['counter', 'autoCount']),
             date: date.state(),
+            supplement: supplement.state(),
             ledgerCapture: ledgerCapture.state(),
             ledgerJudge: ledgerJudge.state(),
             pendingAdvance: env.refresh?.stagger?.hasPendingAdvance?.() === true,
@@ -60,23 +62,25 @@ export function createPaceBook(env = {}) {
         env.outline?.hydrate?.(saved.outline);
         env.dashed?.hydrate?.(saved.dashed);
         date.hydrate(saved.date);
+        supplement.hydrate(saved.supplement);
         ledgerCapture.hydrate(saved.ledgerCapture);
         ledgerJudge.hydrate(saved.ledgerJudge);
     };
     const resetChat = ({ lastSeen = -1 } = {}) => {
         date.reset({ lastFloor: lastSeen });
+        supplement.reset({ lastFloor: lastSeen });
         ledgerCapture.reset({ lastFloor: lastSeen });
         ledgerJudge.reset({ lastFloor: lastSeen });
     };
     const consumeFloor = (name, messageId, opts = {}) => {
-        const ticker = name === 'date' ? date : name === 'ledgerCapture' ? ledgerCapture : ledgerJudge;
+        const ticker = name === 'date' ? date : name === 'supplement' ? supplement : name === 'ledgerCapture' ? ledgerCapture : ledgerJudge;
         const tick = ticker.tick(messageId, { ...opts, sameFloor: opts.sameFloor === true || env.sameFloor?.() === true });
         if (tick.reason === 'interval') remember();
         return tick.status === 'due';
     };
 
     return {
-        date, ledgerCapture, ledgerJudge,
+        date, supplement, ledgerCapture, ledgerJudge,
         liveGates, persist, remember, hydrate, resetChat, consumeFloor,
     };
 }

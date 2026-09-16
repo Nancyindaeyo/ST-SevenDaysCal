@@ -128,6 +128,21 @@ export function createChatFloorHandlers(h) {
             h.dateCoordinator?.runOnce?.(renderKey, ({ signal }) => h.runJudgeDateStep?.({ messageId, signal }));
             h.rememberPace?.();
         },
+        supplement: async (messageId) => {
+            if (!h.pluginEnabled?.()) return;
+            const chat = h.getContext?.().chat;
+            if (!isLatestChatFloor(chat, messageId)) return;
+            const items = h.loadAlmanac?.() || [];
+            if (!items.length) return;
+            if (!h.pace?.consumeFloor?.('supplement', messageId, {
+                interval: h.getAlmanacSupplementInterval?.() ?? 10,
+                blocked: h.booksAreEmpty?.() || h.isAutomationSuppressed?.(messageId, modules.AXIS),
+            })) return;
+            const run = () => h.triggerSupplementAnniversary?.({ auto: true });
+            if (typeof h.enqueueJob === 'function') h.enqueueJob({ id: 'supplement', run });
+            else run();
+            h.rememberPace?.();
+        },
         ledgerCapture: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
             if (h.getSettings?.().ledgerCaptureEnabled !== true) return;
@@ -201,6 +216,7 @@ export function bindChatFloorListeners({ eventSource, event_types: et, store, h 
         { key: 'genStopped', type: et.GENERATION_STOPPED, handler: handlers.genStopped },
         { key: 'outlineJudge', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.outlineJudge },
         { key: 'almanacJudge', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.almanacJudge },
+        { key: 'supplement', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.supplement },
         { key: 'ledgerCapture', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerCapture },
         { key: 'ledgerJudge', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerJudge },
         { key: 'ledgerInjectRescore', type: et.CHARACTER_MESSAGE_RENDERED, handler: handlers.ledgerInjectRescore },

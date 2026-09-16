@@ -59,6 +59,7 @@ export const DEFAULT_SETTINGS = {
     // 读不到戳（漏打 / 「谷雨」无月日）才由 almanacAutoDetect 决定是否隔 N 楼调一次 API 兜底。点纯下游连带跟随，无独立判定。
     almanacAutoDetect    : true,  // 读不到戳时用 API 兜底判定（戳关时＝历自动判定总开关，回落老行为）
     almanacJudgeInterval : 3,     // API 兜底节奏：每几条 AI 回复兜底一次
+    almanacSupplementInterval: 10, // 补录纪念日：每几条 AI 楼一次，不跟换日绑
     ledgerReconcileEnabled: false, // 点/线按正文自动对齐：每 N 条 AI 楼打补丁；默认关
     ledgerReconcileInterval: 3,    // 自动对齐节奏：每几条 AI 回复一次，最小 1
     ledgerReconcileReroll: true,   // 对齐楼重 roll / 切 swipe 时按新正文再对齐一次；默认开

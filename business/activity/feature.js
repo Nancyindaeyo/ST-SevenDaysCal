@@ -395,7 +395,7 @@ export function createActivityFeature(env = {}) {
             else if (entry?.source === 'align' || entry?.source === 'align-auto') void realign({ cause: 'retry' });
             else if (entry?.source === 'bootstrap') void env.retryBootstrap?.();
             else if (entry?.source === 'fill') void env.retryFill?.();
-            else if (entry?.source === 'refresh') void env.retryRefresh?.(entry);
+            else if (entry?.source === 'refresh' || entry?.source === 'fight') void env.retryRefresh?.(entry);
             else if (isRetryableEntry(entry)) void env.retryQueueJob?.(entry.source);
         });
         click('.sp-activity-queue-fail', function () {

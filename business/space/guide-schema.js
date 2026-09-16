@@ -20,6 +20,7 @@ export const SPACE_CHAT_STARTERS = Object.freeze([
     Object.freeze({ id: 'next', label: '下一楼怎么写', text: '刚这楼之后，下一楼比较顺的走向是什么？别代写正文，说事件和落到什么结果。' }),
     Object.freeze({ id: 'line', label: '线该不该露头', text: '有哪条线现在适合露一点头，哪条该再压着？说理由，不要改账本。' }),
     Object.freeze({ id: 'point', label: '今天的点还合适吗', text: '今天的点还贴正文吗？有没有该收口或该改时间的，先聊清楚。' }),
+    Object.freeze({ id: 'intent', label: '出改账草案', text: '请根据刚才的讨论，给灯一份改账意图。写清：跑法（fight/align/regen，不确定就写未写清）、要动哪几本、点名条目和怎么改、不要动什么。不要自己改账，不要复制顾问提示词。' }),
 ]);
 
 export const GUIDE_MODULES = Object.freeze(['point', 'lines', 'outline']);

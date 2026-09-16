@@ -200,19 +200,19 @@ export function createSpaceUi(host = {}) {
             const index = Number($message.attr('data-idx'));
             if (Number.isInteger(index) && index >= 0 && index < controllers.chat.history().length) startEdit($message, index);
         });
+        $root.on('click.spSpaceFeature', '.sp-space-to-lamp', function () {
+            const index = Number(host.$(this).closest('.sp-chat-msg-wrap').attr('data-idx'));
+            const message = controllers.chat.history()?.[index];
+            host.handoffMessage?.(message);
+        });
+        $root.on('click.spSpaceFeature', '.sp-space-clarify', function () {
+            const $input = query('#sp-space-input');
+            $input?.val?.('上一版意图没写清跑法或条目。请再出一版写清楚的改账意图：跑法、要动哪几本、点名条目怎么改、不要动什么。不要自己改账。');
+            host.autoGrow?.($input?.[0]);
+            $input?.trigger?.('focus');
+        });
         $root.on('click.spSpaceFeature', '.sp-space-widget-apply', function () {
-            const $button = host.$(this);
-            if ($button.prop('disabled')) return;
-            const stored = widgets.get($button.attr('data-wid'));
-            if (!stored) {
-                host.toast?.('这张卡片已过期，请再让 AI 生成一次', true);
-                return;
-            }
-            const actions = host.widgetActions?.() || {};
-            if (stored.kind === 'schedule_widget') actions.point?.(stored.body, $button, stored.editIdx);
-            else if (stored.kind === 'line_widget') actions.lines?.(stored.body, stored.editIdx, $button);
-            else if (stored.kind === 'almanac_widget') actions.almanac?.(stored.body, $button, $button.attr('data-idx'));
-            else if (stored.kind === 'era_widget') actions.era?.(stored.body, $button);
+            host.toast?.('卡片只展示。要改账请交给灯', true);
         });
         $root.on('click.spSpaceFeature', '#sp-space-clear', async () => {
             if (guide?.isActive?.()) {

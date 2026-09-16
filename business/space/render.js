@@ -31,9 +31,7 @@ export function createSpaceRenderer(env = {}) {
                 </div>
                 ${dynamic ? `<div class="sp-space-widget-dynamic">🧵 ${escape(dynamic)}</div>` : ''}
             </div>
-            <div class="sp-space-widget-actions">
-                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid ${editIdx != null ? 'fa-pen' : 'fa-plus'}"></i> ${editIdx != null ? `替换第 ${editIdx} 条` : '应用到点'}</button>
-            </div>
+            <p class="sp-cfg-hint">只展示建议，不直接写账。要落地请交给灯。</p>
         </div>`;
         }
         if (kind === 'line_widget') {
@@ -62,9 +60,7 @@ export function createSpaceRenderer(env = {}) {
                 ${desc ? `<div class="sp-space-widget-desc">${escape(desc)}</div>` : ''}
                 ${next ? `<div class="sp-space-widget-next">→ ${escape(next)}</div>` : ''}
             </div>
-            <div class="sp-space-widget-actions">
-                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid ${editIdx != null ? 'fa-pen' : 'fa-plus'}"></i> ${editIdx != null ? `替换第 ${editIdx} 条` : '应用到线'}</button>
-            </div>
+            <p class="sp-cfg-hint">只展示建议，不直接写账。要落地请交给灯。</p>
         </div>`;
         }
         if (kind === 'almanac_widget') {
@@ -87,9 +83,8 @@ export function createSpaceRenderer(env = {}) {
                         <span class="sp-space-widget-almtype">${escape(labels[item.type] || '自定义')}</span>
                     </div>
                 </div>
-                <div class="sp-space-widget-actions">
-                    <button class="sp-space-widget-apply" data-wid="${wid}" data-idx="${index}"><i class="fa-solid fa-plus"></i> 应用到轴</button>
-                </div>
+            </div>
+            <p class="sp-cfg-hint">只展示建议，不直接写账。要落地请交给灯。</p>
             </div>`;
             }).join('');
         }
@@ -108,9 +103,7 @@ export function createSpaceRenderer(env = {}) {
                 <div class="sp-space-widget-desc">一年 ${env.calendarMonthCount?.(desc)} 个月、共 ${env.calendarYearLength?.(desc)} 天</div>
                 <div class="sp-space-widget-eramonths">${months}</div>
             </div>
-            <div class="sp-space-widget-actions">
-                <button class="sp-space-widget-apply" data-wid="${wid}"><i class="fa-solid fa-calendar-check"></i> 应用历法</button>
-            </div>
+            <p class="sp-cfg-hint">只展示建议，不直接写账。要落地请交给灯。</p>
         </div>`;
         }
         return '';
@@ -140,7 +133,7 @@ export function createSpaceRenderer(env = {}) {
         }
         const edit = role === 'user' ? '<button class="sp-chat-msg-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>' : '';
         const actions = canAct
-            ? `<div class="sp-chat-msg-actions">${edit}<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button><button class="sp-chat-msg-delete" title="删除"><i class="fa-solid fa-trash"></i></button></div>`
+            ? `<div class="sp-chat-msg-actions">${edit}<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button><button class="sp-chat-msg-delete" title="删除"><i class="fa-solid fa-trash"></i></button>${widgetCards ? '<button class="sp-space-to-lamp" title="交给灯">交给灯</button><button class="sp-space-clarify" title="回间写清">回间写清</button>' : ''}</div>`
             : '';
         return Object.freeze({ cls, wrapClass, canAct, contentHtml, widgetCards, actions });
     };

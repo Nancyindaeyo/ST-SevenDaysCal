@@ -327,7 +327,7 @@ export function createTheaterUi({ repository, templates, resolveRegen, draftCap 
             if (!liked.length) return host.toast?.('先勾选喜欢的条目', null, true);
             try {
                 const result = await exporter.export(liked);
-                if (result?.ok) host.toast?.(`已导出 ${result.count} 条到「${result.bookName}」`);
+                if (result?.ok) host.toast?.(`已导出 ${result.count} 条形式到「${result.bookName}」，并写入手写模板堆`);
                 else host.toast?.(result?.reason === 'empty' ? '没有可导出的喜欢条目' : '导出失败', null, true);
             } catch (error) { host.toast?.('导出失败：' + (error?.message || error), null, true); }
         });

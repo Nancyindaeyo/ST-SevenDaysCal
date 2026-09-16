@@ -3,7 +3,7 @@ import { parseLines, serializeLines, TERMINAL_LINE_STAGES, isTerminalLineStage, 
 import { AUTO_LINE_CAPACITY } from '../lines/capacity.js';
 import { findBookIndex } from '../identity.js';
 
-const PATCH_BLOCK = /<reconcile_patch\b[^>]*>([\s\S]*?)<\/reconcile_patch>/i;
+const PATCH_BLOCK = /<(?:reconcile_patch|fight_patch)\b[^>]*>([\s\S]*?)<\/(?:reconcile_patch|fight_patch)>/i;
 
 export function parseReconcilePatches(raw) {
     const source = String(raw || '');
@@ -13,7 +13,7 @@ export function parseReconcilePatches(raw) {
     for (const line of block.split('\n')) {
         const text = line.trim();
         if (!text || /^note\s*[:：]/i.test(text) || /^```/.test(text)) continue;
-        const point = /^point\s*[:：]\s*(complete|postpone|edit|stall|add)\s*\|(.+)$/i.exec(text);
+        const point = /^point\s*[:：]\s*(complete|postpone|edit|stall|add|meta)\s*\|(.+)$/i.exec(text);
         if (point) {
             const fields = point[2].split('|').map(part => part.trim());
             patches.push({ target: 'point', op: point[1].toLowerCase(), title: fields[0] || '', fields });
@@ -23,6 +23,12 @@ export function parseReconcilePatches(raw) {
         if (linePatch) {
             const fields = linePatch[2].split('|').map(part => part.trim());
             patches.push({ target: 'line', op: linePatch[1].toLowerCase(), name: fields[0] || '', fields });
+            continue;
+        }
+        const extra = /^(ledger|almanac|dashed|outline)\s*[:：]\s*(edit)\s*\|(.+)$/i.exec(text);
+        if (extra) {
+            const fields = extra[3].split('|').map(part => part.trim());
+            patches.push({ target: extra[1].toLowerCase(), op: extra[2].toLowerCase(), title: fields[0] || '', fields });
         }
     }
     return { note, patches, unchanged: !patches.length };
@@ -147,6 +153,13 @@ export function applyPointPatches(raw, patches, { feedback = '', calendar = null
             hit.event.desc = hit.event.desc ? `${hit.event.desc}（暂缓）` : '暂缓';
             changed = true;
             applied.push(pointApplied(hit.event, 'stall'));
+            continue;
+        }
+        if (patch.op === 'meta') {
+            if (patch.fields[1]) hit.event.time = patch.fields[1];
+            if (patch.fields[2]) hit.event.location = patch.fields[2];
+            changed = true;
+            applied.push(pointApplied(hit.event, 'edit'));
         }
     }
     return { raw: serializeCalendar(days, parsed.future, parsed.startDate, calendar, parsed.startDateToken, parsed.pastDays), changed, skippedLocks, applied };
@@ -214,6 +227,18 @@ export function applyLinePatches(raw, patches, { feedback = '' } = {}) {
         }
     }
     return { raw: serializeLines(model), changed, skippedLocks, applied, terminal: model.filter(line => TERMINAL_LINE_STAGES.has(line.stage)).map(line => line.name) };
+}
+
+export function summarizeFight({ point, lines, extras = [], note }) {
+    const parts = [];
+    if (point?.changed) parts.push('点已按打架改');
+    if (lines?.changed) parts.push('线已按打架改');
+    if (extras.length) parts.push(extras.map(item => item.title).join('、'));
+    const locks = [...(point?.skippedLocks || []), ...(lines?.skippedLocks || [])];
+    if (locks.length) parts.push(`锁定未改：${[...new Set(locks)].join('、')}`);
+    if (note) parts.push(note);
+    if (!parts.length) return '没有打架';
+    return parts.join(' · ');
 }
 
 export function summarizeReconcile({ point, lines, note }) {

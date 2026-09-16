@@ -78,11 +78,11 @@ export function renderSpaceGuide(state = {}, escape = value => String(value ?? '
             </section>`;
         }).join('');
         return `<div class="sp-guide">
-            <p class="sp-intro-lede">${escape(state.understand || '先看草案，确认后才写入账本。')}</p>
+            <p class="sp-intro-lede">${escape(state.understand || '先看草案。同意后交给灯跑，间自己不写账。')}</p>
             ${blocks}
             <label class="sp-mode-opt"><input type="checkbox" id="sp-guide-want-beat"${state.wantBeat ? ' checked' : ''}><span>顺手出本轮拍</span></label>
             <div class="sp-guide-actions">
-                <button type="button" class="sp-btn sp-btn-primary" data-guide="commit">确认写入</button>
+                <button type="button" class="sp-btn sp-btn-primary" data-guide="commit">交给灯</button>
             </div>
             ${nav}${busy}${err}
         </div>`;
@@ -99,6 +99,6 @@ export function spaceGuideEmptyHtml() {
         <p>间是局外顾问。下一楼怎么写、线该不该露头、点还合不合适，都可以先问。</p>
         <div class="sp-guide-actions">${starters}</div>
         <button type="button" class="sp-btn sp-btn-primary" id="sp-space-guide-start">引导设计点线面</button>
-        <p class="sp-cfg-hint">引导会改账本草案，确认前不会写入。不问番外，不填棱。</p>
+        <p class="sp-cfg-hint">引导只出草案。同意后交给灯跑，间自己不写账。不问番外，不填棱。</p>
     </div>`;
 }

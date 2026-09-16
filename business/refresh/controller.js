@@ -4,7 +4,8 @@ import { ACTIVITY_MODULES, alignSourceOf, floorUnchangedNote } from '../activity
 import { pointDayEventGap } from '../point/horizon.js';
 import { pointTodayDayIndex } from '../point/shift.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
-import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeReconcile } from './patch.js';
+import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeFight, summarizeReconcile } from './patch.js';
+import { buildFightPrompt } from '../lamp/fight-prompt.js';
 import { normalizeRefreshSelection } from './bar.js';
 import { createStaggerGate } from './stagger.js';
 
@@ -103,7 +104,7 @@ export function createRefreshController(env = {}) {
 
     function beginGeneration(kind) {
         if (busy) return null;
-        const token = { kind, controller: kind === 'align' ? new AbortController() : null };
+        const token = { kind, controller: kind === 'align' || kind === 'fight' ? new AbortController() : null };
         generation = token;
         busy = true;
         return token;
@@ -209,6 +210,8 @@ export function createRefreshController(env = {}) {
             const patched = point.changed || lines.changed;
             env.onActivity?.({
                 ...activityBase(),
+                kind: 'align',
+                reason: String(options.reason || ''),
                 outcome: patched ? 'patched' : 'unchanged',
                 items,
                 snapshot: patched ? before : null,
@@ -250,7 +253,13 @@ export function createRefreshController(env = {}) {
                 results[name] = result;
                 if (generation !== token) return;
                 const after = snapshotSelected([name]);
-                const entry = refreshBlockActivity(name, result, before, after);
+                const entry = {
+                    ...refreshBlockActivity(name, result, before, after),
+                    kind: 'regen',
+                    reason,
+                    feedback: String(options.feedback || ''),
+                    outlineMode: options.outlineMode || 'current',
+                };
                 blocks.push({ name, label: refreshModuleLabel(name), outcome: entry.outcome, error: entry.error || '', note: entry.note });
                 env.onActivity?.(entry);
             };
@@ -260,6 +269,107 @@ export function createRefreshController(env = {}) {
             await runModule('outline', () => env.regenOutline?.({ reroll: true, module: 'outline', promptAddon: addon, mode: options.outlineMode || 'current' }));
             if (generation !== token) return { status: 'cancelled', reason: 'aborted', results, blocks };
             return { status: 'updated', results, blocks };
+        } finally { endGeneration(token); }
+    }
+
+    async function fight(options = {}) {
+        const token = beginGeneration('fight');
+        if (!token) return { status: 'skipped', reason: 'busy' };
+        let diagnostic;
+        const recordFailed = error => {
+            try {
+                const latest = latestAiFloor(env.context?.()?.chat);
+                env.onActivity?.({
+                    source: 'fight',
+                    kind: 'fight',
+                    cause: options.cause || 'manual',
+                    intent: options.intent || null,
+                    reason: String(options.intent?.text || options.reason || ''),
+                    floorId: latest?.index,
+                    outcome: 'failed',
+                    error: diagnosticMessage(error),
+                    note: diagnosticMessage(error),
+                });
+            } catch { /* 记失败不能再把 busy 卡死 */ }
+        };
+        try {
+            const ctx = env.context?.() || {};
+            const ownerChatId = String(ctx.chatId ?? '');
+            const latest = latestAiFloor(ctx.chat);
+            const latestStory = env.readFloorStory?.(latest?.text || '') || env.cleanText?.(latest?.text || '') || String(latest?.text || '');
+            const cfg = env.loadConfig?.() || {};
+            const activityBase = () => ({
+                source: 'fight',
+                kind: 'fight',
+                cause: options.cause || 'manual',
+                intent: options.intent || null,
+                reason: String(options.intent?.text || options.reason || ''),
+                floorId: latest?.index,
+                swipeId: ctx.chat?.[latest?.index]?.swipe_id,
+                signature: env.floorSignature?.(latest?.index),
+            });
+            diagnostic = createGenerationDiagnosticScope('lamp-fight', { background: options.cause === 'retry' });
+            const books = env.collectFightBooks?.() || {};
+            const pointRaw = String(books.pointRaw ?? env.readPointRaw?.() ?? '');
+            const linesRaw = String(books.linesRaw ?? env.readLinesRaw?.() ?? '');
+            const prompt = buildFightPrompt({
+                userName: ctx.name1 || '用户',
+                charName: ctx.name2 || '角色',
+                latestStory,
+                pointRaw,
+                linesRaw,
+                ledgerText: books.ledgerText || '',
+                almanacText: books.almanacText || '',
+                dashedText: books.dashedText || '',
+                outlineRaw: books.outlineRaw || '',
+                intent: options.intent || {},
+            });
+            if (!cfg.url || !cfg.key) {
+                const error = makeDiagnosticError('config-missing');
+                recordFailed(error);
+                return { status: 'failed', error };
+            }
+            const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'lamp-fight', diagnosticSink: diagnostic.sink, fullMemory: false });
+            if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled' };
+            diagnostic.accepted({ phase: 'response' });
+            const parsed = parseReconcilePatches(raw);
+            const before = snapshotSelected(['point', 'lines']);
+            const point = applyPointPatches(pointRaw, parsed.patches, { feedback: options.intent?.text || '', calendar: env.calendar?.() });
+            const lines = applyLinePatches(linesRaw, parsed.patches, { feedback: options.intent?.text || '' });
+            const extras = await env.applyFightExtras?.(parsed.patches.filter(item => item.target !== 'point' && item.target !== 'line'), options.intent) || [];
+            const ownerGuard = () => ownerStillHere(token, ownerChatId);
+            if (point.changed && lines.changed && typeof env.writeBatchRaw === 'function') {
+                const saved = await env.writeBatchRaw({ point: point.raw, lines: lines.raw }, { ownerGuard });
+                if (writeRejected(saved)) throw makeDiagnosticError('save', { phase: 'save' });
+            } else {
+                if (point.changed) {
+                    const saved = await env.writePointRaw?.(point.raw, { ownerGuard });
+                    if (writeRejected(saved)) throw makeDiagnosticError('save', { phase: 'save' });
+                }
+                if (lines.changed) {
+                    const saved = await env.writeLinesRaw?.(lines.raw, { ownerGuard });
+                    if (writeRejected(saved)) throw makeDiagnosticError('save', { phase: 'save' });
+                }
+            }
+            env.onPatched?.({ point: point.changed, lines: lines.changed });
+            const after = snapshotSelected(['point', 'lines']);
+            const items = [...(point.applied || []), ...(lines.applied || []), ...extras];
+            const patched = point.changed || lines.changed || extras.length > 0;
+            const summary = summarizeFight({ point, lines, extras, note: parsed.note });
+            env.onActivity?.({
+                ...activityBase(),
+                outcome: patched ? 'patched' : 'unchanged',
+                items,
+                snapshot: patched ? before : null,
+                after: patched ? after : null,
+                note: patched ? parsed.note || summary : [floorUnchangedNote(latest?.index), parsed.note].filter(Boolean).join('。'),
+            });
+            return { status: 'updated', summary, items, unchanged: !patched };
+        } catch (error) {
+            if (error?.name === 'AbortError') return { status: 'cancelled' };
+            diagnostic?.rejected?.(error, { phase: 'request' });
+            recordFailed(error);
+            return { status: 'failed', error };
         } finally { endGeneration(token); }
     }
 
@@ -319,7 +429,7 @@ export function createRefreshController(env = {}) {
     }
 
     return {
-        align, regenerate, onAiFloor, onRerollAlign, abort, stagger,
+        align, regenerate, fight, onAiFloor, onRerollAlign, abort, stagger,
         resetCounter: () => { counter = 0; lastFloor = -1; lastReconcileFloor = -1; lastRerollKey = ''; stagger.reset(); },
         hydrate(state = {}) {
             counter = Math.max(0, Math.floor(Number(state.counter) || 0));

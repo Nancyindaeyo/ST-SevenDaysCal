@@ -217,25 +217,17 @@ export function createSpaceGuide(env = {}) {
     };
 
     const commit = async () => {
-        const applied = [];
         const names = GUIDE_MODULES.filter(name => state.decisions[name] === 'apply' && state.drafts[name]);
-        const before = names.length ? env.snapshotModules?.(names) || {} : {};
-        for (const name of names) {
-            const ok = await env.applyDraft?.(name, state.drafts[name]);
-            if (ok) applied.push(name);
-        }
-        if (!applied.length && GUIDE_MODULES.every(name => state.decisions[name] === 'pending')) {
+        if (!names.length && GUIDE_MODULES.every(name => state.decisions[name] === 'pending')) {
             env.toast?.('先给点/线/面各选一项：保持、按草案改、或不用你想', true);
             return { status: 'invalid' };
         }
-        if (applied.length) {
-            const after = env.snapshotModules?.(applied) || {};
-            env.recordActivity?.({ source: 'guide', snapshot: before, after });
-        }
+        const intent = env.intentFromGuide?.(state) || { drafts: state.drafts, decisions: state.decisions, understand: state.understand };
+        env.handoffToLamp?.(intent);
         const wantBeat = state.wantBeat;
         leave();
         if (wantBeat) env.generateBeat?.();
-        return { status: 'updated', applied };
+        return { status: 'updated', applied: [] };
     };
 
     return {

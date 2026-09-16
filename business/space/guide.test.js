@@ -42,7 +42,7 @@ test('guide prompts never ask for theater', () => {
     assert.match(draft, /不问番外/);
     assert.match(draft, /没要求动的模块/);
     assert.equal(formatGuideAnswers([{ prompt: '现在最卡住的是？', value: '下一楼不知道写什么' }]).includes('下一楼'), true);
-    assert.equal(SPACE_CHAT_STARTERS.some(item => item.label === '下一楼怎么写'), true);
+    assert.equal(SPACE_CHAT_STARTERS.some(item => item.label === '出改账草案'), true);
 });
 
 test('guide draft seed and outline pass through unclipped', () => {

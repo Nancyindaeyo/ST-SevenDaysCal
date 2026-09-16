@@ -159,6 +159,12 @@ export function bindSettingsPanel(env = {}) {
             env.rememberPace?.();
         },
     });
+    bindCount($in, '#sp-almanac-supplement-interval', 'almanacSupplementInterval', {
+        settings, persist: save, fallback: 10, after: () => {
+            env.resetSupplementCounter?.();
+            env.rememberPace?.();
+        },
+    });
 
     const applyUiScale = v => {
         const s = clampUiScale(v);

@@ -5,14 +5,15 @@ import { normalizeMeta } from '../coordinate/schema.js';
 
 test('theater snapshot keeps piece id and marks kind theater', () => {
     const item = buildTheaterSnapshot(
-        { id: 'piece-1', title: '回望', raw: '窗边还有月光', formName: '日记', batchId: 'batch-9' },
+        { id: 'piece-1', title: '回望', raw: '窗边还有月光', formName: '日记', batchId: 'batch-9', templateSource: { title: '日记', input: '用日记体写到月光。' } },
         { chatId: 'chat-a', chatName: '今晚', charName: '春', title: '回望' },
     );
     assert.equal(item.id, 'piece-1');
     assert.equal(item.kind, 'theater');
     assert.equal(item.batchId, 'batch-9');
     assert.equal(item.formName, '日记');
-    assert.equal(item.note, '回望');
+    assert.equal(item.templateSource.input, '用日记体写到月光。');
+    assert.equal(normalizeMeta(item).kind, 'theater');
     assert.equal(item.floorIndex, null);
     assert.equal(item.messageId, null);
     assert.match(item.html, /窗边还有月光/);

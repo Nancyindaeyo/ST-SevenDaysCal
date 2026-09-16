@@ -24,6 +24,7 @@ test('panel markup keeps the shells settings bind to', () => {
         collectPaceRows: () => [],
         readPaceSnapshot: () => ({}),
         getAlmanacJudgeInterval: () => 3,
+        getAlmanacSupplementInterval: () => 10,
         getLedgerReconcileInterval: () => 3,
         getLinesMode: () => 'manual',
         getLinesInterval: () => 2,
@@ -42,6 +43,15 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.match(html, /id="sp-law-inject"/);
     assert.match(html, /id="sp-law-input"/);
     assert.match(html, /id="sp-tab-stage"[^>]*role="tab"/);
+    assert.match(html, /id="sp-stage-main"/);
+    assert.match(html, /id="sp-stage-beat-host"/);
+    assert.match(html, /id="sp-lamp-main"/);
+    assert.match(html, /id="sp-lamp-refresh-host"/);
+    assert.match(html, /id="sp-almanac-supplement-interval"/);
+    const stageIdx = html.indexOf('id="sp-tab-stage"');
+    const lampIdx = html.indexOf('id="sp-tab-lamp"');
+    const pointIdx = html.indexOf('id="sp-tab-schedule"');
+    assert.ok(stageIdx < lampIdx && lampIdx < pointIdx);
     assert.match(html, /id="sp-stage-wrap"[^>]*role="tabpanel"[^>]*aria-labelledby="sp-tab-stage"/);
     assert.match(html, /sp-tab-label">日台/);
     assert.match(html, /id="sp-tab-lamp"[^>]*role="tab"/);
