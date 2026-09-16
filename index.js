@@ -261,26 +261,7 @@ import { createOutlineFeature } from './business/outline/feature.js';
 import { createSpaceFeature } from './business/space/feature.js';
 import { getSpaceChatPlaceholder } from './business/space/prompts.js';
 import { createChatAnchorRepository } from './runtime/chat-date-anchor.js';
-import {
-    initializeWorldInfoSelection,
-    mergeWorldInfoSelection,
-    normalizeWorldInfoSelectionBucket,
-} from './runtime/world-info-selection.js';
-import {
-    collectChatWorldNames,
-    collectGlobalWorldNames,
-    collectLinkedWorldNames,
-    filterActivatedWorldInfo,
-    filterExcludedWorldInfo,
-    loadCharacterWorldInfoEntries,
-    nextExcludeBooks,
-    packWorldInfoContents,
-    resolveAllWorldNames,
-    resolveWorldInfoActivation,
-    wiExcludeSet,
-    worldInfoFailureNoticeKey,
-} from './runtime/world-info-context.js';
-import { paintWiEntryFull, paintWiExcludeList, paintWiList, worldInfoPanelIdentity } from './runtime/world-info-panel.js';
+import { createWorldInfoHost } from './runtime/world-info-host.js';
 import {
     dispatchStoreClearInvalidate,
     dispatchStoreClearRefreshAfter,
@@ -433,6 +414,29 @@ const $dialog = (sel) => {
 const removeDialogOverlays = () => {
     $dialog('#sp-confirm, #sp-store-conflict, #sp-addon-dialog').remove();
 };
+
+const worldInfo = createWorldInfoHost({
+    getContext,
+    settings: getSettings,
+    saveSettingsDebounced,
+    charStableKey,
+    getCharaFilename,
+    worldInfoCore,
+    tavernHelper: () => globalThis.TavernHelper,
+    vanillaWorldInfo: () => globalThis.world_info,
+    equals: equalsIgnoreCaseAndAccents,
+    getMaxPromptTokens: (...args) => scriptCore.getMaxPromptTokens?.(...args),
+    $, $in, $inAll,
+    escapeAttr,
+    diagnosticMessage,
+    showToast,
+    logWarn: (message, error) => console.warn(message, safeDiagnosticLog('world-info', 'activation', error)),
+    logActivationFailure: payload => console.warn('[构画] 世界书激活失败诊断', { ...safeDiagnosticLog('world-info', 'activation', null), ...payload }),
+});
+function buildWorldInfoContext(ctx, opts) { return worldInfo.buildWorldInfoContext(ctx, opts); }
+function getAllWorldNames(ctx) { return worldInfo.getAllWorldNames(ctx); }
+function renderWiList() { return worldInfo.renderList(); }
+function renderWiExcludeList() { return worldInfo.renderExcludeList(); }
 
 // store 视图态回退桥：keyDesc 缺省 view/charName 时回退到当前视图/角色（闭包捕获实时值）。
 bindStoreViewFallback(() => currentView, () => charViewName);
@@ -3792,128 +3796,12 @@ async function generate(ctx, userName, charName, perspective = 'user', signal = 
 }
 
 
-// ─── World-info entry filter (per chat) ───────────────────────────────────────
-// New model: extension_settings[PLUGIN_ID].wiSelectionByChat[chatKey]
-// = { version: 1, decisions: { ["worldName::uid"]: boolean } }.
-// Every key is initialized exactly once from the host switch, then belongs to this chat.
-// Legacy wiFilter / wiFilterByChat remain read-only migration sources.
-//
 // charKey 用**角色卡文件名 avatar**（如 `坏狗.png`）——它跟着卡文件走、稳定不变。
 // 早期误用 ctx.characterId（= this_chid，characters 数组的**下标索引**）：一旦增删/重排
-// 角色，索引就漂移，同一张卡下次读到的是别人的（或空）设置——表现为每次进聊天筛选都被重置。
-// 2.0.0 换稳定键，旧的数字键数据不迁移（已知会重置一次，发版公告告知用户重选）。
+// 角色，索引就漂移，同一张卡下次读到的是别人的（或空）设置。
 function charStableKey(ctx) {
     const c = ctx?.characters?.[ctx?.characterId];
     return c?.avatar || null;   // 无角色（群聊/未选卡）→ null，各 getter 守卫返回默认
-}
-
-function getLegacyWiFilter() {
-    const s = getSettings();
-    if (!s.wiFilter) s.wiFilter = {};
-    return s.wiFilter;
-}
-
-function chatStableKey(ctx) {
-    const hash = String(ctx?.chatMetadata?.chat_id_hash || '').trim();
-    if (hash) return `hash:${hash}`;
-    const chatId = String(ctx?.chatId || '').trim();
-    const avatar = String(charStableKey(ctx) || '').trim();
-    return chatId && avatar ? `legacy:${avatar}:${chatId}` : null;
-}
-
-function getLegacyWiFilterByChat() {
-    const s = getSettings();
-    if (!s.wiFilterByChat || typeof s.wiFilterByChat !== 'object' || Array.isArray(s.wiFilterByChat)) s.wiFilterByChat = {};
-    return s.wiFilterByChat;
-}
-
-function getWiSelectionByChat() {
-    const s = getSettings();
-    if (!s.wiSelectionByChat || typeof s.wiSelectionByChat !== 'object' || Array.isArray(s.wiSelectionByChat)) s.wiSelectionByChat = {};
-    return s.wiSelectionByChat;
-}
-
-function getLegacyDisabledKeys(ctx) {
-    const chatKey = chatStableKey(ctx);
-    if (chatKey) {
-        const byChat = getLegacyWiFilterByChat();
-        // An explicitly stored empty chat bucket means "all formerly visible entries allowed".
-        if (Object.prototype.hasOwnProperty.call(byChat, chatKey)) {
-            return Array.isArray(byChat[chatKey]) ? byChat[chatKey] : [];
-        }
-    }
-    const charKey = charStableKey(ctx);
-    const byCharacter = getLegacyWiFilter();
-    return charKey && Array.isArray(byCharacter[charKey]) ? byCharacter[charKey] : [];
-}
-
-function ensureCurrentWiSelection(ctx, entries) {
-    const chatKey = chatStableKey(ctx);
-    const stored = chatKey ? getWiSelectionByChat()[chatKey] : null;
-    const initialized = initializeWorldInfoSelection({
-        stored,
-        candidates: entries,
-        legacyDisabled: getLegacyDisabledKeys(ctx),
-    });
-    if (chatKey && initialized.changed) {
-        getWiSelectionByChat()[chatKey] = initialized.bucket;
-        saveSettingsDebounced();
-    }
-    return initialized.bucket;
-}
-
-function setCurrentWiSelection(ctx, bucket) {
-    const chatKey = chatStableKey(ctx);
-    const normalized = normalizeWorldInfoSelectionBucket(bucket);
-    if (!chatKey || !normalized) return;
-    getWiSelectionByChat()[chatKey] = normalized;
-    saveSettingsDebounced();
-}
-
-const wiPanelState = { cache: new Map(), listRevision: 0, excludeRevision: 0, theaterRevision: 0 };
-
-function saveVisibleWiSelection(visible, entries) {
-    const ctx = getContext();
-    if (!chatStableKey(ctx)) return;
-    const current = ensureCurrentWiSelection(ctx, entries);
-    const merged = mergeWorldInfoSelection(current, visible);
-    if (merged.changed) setCurrentWiSelection(ctx, merged.bucket);
-}
-
-function wiPanelEnv() {
-    return {
-        state: wiPanelState,
-        $, $in, $inAll,
-        getContext,
-        identity: () => worldInfoPanelIdentity(getContext(), charStableKey(getContext())),
-        loadEntries: () => getCharBookEntries(getContext()),
-        ensureSelection: (ctx, entries) => ensureCurrentWiSelection(ctx, entries),
-        saveVisible: saveVisibleWiSelection,
-        diagnosticMessage,
-        escapeAttr,
-        showEntry: entry => paintWiEntryFull({ $in, $ }, entry),
-        listNames: () => getAllWorldNames(getContext()),
-        excludeSet: getWiExcludeSet,
-        setExcluded: setWiExcluded,
-        onExcludeChange: () => { void renderWiList(); },
-        equals: equalsIgnoreCaseAndAccents,
-    };
-}
-
-// ─── World-book global exclusion (B方案) ─────────────────────────────────────
-// 全局、按书名（非按条目、也非按角色卡）。被排除的书构画**一律不读**——优先级高于「角色卡
-// 关联 / 全局启用 / persona 链接」任何一条收录途径（这类书通常是给主楼 AI 读的，不该混进
-// 点/线/轴/暗历的判定）。剔除发生在 getCharBookEntries 末尾这一咽喉处，故连设置里「按角色卡
-// 挑选」列表也不再显示被排除的书。存 extension_settings[PLUGIN_ID].wiExcludeBooks = [书名,…]
-// （书名即 ctx.getWorldInfoNames() 的项）。照 wiFilter 的懒创建：无 DEFAULT_SETTINGS 项，getter 兜空。
-function getWiExcludeSet() {
-    return wiExcludeSet(getSettings().wiExcludeBooks);
-}
-
-function setWiExcluded(bookName, excluded) {
-    const s = getSettings();
-    s.wiExcludeBooks = nextExcludeBooks(s.wiExcludeBooks, bookName, excluded, equalsIgnoreCaseAndAccents);
-    saveSettingsDebounced();
 }
 
 // 当前聊天共享的历/点日期锚（{month, day}），可含人工校准；pending/unresolved 不是有效锚。
@@ -4000,75 +3888,6 @@ function setAdultMode(charKey, value) {
     saveSettingsDebounced();
 }
 
-// Resolve the list of world-book names to load for the current character.
-// Prefers TavernHelper's getCharLorebooks (works uniformly across vanilla ST
-// and Luker), falls back to reading character.data directly.
-function getLinkedWorldNames(ctx) {
-    let extraBooks;
-    try {
-        const fileName = getCharaFilename(ctx.characterId);
-        extraBooks = worldInfoCore.world_info?.charLore?.find(item => item?.name === fileName)?.extraBooks;
-    } catch { /* 没有文件名时退回卡数据 */ }
-    return collectLinkedWorldNames({
-        tavernHelper: globalThis?.TavernHelper,
-        character: ctx.characters?.[ctx.characterId] ?? {},
-        extraBooks,
-    });
-}
-
-// Global world-info names enabled in ST's right-panel WI selector.
-// Three-layer resolution — first hit wins:
-//   1. TavernHelper.getLorebookSettings().selected_global_lorebooks (universal)
-//   2. Luker-only: ctx.chatWorldInfo.globalSelection
-//   3. Vanilla ST: globalThis.world_info.globalSelect
-// Empty on any failure — plugin still works with just character books.
-function getGlobalWorldNames(ctx) {
-    return collectGlobalWorldNames({
-        tavernHelper: globalThis?.TavernHelper,
-        lukerSelection: ctx?.chatWorldInfo?.globalSelection,
-        selectedWorldInfo: worldInfoCore.selected_world_info,
-        vanillaGlobalSelect: globalThis?.world_info?.globalSelect,
-    });
-}
-
-function getChatWorldNames(ctx) {
-    return collectChatWorldNames(ctx?.chatMetadata?.world_info);
-}
-
-// Returns live world-info entries for the current character. Uses ctx.loadWorldInfo
-// (the live editable copy), NOT ctx.characters[].data.character_book (stale snapshot).
-// Fallback to character_book if no linked world book exists.
-// Each item: { key, uid, label, preview, content, source, embedded, scope, hostEnabled }
-//   scope = 'char'/'chat'/'persona'/'global' → 角色卡、当前聊天、用户 persona 或全局世界书来源
-async function getCharBookEntries(ctx) {
-    const items = await loadCharacterWorldInfoEntries({
-        loadWorldInfo: name => ctx.loadWorldInfo(name),
-        linkedNames: getLinkedWorldNames(ctx),
-        chatNames: getChatWorldNames(ctx),
-        globalNames: getGlobalWorldNames(ctx),
-        personaBook: ctx.powerUserSettings?.persona_description_lorebook,
-        characterBook: ctx.characters?.[ctx.characterId]?.data?.character_book,
-    });
-    return filterExcludedWorldInfo(items, getWiExcludeSet(), equalsIgnoreCaseAndAccents);
-}
-
-async function getAllWorldNames(ctx) {
-    return resolveAllWorldNames({
-        readCached: () => typeof ctx?.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [],
-        readHelper: async () => {
-            const th = globalThis?.TavernHelper;
-            const fn = th?.getWorldbookNames || th?.getLorebooks;
-            if (typeof fn !== 'function') return [];
-            return fn.call(th);
-        },
-        refresh: async () => {
-            if (typeof ctx?.updateWorldInfoList !== 'function') return null;
-            await ctx.updateWorldInfoList();
-            return typeof ctx.getWorldInfoNames === 'function' ? ctx.getWorldInfoNames() : [];
-        },
-    });
-}
-
 // Recent chat context — fills the gap between memory (delayed L0/L1 summaries)
 // and "what the user just typed". Both 间 and 面 discussions previously saw
 // only outline+wi+memText, so the last few floors of the main chat were
@@ -4094,46 +3913,6 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = Inf
     }
     if (!rows.length) return '';
     return `【最近对话】以下是主聊天中最近几层对话原文，供理解当前剧情走向。\n\n${rows.join('\n\n')}`;
-}
-
-let lastWorldInfoFailureNoticeKey = '';
-
-function notifyWorldInfoActivationFailure(ctx) {
-    const key = worldInfoFailureNoticeKey(ctx);
-    if (lastWorldInfoFailureNoticeKey === key) return;
-    lastWorldInfoFailureNoticeKey = key;
-    try { showToast('世界书激活失败，本次未注入世界书', null, true); } catch { /* toast 未就绪时忽略 */ }
-}
-
-async function buildWorldInfoContext(ctx, { scopes = null } = {}) {
-    const allEntries = await getCharBookEntries(ctx);
-    const allow = Array.isArray(scopes) && scopes.length ? new Set(scopes) : null;
-    const entries = allow ? allEntries.filter(entry => allow.has(entry.scope)) : allEntries;
-    const selection = ensureCurrentWiSelection(ctx, entries);
-    const coreChat = Array.isArray(ctx?.chat) ? ctx.chat.filter(message => {
-        if (!message || message.is_system) return false;
-        return String(message.mes ?? message.content ?? '').trim().length > 0;
-    }) : [];
-    const activation = await resolveWorldInfoActivation(ctx, coreChat, {
-        getMaxPromptTokens: scriptCore.getMaxPromptTokens,
-        includeNames: worldInfoCore.world_info_include_names !== false,
-        checkWorldInfo: worldInfoCore.checkWorldInfo,
-        logWarn: (message, error) => console.warn(message, safeDiagnosticLog('world-info', 'activation', error)),
-    });
-    if (activation.failed) {
-        notifyWorldInfoActivationFailure(ctx);
-        console.warn('[构画] 世界书激活失败诊断', {
-            ...safeDiagnosticLog('world-info', 'activation', null),
-            candidateCount: entries.length,
-            lukerAvailable: typeof ctx?.simulateWorldInfoActivation === 'function',
-            nativeAvailable: typeof worldInfoCore.checkWorldInfo === 'function',
-        });
-        return '';
-    }
-    const candidates = filterActivatedWorldInfo(entries, { selection, keys: activation.keys });
-    if (!candidates.length) return '';
-    const packed = await packWorldInfoContents(candidates);
-    return packed.text;
 }
 
 async function _getMemTextRaw(opts = {}) {
@@ -4951,10 +4730,10 @@ function renderTheaterSection() {
 async function renderTheaterPoolList() {
     const $list = $in('#sp-theater-pool-list');
     if (!$list.length) return;
-    const revision = ++wiPanelState.theaterRevision;
-    const identity = worldInfoPanelIdentity(getContext(), charStableKey(getContext()));
+    const revision = ++worldInfo.panelState.theaterRevision;
+    const identity = worldInfo.identity();
     const names = [...new Set((await getAllWorldNames(getContext()) || []).filter(n => typeof n === 'string' && n))].sort((a, b) => a.localeCompare(b, 'zh'));
-    if (revision !== wiPanelState.theaterRevision || identity !== worldInfoPanelIdentity(getContext(), charStableKey(getContext()))) return;
+    if (revision !== worldInfo.panelState.theaterRevision || identity !== worldInfo.identity()) return;
     const selected = new Set(getSettings().theaterPoolBooks || []);
     if (!names.length) {
         $list.html('<span class="sp-cfg-hint">当前没有任何世界书。把小回 / 极光 / 小兔导入酒馆后再来勾选。</span>');
@@ -5005,14 +4784,6 @@ function renderAdultRow() {
     if (!$row.length) return;
     const current = getAdultMode(charStableKey(getContext()));
     $row.html(ADULT_MODES.map(v => `<label class="sp-mode-opt"><input type="radio" name="sp-lines-adult-mode" value="${v}"${v === current ? ' checked' : ''}><span>${escapeHtml(ADULT_MODE_LABELS[v])}</span></label>`).join(''));
-}
-
-async function renderWiList() {
-    return paintWiList(wiPanelEnv());
-}
-
-async function renderWiExcludeList() {
-    return paintWiExcludeList(wiPanelEnv());
 }
 
 function toggleKeyVisibility() {
