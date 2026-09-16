@@ -5889,6 +5889,25 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     gap: 6px;
     margin-top: 4px;
 }
+.sp-lamp-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-top: 4px;
+}
+.sp-lamp-actions .sp-btn {
+    width: 100%;
+    min-height: 2.6em;
+    padding: 8px 10px;
+    border-radius: 10px;
+    white-space: nowrap;
+    writing-mode: horizontal-tb;
+    text-orientation: mixed;
+    text-align: center;
+}
+.sp-lamp-actions #sp-lamp-fight {
+    grid-column: 1 / -1;
+}
 .sp-lamp-basket {
     display: flex;
     flex-direction: column;

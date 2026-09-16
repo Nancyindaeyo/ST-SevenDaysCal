@@ -53,6 +53,8 @@ test('lamp html never injects and jumps to the 构画 side', () => {
     assert.match(html, /data-jump-mod="lines"[^>]*data-jump-key="今夜赴约"/);
     assert.match(html, /冲突/);
     assert.match(html, /搜索/);
+    assert.match(html, /sp-lamp-actions/);
+    assert.doesNotMatch(html, /sp-refresh-bar-actions/);
     assert.doesNotMatch(html, /setExtensionPrompt|【作者合同】/);
 });
 
@@ -87,6 +89,51 @@ test('enter lamp resets other modes then opens', () => {
     feature.bindUi();
     feature.open();
     assert.deepEqual(jumps, [{ module: 'lines', title: '今夜赴约', ref: '' }]);
+});
+
+test('改这条 keeps the list scroll and nearest-scrolls that row', () => {
+    const views = [];
+    const row = { scrollIntoView(opts) { views.push(opts); } };
+    const body = {
+        scrollTop: 0,
+        querySelector(sel) { return String(sel).includes('data-row-key') ? row : null; },
+    };
+    const mainEl = { querySelector(sel) { return sel === '.sp-lamp-body' ? body : null; } };
+    let html = '';
+    let openEdit = null;
+    const feature = createLampFeature({
+        collect: () => ({
+            hasBaiBai: false,
+            conflicts: [{ module: 'point', title: '合宿闭幕式与物资清退', ref: '', detail: '清退清单' }],
+        }),
+        $in: sel => {
+            if (sel === '#sp-lamp-main') return {
+                length: 1,
+                get: () => mainEl,
+                html(value) { html = String(value || ''); return this; },
+            };
+            if (sel === '#sp-lamp-wrap') return {
+                length: 1,
+                html() { return this; },
+                off() { return this; },
+                on(_ev, selector, handler) {
+                    if (selector === '.sp-lamp-edit-open') openEdit = handler;
+                    return this;
+                },
+            };
+            return { length: 0 };
+        },
+    });
+    feature.bindUi();
+    feature.open();
+    body.scrollTop = 280;
+    openEdit.call({
+        closest: () => ({ getAttribute: name => name === 'data-row-key' ? 'point||合宿闭幕式与物资清退' : '' }),
+    }, { preventDefault() {} });
+    assert.equal(body.scrollTop, 280);
+    assert.deepEqual(views, [{ block: 'nearest', inline: 'nearest' }]);
+    assert.match(html, /sp-lamp-edit/);
+    assert.match(html, /合宿闭幕式与物资清退/);
 });
 
 test('readLampBaiBai drops resolved plans and can take 主角 condition', () => {

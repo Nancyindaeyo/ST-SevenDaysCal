@@ -42,9 +42,17 @@ export function createLampFeature(env = {}) {
         return { collected, conflicts, hits, catalog, basket };
     };
 
-    const paint = () => {
+    const hostNode = () => {
+        const $main = main();
+        if ($main?.length) return $main.get?.(0) || $main[0] || null;
+        return wrap()?.get?.(0) || wrap()?.[0] || null;
+    };
+
+    const paint = ({ keepScroll = true, anchorKey = '' } = {}) => {
         if (!open) return;
         const $main = main();
+        const prev = hostNode()?.querySelector?.('.sp-lamp-body');
+        const scrollTop = Number(prev?.scrollTop) || 0;
         const { conflicts, hits, basket } = snapshot();
         const html = renderLampHtml({
             page,
@@ -60,6 +68,12 @@ export function createLampFeature(env = {}) {
         });
         if ($main?.length) $main.html(html);
         else wrap()?.html?.(`<div class="sp-lamp-main" id="sp-lamp-main">${html}</div>`);
+        const next = hostNode()?.querySelector?.('.sp-lamp-body');
+        if (next) next.scrollTop = keepScroll ? scrollTop : 0;
+        if (anchorKey && next) {
+            const escaped = String(anchorKey).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            next.querySelector(`[data-row-key="${escaped}"]`)?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+        }
     };
 
     const listedItems = () => {
@@ -83,7 +97,7 @@ export function createLampFeature(env = {}) {
 
     const openPage = () => {
         open = true;
-        paint();
+        paint({ keepScroll: false });
         env.onOpen?.();
     };
 
@@ -108,7 +122,7 @@ export function createLampFeature(env = {}) {
             $root.off('.spLamp');
             $root.on('click.spLamp', '.sp-lamp-tab', function () {
                 page = this.getAttribute('data-lamp-page') === 'search' ? 'search' : 'fight';
-                paint();
+                paint({ keepScroll: false });
             });
             $root.on('change.spLamp', '.sp-lamp-check', function () {
                 const key = this.getAttribute('data-row-key');
@@ -127,12 +141,13 @@ export function createLampFeature(env = {}) {
                 const found = listedItems().find(item => keyOf(item) === key)
                     || [...basketMap.values()].find(item => keyOf(item) === key);
                 editing = found || itemFromEl(row);
-                paint();
+                paint({ anchorKey: keyOf(editing) });
             });
             $root.on('click.spLamp', '.sp-lamp-edit-cancel', function (event) {
                 event.preventDefault();
+                const key = this.closest?.('.sp-lamp-row')?.getAttribute?.('data-row-key') || keyOf(editing);
                 editing = null;
-                paint();
+                paint({ anchorKey: key });
             });
             $root.on('submit.spLamp', '.sp-lamp-edit', function (event) {
                 event.preventDefault();
@@ -145,19 +160,19 @@ export function createLampFeature(env = {}) {
                     || editing;
                 void env.saveItem?.({ ...item, fields });
                 editing = null;
-                paint();
+                paint({ anchorKey: key });
             });
             $root.on('click.spLamp', '#sp-lamp-search', () => {
                 query = String(env.$in?.('#sp-lamp-query')?.val?.() || '');
                 page = 'search';
-                paint();
+                paint({ keepScroll: false });
             });
             $root.on('keydown.spLamp', '#sp-lamp-query', event => {
                 if (event.key !== 'Enter') return;
                 event.preventDefault();
                 query = String(event.target.value || '');
                 page = 'search';
-                paint();
+                paint({ keepScroll: false });
             });
             $root.on('change.spLamp', 'input[name="sp-lamp-kind"]', function () {
                 kind = this.value;

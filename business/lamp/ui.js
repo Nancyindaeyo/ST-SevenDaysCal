@@ -138,7 +138,7 @@ export function renderLampHtml({
     return `<div class="sp-lamp-body">${tabs(page)}${hint}${search}${intentBlock}
         <section class="sp-lamp-section"><h2 class="sp-lamp-h">${page === 'search' ? '查找结果' : '对上的账'}</h2>${body}</section>
         <section class="sp-lamp-section"><h2 class="sp-lamp-h">待改篮</h2>${basketHtml(basket)}${needKind ? kindRow(kind) : (kind ? kindRow(kind) : '')}
-            <div class="sp-refresh-bar-actions">
+            <div class="sp-lamp-actions">
                 <button type="button" class="sp-btn" id="sp-lamp-basket-add">勾选进篮</button>
                 <button type="button" class="sp-btn" id="sp-lamp-to-space">拿到间</button>
                 <button type="button" class="sp-btn" id="sp-lamp-ask-space">直接问</button>
