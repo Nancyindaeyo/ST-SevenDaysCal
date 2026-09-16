@@ -17,6 +17,7 @@ export async function runChatChanged(h) {
     h.dateDetection?.reset?.(REASON);
     h.outline?.onChatChanged?.({ lastSeen });
     h.space?.onChatChanged?.({ enabled: h.pluginEnabled?.() });
+    h.slip?.onChatChanged?.();
     h.activity?.onChatChanged?.();
     h.activity?.close?.();
     h.dashed?.abort?.(REASON);

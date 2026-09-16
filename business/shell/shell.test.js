@@ -99,6 +99,9 @@ function switchHost(over = {}) {
         paintAlmanac: () => calls.push('paintAlmanac'),
         paintSchedule: () => calls.push('paintSchedule'),
         enterAnchor: () => calls.push('enterAnchor'),
+        enterSlip: () => calls.push('enterSlip'),
+        slipOn: () => false,
+        slip: { close: () => calls.push('slip.close') },
         coordinate: { close: () => calls.push('coordinate.close') },
         currentView: () => 'char',
         setView: view => calls.push(`setView:${view}`),
@@ -126,6 +129,19 @@ test('the same side tab does not reopen', () => {
     const result = openSideView(h, 'outline');
     assert.equal(result.status, 'same');
     assert.ok(!h.calls.includes('outline.open'));
+});
+
+test('side tab to 笺 opens once and leaving flushes', () => {
+    const { h, calls } = switchHost({
+        slipOn: () => calls.includes('enterSlip'),
+    });
+    const first = handlePanelViewClick(h, btn({ view: 'slip', side: true }));
+    assert.equal(first.status, 'slip');
+    assert.ok(calls.includes('enterSlip'));
+    const again = openSideView(h, 'slip');
+    assert.equal(again.status, 'same');
+    handlePanelViewClick(h, btn({ view: 'schedule', side: true }));
+    assert.ok(calls.includes('slip.close'));
 });
 
 test('leaving theater calls leave before opening schedule', () => {

@@ -8,6 +8,7 @@ export const STORAGE_KIND_LABELS = {
     'space-chat'   : '间（局外）',
     'dashed'       : '虚线·冷知识',
     'almanac'      : '轴·日历条目（节日/生日/纪念日）',
+    'slip'         : '笺（作者私笺）',
 };
 
 export const STORAGE_OWNKEY_LABELS = {
@@ -45,6 +46,9 @@ export function shouldIgnoreKindClear(kind) {
 export function kindClearDetail(kind, label) {
     if (kind === STORAGE_CLEAR_TARGETS.almanac.kind) {
         return '仅删除本聊天的节日、生日、纪念日和自定义日期条目；不会删除刻度、自定义历法、剧情今天或模板。';
+    }
+    if (kind === 'slip') {
+        return '仅删除本聊天的作者私笺。笺从不进任何生成上下文，清掉也不会改提示词。';
     }
     return `确定清除本聊天的「${label}」数据吗？我方 / TA 方视角都会一并清掉。`;
 }

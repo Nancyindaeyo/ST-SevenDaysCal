@@ -59,6 +59,10 @@ export function panelMarkup({
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">坐标</span>
                         </button>
+                        <button id="sp-tab-slip" class="sp-side-tab sp-view-btn" data-view="slip" role="tab" aria-controls="sp-slip-wrap" aria-selected="false" tabindex="-1">
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 4.5 h9 l2.5 2.5 v12.5 h-11.5 z"/><path d="M15.5 4.5 v2.5 h2.5"/><line x1="9.2" y1="11.5" x2="15.2" y2="11.5"/><line x1="9.2" y1="15" x2="13.4" y2="15"/></svg></span>
+                            <span class="sp-tab-label">笺</span>
+                        </button>
                     </nav>
                     <div class="sp-sidebar-spacer"></div>
                     <nav class="sp-sidebar-tabs sp-sidebar-util" aria-label="工具">
@@ -687,6 +691,11 @@ export function panelMarkup({
 
                         <div class="sp-anchor-wrap" id="sp-anchor-wrap" role="tabpanel" aria-labelledby="sp-tab-anchor" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <div class="sp-anchor-body" id="sp-anchor-body"></div>
+                        </div>
+
+                        <div class="sp-slip-wrap" id="sp-slip-wrap" role="tabpanel" aria-labelledby="sp-tab-slip" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
+                            <p class="sp-cfg-hint sp-slip-hint">只给你看。永远不进主楼、间、引导或柏宝书。</p>
+                            <textarea id="sp-slip-input" class="sp-input sp-slip-textarea" placeholder="下章想坑谁、不要写的东西、这张卡的私设…"></textarea>
                         </div>
 
                         <div class="sp-almanac-wrap" id="sp-almanac-wrap" role="tabpanel" aria-labelledby="sp-tab-almanac" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>

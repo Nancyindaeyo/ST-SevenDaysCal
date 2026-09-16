@@ -69,6 +69,7 @@ export function applyPluginEnabled(h, on) {
         try { h.refreshInline?.(); } catch {}
         try { h.applyBoundCalendar?.(); } catch {}
     } else {
+        try { h.slip?.flush?.(); } catch {}
         try { h.coordinate?.close?.(); } catch {}
         try { h.hideFab?.(); } catch {}
         try { h.clearInline?.(); } catch {}

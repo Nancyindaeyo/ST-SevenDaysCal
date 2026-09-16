@@ -8,6 +8,7 @@ export function dispatchStoreClearInvalidate(kind, env = {}) {
     else if (kind === 'lines') env.abortLines?.();
     else if (kind === 'space-chat') env.invalidateSpace?.(kind);
     else if (kind === 'dashed') env.abortDashed?.();
+    else if (kind === 'slip') env.invalidateSlip?.(kind);
 }
 
 export function dispatchStoreClearRefreshAfter(kind, env = {}) {
@@ -17,6 +18,7 @@ export function dispatchStoreClearRefreshAfter(kind, env = {}) {
     if (kind === 'dashed') env.refreshDashed?.();
     if (kind === 'creative-chat') env.refreshCreativeEmpty?.(kind);
     if (kind === 'space-chat') env.refreshSpaceEmpty?.(kind);
+    if (kind === 'slip') env.refreshSlipEmpty?.(kind);
 }
 
 export function dispatchStoreClearRefreshFromStore(kind, env = {}) {
@@ -26,4 +28,5 @@ export function dispatchStoreClearRefreshFromStore(kind, env = {}) {
     else if (kind === 'creative-chat') env.refreshCreativeFromStore?.(kind);
     else if (kind === 'space-chat') env.refreshSpaceFromStore?.(kind);
     else if (kind === 'dashed') env.refreshDashedFromStore?.();
+    else if (kind === 'slip') env.refreshSlipFromStore?.(kind);
 }

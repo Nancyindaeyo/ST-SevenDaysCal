@@ -34,6 +34,14 @@ test('showPanelView shows one wrap and hides the rest', () => {
     assert.equal(dom.title.text, '面');
 });
 
+test('showPanelView can open 笺 and hide schedule', () => {
+    const dom = fakeDom();
+    showPanelView(dom.$in, 'slip');
+    assert.equal(dom.display['#sp-slip-wrap'], 'flex');
+    assert.equal(dom.display['#sp-body'], 'none');
+    assert.equal(dom.title.text, '笺');
+});
+
 test('schedule home can paint tabs without touching wrap visibility', () => {
     const dom = fakeDom();
     paintScheduleHome(dom.$in, dom.$inAll, { sub: 'user', wraps: false });

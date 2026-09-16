@@ -28,6 +28,8 @@ import { spaceMessagePlainText } from './business/space/schema.js';
 import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
+import { createSlipFeature } from './business/slip/feature.js';
+import { enterSlipSidebar } from './business/slip/ui.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -1358,6 +1360,9 @@ const MODULE_INTROS = {
         _iSub('收藏夹可按角色、标签或棱浏览；棱里每一场小剧场单独成一组。删除收藏只删副本，不会删除或改动原楼层。') +
         _iSvgKey(_coordinateIntroSvg, '坐标形收藏', 'AI 楼上的这枚坐标形按钮：点击收藏，再次点击取消收藏') +
         _iSub('［标签管理］可新建、改名、改色或删除标签，删标签不会删收藏。收藏全文右上角的［⛶］进入全屏，［×］删除这份收藏副本。手机点句子勾选（长按也能勾），电脑拖选，再点「摘抄选中」。'),
+    slip:
+        _iLede('「笺」是只给你看的作者私笺：下章想坑谁、不要写的东西、这张卡的私设。跟这一次聊天走，和坐标的全局收藏分开。') +
+        _iSub('永远不进主楼、间、引导、点/线/面生成或柏宝书。没有「拿去生成」按钮。切聊天会换一份笺。'),
 };
 
 let lastDebugPayload = null;
@@ -1474,7 +1479,7 @@ const apiPresetUi = createApiPresetUi({
 
 let settingsOpen   = false;
 let currentView        = 'user';  // 'user' | 'char'
-let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
+let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
 let outlineMode         = false;
 let linesMode           = false;
@@ -1963,6 +1968,13 @@ const spaceFeature = createSpaceFeature({
     recordGuideActivity: entry => activityFeature.record(entry),
     generateBeat: () => revealBeatAndGenerate(),
 });
+const slipFeature = createSlipFeature({
+    context: getContext,
+    keyDesc,
+    readStore,
+    writeStore,
+    $in,
+});
 let theaterMode          = false;
 let beatFeature          = null;
 const refreshController = createRefreshController({
@@ -2429,6 +2441,7 @@ jQuery(async () => {
         dateDetection: dateDetectionController,
         outline: outlineFeature,
         space: spaceFeature,
+        slip: slipFeature,
         activity: activityFeature,
         dashed: linesFeature.dashed,
         theater: theaterFeature,
@@ -2675,6 +2688,7 @@ const pluginLifecycle = createPluginLifecycle({
     abortLedgerJudge: reason => { try { ledgerJudgeController.abortController?.abort(reason); } catch {} },
     outline: outlineFeature,
     space: spaceFeature,
+    slip: slipFeature,
     dashed: linesFeature.dashed,
     refresh: refreshController,
     floorQueue,
@@ -3315,6 +3329,7 @@ function injectModal() {
     outlineFeature.bindUi();
 
     spaceFeature.bindUi();
+    slipFeature.bindUi();
     beatFeature.bindUi();
     bindLinesPanel({
         $, $in, $chat: $('#chat'),
@@ -3450,6 +3465,7 @@ function injectModal() {
             toggleSettings,
             activity: activityFeature,
             theaterOn: () => theaterMode,
+            slipOn: () => slipFeature.isOpen(),
             get theater() { return theaterFeature; },
             closeTaDrawer: () => taDrawer.close(),
             toggleTaDrawer: () => taDrawer.toggle(),
@@ -3501,6 +3517,12 @@ function injectModal() {
                 show: () => showPanelView($in, 'anchor'),
                 feature: coordinateRuntime?.feature,
             }),
+            enterSlip: () => enterSlipSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'slip'),
+                feature: slipFeature,
+            }),
+            get slip() { return slipFeature; },
             get coordinate() { return coordinateRuntime?.feature; },
             currentView: () => currentView,
             setView,
@@ -3655,6 +3677,7 @@ function refreshCharPinIcon() { return panelHost.refreshCharPinIcon(); }
 // 无条件隐藏所有非点 wrap（不靠 mode 标志守卫）：CHAT_CHANGED 在面板隐藏时会把标志清成
 // false 却不动 DOM，若这里再按标志判断就会漏隐藏 → 出现「点 + 坐标」同屏。故一律硬隐藏。
 function resetPanelToScheduleHome() {
+    slipFeature.close();
     outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
     axisState._almanacEditor = null;
     resetLedgerRenderState();
@@ -4721,6 +4744,7 @@ function storeClearHost() {
         invalidateOutline: kind => outlineFeature.invalidateStoreKind(kind),
         abortLines: () => linesFeature.abortGeneration({ reason: 'store-clear' }),
         invalidateSpace: kind => spaceFeature.invalidateStoreKind(kind),
+        invalidateSlip: kind => slipFeature.invalidateStoreKind(kind),
         abortDashed: () => linesFeature.dashed.abort('store-clear'),
         refreshScheduleEmpty() {
             pointState.cachedSchedule = null;
@@ -4741,6 +4765,7 @@ function storeClearHost() {
         },
         refreshCreativeEmpty: kind => outlineFeature.refreshAfterStoreClear(kind),
         refreshSpaceEmpty: kind => spaceFeature.refreshAfterStoreClear(kind),
+        refreshSlipEmpty: kind => slipFeature.refreshAfterStoreClear(kind),
         refreshScheduleFromStore() {
             const key = getCacheKey(currentView, charViewName);
             const saved = readStore(key);
@@ -4759,6 +4784,7 @@ function storeClearHost() {
         },
         refreshCreativeFromStore: kind => outlineFeature.refreshFromStore(kind),
         refreshSpaceFromStore: kind => spaceFeature.refreshFromStore(kind),
+        refreshSlipFromStore: kind => slipFeature.refreshFromStore(kind),
         refreshDashedFromStore() {
             linesFeature.dashed.resetError();
             if (linesMode) linesFeature.refreshPanel();

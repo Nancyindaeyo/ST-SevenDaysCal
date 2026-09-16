@@ -35,6 +35,7 @@ function host(overrides = {}) {
         dateDetection: track(calls, 'dateDetection'),
         outline: track(calls, 'outline'),
         space: track(calls, 'space'),
+        slip: track(calls, 'slip'),
         activity: track(calls, 'activity'),
         dashed: track(calls, 'dashed'),
         theater: track(calls, 'theater'),
@@ -48,6 +49,7 @@ function host(overrides = {}) {
         floorQueue: track(calls, 'floorQueue'),
         syncFabFailed: () => calls.push('syncFabFailed'),
         beat: track(calls, 'beat'),
+        slip: track(calls, 'slip'),
         clearTravelUi: () => calls.push('clearTravelUi'),
         removeDialogOverlays: () => calls.push('removeOverlays'),
         clearAutomationClaims: () => calls.push('clearClaims'),
@@ -77,7 +79,8 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.equal(result.status, 'ready');
     const names = h.calls;
     assert.ok(names.indexOf('begin') < names.indexOf('load'));
-    assert.ok(names.indexOf('memory.abortAll') < names.indexOf('migrate'));
+    assert.ok(names.indexOf('space.onChatChanged') < names.indexOf('migrate'));
+    assert.ok(names.includes('slip.onChatChanged'));
     assert.ok(names.includes('refresh.abort'));
     assert.ok(names.includes('floorQueue.abort'));
     assert.ok(names.includes('floorQueue.resetFailed'));

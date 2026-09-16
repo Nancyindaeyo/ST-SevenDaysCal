@@ -1,6 +1,6 @@
 import { showPanelView } from './panel.js';
 
-const SIDE_OFF = Object.freeze({ outline: false, lines: false, space: false, theater: false, almanac: false });
+const SIDE_OFF = Object.freeze({ outline: false, lines: false, space: false, theater: false, almanac: false, slip: false });
 
 export function handlePanelViewClick(h, $btn) {
     const view = $btn.data('view');
@@ -11,6 +11,7 @@ export function handlePanelViewClick(h, $btn) {
     if (isSideTab && h.settingsOpen?.()) h.toggleSettings?.();
     if (isSideTab) h.activity?.close?.();
     if (isSideTab && h.theaterOn?.() && view !== 'theater') h.theater?.leave?.();
+    if (isSideTab && h.slipOn?.() && view !== 'slip') h.slip?.close?.();
     if (isSideTab) h.closeTaDrawer?.();
     if ($btn.hasClass('sp-ta-trigger')) {
         if (h.pointGenerating?.()) return { status: 'blocked' };
@@ -61,6 +62,12 @@ export function openSideView(h, view) {
     if (view === 'anchor') {
         h.enterAnchor?.();
         return { status: 'anchor' };
+    }
+    if (view === 'slip') {
+        if (h.slipOn?.()) return { status: 'same' };
+        h.setModes?.(SIDE_OFF);
+        h.enterSlip?.();
+        return { status: 'slip' };
     }
     if (view === 'almanac') {
         if (m.almanac) return { status: 'same' };

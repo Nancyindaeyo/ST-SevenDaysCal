@@ -31,6 +31,9 @@ function envSpy() {
         refreshCreativeFromStore: push('refreshCreativeFromStore'),
         refreshSpaceFromStore: push('refreshSpaceFromStore'),
         refreshDashedFromStore: push('refreshDashedFromStore'),
+        invalidateSlip: push('invalidateSlip'),
+        refreshSlipEmpty: push('refreshSlipEmpty'),
+        refreshSlipFromStore: push('refreshSlipFromStore'),
     };
 }
 
@@ -39,6 +42,7 @@ test('store-clear invalidate routes kinds without mixing outline and lines', () 
     dispatchStoreClearInvalidate('schedule', env);
     dispatchStoreClearInvalidate('creative-chat', env);
     dispatchStoreClearInvalidate('dashed', env);
+    dispatchStoreClearInvalidate('slip', env);
     assert.deepEqual(env.calls, [
         ['trace', 'schedule'],
         ['abortSchedule'],
@@ -46,6 +50,8 @@ test('store-clear invalidate routes kinds without mixing outline and lines', () 
         ['invalidateOutline', 'creative-chat'],
         ['trace', 'dashed'],
         ['abortDashed'],
+        ['trace', 'slip'],
+        ['invalidateSlip', 'slip'],
     ]);
 });
 
@@ -53,11 +59,13 @@ test('successful kind clear paints empty editors; rollback rereads store', () =>
     const after = envSpy();
     dispatchStoreClearRefreshAfter('schedule', after);
     dispatchStoreClearRefreshAfter('lines', after);
-    assert.deepEqual(after.calls.map(row => row[0]), ['refreshScheduleEmpty', 'refreshLinesEmpty']);
+    dispatchStoreClearRefreshAfter('slip', after);
+    assert.deepEqual(after.calls.map(row => row[0]), ['refreshScheduleEmpty', 'refreshLinesEmpty', 'refreshSlipEmpty']);
     const from = envSpy();
     dispatchStoreClearRefreshFromStore('schedule', from);
     dispatchStoreClearRefreshFromStore('dashed', from);
-    assert.deepEqual(from.calls.map(row => row[0]), ['refreshScheduleFromStore', 'refreshDashedFromStore']);
+    dispatchStoreClearRefreshFromStore('slip', from);
+    assert.deepEqual(from.calls.map(row => row[0]), ['refreshScheduleFromStore', 'refreshDashedFromStore', 'refreshSlipFromStore']);
     assert.match(STORE_CLEAR_EMPTY_SCHEDULE_HTML, /sp-gen-schedule-now/);
     assert.match(STORE_CLEAR_EMPTY_LINES_HTML, /sp-gen-lines-now/);
 });

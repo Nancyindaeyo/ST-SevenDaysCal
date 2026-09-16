@@ -54,6 +54,7 @@ function host(overrides = {}) {
         ledgerCapture: track(calls, 'ledgerCapture'),
         reloadOutlineChatIfOpen: () => calls.push('reloadOutlineChatIfOpen'),
         coordinate: track(calls, 'coordinate'),
+        slip: track(calls, 'slip'),
         showFab: () => calls.push('showFab'),
         hideFab: () => calls.push('hideFab'),
         backfillInline: () => calls.push('backfillInline'),
@@ -91,6 +92,7 @@ test('disabling the plugin aborts first, then clears chat injections', () => {
     const h = host();
     applyPluginEnabled(h, false);
     const names = h.calls.map(item => Array.isArray(item) ? item[0] : item);
+    assert.ok(names.indexOf('slip.flush') < names.indexOf('coordinate.close'));
     assert.ok(names.indexOf('coordinate.close') < names.indexOf('traceAbort'));
     assert.ok(names.indexOf('clearInline') < names.indexOf('traceAbort'));
     assert.ok(names.indexOf('memory.abortAll') < names.indexOf('clearLinesInjection'));
