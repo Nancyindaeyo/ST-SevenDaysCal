@@ -125,12 +125,13 @@ import {
     refreshDiagnosticRetention,
     storageStatus,
 } from './runtime/external-chat-storage.js';
-import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
+import { createGouhuaBackupController as assembleGouhuaBackupController } from './runtime/backup-host.js';
+import { formatAiMessageHtml } from './runtime/ai-message-html.js';
 import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfaceParticipant } from './runtime/chat-surface.js';
 import { createChatSurfaceParticipantHooks } from './runtime/chat-surface-participant.js';
 import { migrateCanonicalBookIds } from './runtime/book-id-migrate.js';
 import { createInlineHost } from './runtime/inline-host.js';
-import { backupExportWarnings, createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
+import { backupExportWarnings, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
 import { axisState } from './business/axis/state.js';
 import {
@@ -3685,31 +3686,13 @@ function injectToST(text) {
 // (markdown + sanitizer + quote-wrap), so 间/面/棱 match the main chat area.
 // Falls back to escaped text with <br> if the API isn't available. Never used
 // for user messages — they typed plain text, don't reinterpret it as markdown.
-//
-// Regex isolation (约定：构画渲染绝不被用户正则改写)：构画的气泡没有真实楼层，
-// messageId 只能传 null → ST 把它当成最远深度的楼，于是「显示域 + 按深度过滤」的
-// 用户正则会命中并清空气泡（曾有用户装「不发送远楼信息」正则后 间/面/棱 全白）。
-// 做法：调用期间临时把 'regex' 塞进 disabledExtensions，getRegexedString 开头即
-// 短路返回原文（engine.js），markdown / 引号包裹 / 净化等其余步骤照跑，渲染与主
-// 聊天一致。调用是同步的、随即在 finally 还原，不落盘、不触发保存、对别处无副作用。
 function renderAiMessageHtml(text) {
-    const ctx = getContext();
-    if (typeof ctx?.messageFormatting === 'function') {
-        const de = extension_settings?.disabledExtensions;
-        const guardRegex = Array.isArray(de) && !de.includes('regex');
-        if (guardRegex) de.push('regex');
-        try {
-            return ctx.messageFormatting(String(text ?? ''), '', false, false, null, {}, false);
-        } catch (err) {
-            console.warn('[7dayscal] messageFormatting failed, falling back to plain', safeDiagnosticLog('generation', 'parse', err));
-        } finally {
-            if (guardRegex) {
-                const i = de.indexOf('regex');
-                if (i !== -1) de.splice(i, 1);
-            }
-        }
-    }
-    return escapeHtml(String(text ?? '')).replace(/\n/g, '<br>');
+    return formatAiMessageHtml(text, {
+        getContext,
+        disabledExtensions: () => extension_settings?.disabledExtensions,
+        escapeHtml,
+        logWarn: err => console.warn('[7dayscal] messageFormatting failed, falling back to plain', safeDiagnosticLog('generation', 'parse', err)),
+    });
 }
 
 function readCacheRaw(desc) {
@@ -3857,8 +3840,7 @@ async function startCurrentChatMigration() {
 }
 
 function createGouhuaBackupController(onProgress) {
-    const coordPorts = createCoordinateHostPorts({ context: () => getContext() });
-    return createBackupController({
+    return assembleGouhuaBackupController({
         pluginVersion: PLUGIN_VERSION,
         getContext,
         getSettings,
@@ -3867,17 +3849,10 @@ function createGouhuaBackupController(onProgress) {
         storageStatus,
         getChatRoot,
         persistExternalRoots,
-        fetch: (...args) => globalThis.fetch(...args),
-        headers: () => getContext()?.getRequestHeaders?.() || { 'Content-Type': 'application/json' },
-        readJson: name => readCoordinateJson(coordPorts, name),
-        uploadJson: (name, value) => uploadCoordinateJson(coordPorts, name, value),
         invalidateCoordinates: () => {
             coordinateRuntime?.repository?.invalidate?.();
             coordinateRuntime?.excerpts?.invalidate?.();
         },
-        loadWorldInfo: name => getContext()?.loadWorldInfo?.(name),
-        saveWorldInfo: (name, data, immediate) => getContext()?.saveWorldInfo?.(name, data, immediate),
-        updateWorldInfoList: () => getContext()?.updateWorldInfoList?.(),
         onProgress,
     });
 }
