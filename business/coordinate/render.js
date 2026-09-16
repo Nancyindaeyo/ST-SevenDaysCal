@@ -32,13 +32,15 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
     };
     const byNewest = (a, b) => (Number(b.ts) || 0) - (Number(a.ts) || 0);
     const TAGMGR_BTN = '<button type="button" class="sp-icon-btn sp-anchor-tagmgr-btn" title="管理分组" aria-label="管理分组">分组</button>';
+    const SAVE_LATEST_BTN = '<button type="button" class="sp-mini-btn sp-anchor-save-latest" title="收藏当前聊天最新 AI 楼">收藏当前楼</button>';
+    const HEAD_ACTIONS = `<span class="sp-anchor-head-actions">${SAVE_LATEST_BTN}${TAGMGR_BTN}</span>`;
     async function loadCatalog() {
         const s = current();
         const tags = await repository.getTags();
         return { s, tags, map: new Map(tags.map(tag => [tag.id, tag])), items: flattenItems(await repository.listByChat?.() || []) };
     }
     async function browseHome(s, cards, empty, miss) {
-        setBody(`${await snapHead(s, TAGMGR_BTN)}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || empty}</div>${searchEmpty(miss)}</div>`);
+        setBody(`${await snapHead(s, HEAD_ACTIONS)}<div class="sp-anchor-scroll">${searchBox('snaps', s.snapSearch, SNAP_SEARCH_HINT)}<div class="sp-anchor-char-list" data-filter-list>${cards || empty}</div>${searchEmpty(miss)}</div>`);
     }
     const itemsCard = (id, title, items, map, { extraHay = [], ...opts } = {}) => groupCard(id, title, items.length, newestTs(items), hayOf([title, ...extraHay, ...items.map(item => itemHay(item, map))]), opts);
     function groupDetail({ s, browse, title, list, map, empty }) {

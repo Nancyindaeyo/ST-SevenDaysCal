@@ -51,6 +51,7 @@ import { bindMemorySettings } from './business/memory/settings-bind.js';
 import { bindTheaterSettings } from './business/theater/settings-bind.js';
 import { bindStoragePanel, migrationProgressCopy, paintStorageMode, paintStorageUsage, readStorageChatIdentity } from './runtime/storage-panel.js';
 import { runChatChanged } from './runtime/chat-changed.js';
+import { createPluginLifecycle } from './runtime/plugin-lifecycle.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
@@ -102,6 +103,8 @@ import {
 } from './runtime/external-chat-storage.js';
 import { createCoordinateHostPorts, readJson as readCoordinateJson, uploadJson as uploadCoordinateJson } from './runtime/coordinate-host-ports.js';
 import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfaceParticipant } from './runtime/chat-surface.js';
+import { createChatSurfaceParticipantHooks } from './runtime/chat-surface-participant.js';
+import { migrateCanonicalBookIds } from './runtime/book-id-migrate.js';
 import { createInlineHost } from './runtime/inline-host.js';
 import { backupExportWarnings, createBackupController, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
@@ -285,16 +288,10 @@ const inlineHost = createInlineHost({
 
 // TauriTavern 打开聊天虚拟化后，投影变化不会伪造 CHARACTER_MESSAGE_RENDERED。
 // 必须在第一次 projection 前注册；第三方扩展常常赶不上，失败则退回 DOM 观察。
-const chatSurfaceRegistration = registerChatSurfaceParticipant({
-    didMount({ element, mesid }) {
-        coordinateRuntime?.feature?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
-        return () => coordinateRuntime?.feature?.unmountMessageButton?.(element);
-    },
-    didCommitContent({ element, mesid }) {
-        inlineHost.mountElement(element);
-        coordinateRuntime?.feature?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
-    },
-});
+const chatSurfaceRegistration = registerChatSurfaceParticipant(createChatSurfaceParticipantHooks({
+    getInlineHost: () => inlineHost,
+    getCoordinate: () => coordinateRuntime?.feature,
+}));
 const chatSurfaceOwnsDom = Boolean(chatSurfaceRegistration && isManagedChatSurface());
 
 function refreshInlineWindow(immediate = false) { return inlineHost.refresh(immediate); }
@@ -2354,6 +2351,7 @@ jQuery(async () => {
         hostPorts: { settings: () => getSettings(), dom: () => document, context: () => getContext() },
         host: {
             document, context: () => getContext(), settings: () => getSettings(), enabled: () => pluginEnabled(),
+            managedChatSurface: () => chatSurfaceOwnsDom,
             sheet: () => _spShadow?.querySelector?.('.sp-sheet') || document.querySelector('.sp-sheet'),
             chatName: () => { const el = document.querySelector('#selected_chat_pole, #chat_name_pole, .current_chat_name'); return el?.value || el?.textContent?.trim() || getContext().chatId || '当前聊天'; },
             capture: el => { const ctx = getContext?.() || {}; return captureSnapshotElement(el, { documentRef: document, DOMPurify: globalThis.DOMPurify, messageFormatting: ctx.messageFormatting }); },
@@ -2480,6 +2478,13 @@ jQuery(async () => {
         paintPaceSoon,
         loadExternalChat,
         migrateChat: () => store.migrateChatFromLocalStorage(getContext().chatId),
+        migrateBookIds: () => migrateCanonicalBookIds({
+            chatId: () => getContext().chatId,
+            read: key => readStore(key),
+            writeConfirmed: writeStoreConfirmed,
+            pointKey: () => getCacheKey('user', ''),
+            linesKey: () => keyDesc('lines', 'user', ''),
+        }),
         hydratePace: hydratePaceFromStore,
         reloadPanel() {
             const panelOpen = $(`#${MODAL_ID}`).is(':visible') && !pointState.isGenerating;
@@ -2519,6 +2524,13 @@ jQuery(async () => {
     try {
         const _mig0 = store.migrateChatFromLocalStorage(getContext().chatId);
         if (_mig0.status === 'conflict') scheduleForChatBoundary(() => showStoreConflictDialog(_mig0), 900);
+        migrateCanonicalBookIds({
+            chatId: () => getContext().chatId,
+            read: key => readStore(key),
+            writeConfirmed: writeStoreConfirmed,
+            pointKey: () => getCacheKey('user', ''),
+            linesKey: () => keyDesc('lines', 'user', ''),
+        }).catch(error => console.warn('[SP store] 首屏 Id 迁移失败', safeDiagnosticLog('storage', 'save', error)));
         if (pluginEnabled()) maybeApplyBoundCalendarTemplate().catch(error => {
             console.error('[SP calendar] 首屏角色默认历法自动应用失败', safeDiagnosticLog('axis', 'save', error));
             if (getSettings().notifyMode === 'full') showToast('角色默认历法没有自动应用成功', null, true);
@@ -2664,68 +2676,66 @@ jQuery(async () => {
 // 给已存预设改名（就地，不动 url/key/model 等）。空名→保留原名。
 
 
-// ─── 插件总开关（③）───────────────────────────────────────────────────────────
+// 插件总开关（③）
 // pluginEnabled 关 = 全隐身；injectEnabled 关 = 掐线/面/刻度潜伏注入（受 pluginEnabled 统辖）。
-
-// 一键中断所有在飞的后台判定与生成（各域 controller 及日期检测/点后台任务），并清 re-entry 闸，
-// 让重新开启后能干净重跑。照 CHAT_CHANGED 的中断序列集中一处。
-function _abortAllBackground() {
-    const ctx = getContext?.() || {};
-    traceDiagnosticEvent('abort-boundary', { module: 'runtime', chatId: ctx.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason: 'plugin-disabled', status: 'dispatch' });
-    memory.abortAll('plugin-disabled');
-    timeTravel.abortAll('plugin-disabled');
-    customDialog.cancelActive();
-    linesFeature.abortGeneration({ reason: 'plugin-disabled' });
-    for (const c of [
-        linesFeature.runtime.controller,
-        pointState.scheduleAbortController,
-        dateDetectionController.abortController, _autoRegenSchedAbort,
-        ledgerCaptureController.abortController, ledgerJudgeController.abortController,
-    ]) { try { c?.abort('plugin-disabled'); } catch {} }
-    outlineFeature.abortAll('plugin-disabled');
-    spaceFeature.abortAll('plugin-disabled');
-    linesFeature.dashed.abort('plugin-disabled');
-    refreshController.abort('plugin-disabled');
-    floorQueue.abort('plugin-disabled');
-    floorQueue.resetFailed();
-    syncFabFailed();
-    pointState.scheduleAbortController = null;
-    theaterFeature.onPluginDisabled();
-    axisGenerationController.reset('plugin-disabled');
-    _autoRegenSchedAbort = null;
-    ledgerJudgeController.reset('plugin-disabled');
-    ledgerCaptureController.reset('plugin-disabled');
-    if (outlineMode) outlineFeature.chat.load();
-}
-
-// 插件总开关落地。关：藏悬浮球、清所有楼内块与坐标入口（由各 feature 内部闸兜底）、
-// 断所有后台任务、撤各域潜伏注入。不关面板——用户往往正站在设置里切它，留着好即时切回。
-// 开：按各子开关恢复——显示悬浮球、重挂楼内块与线/面/故事时钟/刻度注入、补锚点入口。事件监听不注销，靠各 listener 的 pluginEnabled() 闸空转。
-function applyPluginEnabled(on) {
-    const ctx = getContext();
-    if (on) {
-        if (theaterMode) theaterFeature.open();
-        $(`#${FAB_ID}`).css('display', fabEnabled() ? '' : 'none');
-        try { backfillLinesInlineBlocks(); } catch {}   // 重挂线/历/点楼内块 + 重设线潜伏注入
-        try { outlineFeature.injection.refresh(); } catch {}       // 重设大纲潜伏注入
-        try { coordinateRuntime?.feature?.refreshSavedKeys(); coordinateRuntime?.feature?.scanButtons(); } catch {} // 补回锚点收藏入口
-        try { refreshInlineWindow(true); } catch {}
-        maybeApplyBoundCalendarTemplate().catch(error => {
-            console.error('[SP calendar] 重新启用后角色默认历法自动应用失败', safeDiagnosticLog('axis', 'save', error));
-            if (getSettings().notifyMode === 'full') showToast('角色默认历法没有自动应用成功', null, true);
-        });
-    } else {
-        try { coordinateRuntime?.feature?.close?.(); } catch {}
-        $(`#${FAB_ID}`).css('display', 'none');
-        try { _clearAllInlineBoxes(); } catch {}
-        _abortAllBackground();
-        try { ctx.setExtensionPrompt?.(LINES_INJECT_KEY, ''); } catch {}
-        try { outlineFeature.injection.clear(); } catch {}
-        try { ledgerInjectionController.clear(); } catch {}
-    }
-    try { refreshStoryClockInjection({ announce: true }); } catch {}
-    paintPaceSoon();
-}
+const pluginLifecycle = createPluginLifecycle({
+    context: () => getContext?.() || {},
+    chatRevision: () => pointTaskOwners.currentChatRevision(),
+    boundaryEpoch: () => chatBoundaryEpoch,
+    traceAbort: payload => traceDiagnosticEvent('abort-boundary', payload),
+    memory,
+    timeTravel,
+    customDialog,
+    lines: linesFeature,
+    linesRuntime: { abort: reason => { try { linesFeature.runtime?.controller?.abort?.(reason); } catch {} } },
+    abortPointSchedule: reason => {
+        try { pointState.scheduleAbortController?.abort(reason); } catch {}
+        pointState.scheduleAbortController = null;
+    },
+    abortDateDetection: reason => { try { dateDetectionController.abortController?.abort(reason); } catch {} },
+    abortAutoRegen: reason => {
+        try { _autoRegenSchedAbort?.abort(reason); } catch {}
+        _autoRegenSchedAbort = null;
+    },
+    abortLedgerCapture: reason => { try { ledgerCaptureController.abortController?.abort(reason); } catch {} },
+    abortLedgerJudge: reason => { try { ledgerJudgeController.abortController?.abort(reason); } catch {} },
+    outline: outlineFeature,
+    space: spaceFeature,
+    dashed: linesFeature.dashed,
+    refresh: refreshController,
+    floorQueue,
+    syncFabFailed,
+    theater: {
+        onPluginDisabled: () => theaterFeature?.onPluginDisabled?.(),
+        openIfActive: () => { if (theaterMode) theaterFeature?.open?.(); },
+    },
+    axisGeneration: axisGenerationController,
+    ledgerJudge: ledgerJudgeController,
+    ledgerCapture: ledgerCaptureController,
+    reloadOutlineChatIfOpen: () => { if (outlineMode) outlineFeature.chat.load(); },
+    coordinate: { close: () => coordinateRuntime?.feature?.close?.() },
+    showFab: () => { $(`#${FAB_ID}`).css('display', fabEnabled() ? '' : 'none'); },
+    hideFab: () => { $(`#${FAB_ID}`).css('display', 'none'); },
+    backfillInline: () => backfillLinesInlineBlocks(),
+    refreshOutlineInjection: () => outlineFeature.injection.refresh(),
+    refreshCoordinateButtons: () => {
+        coordinateRuntime?.feature?.refreshSavedKeys();
+        coordinateRuntime?.feature?.scanButtons();
+    },
+    refreshInline: () => refreshInlineWindow(true),
+    applyBoundCalendar: () => maybeApplyBoundCalendarTemplate().catch(error => {
+        console.error('[SP calendar] 重新启用后角色默认历法自动应用失败', safeDiagnosticLog('axis', 'save', error));
+        if (getSettings().notifyMode === 'full') showToast('角色默认历法没有自动应用成功', null, true);
+    }),
+    clearInline: () => _clearAllInlineBoxes(),
+    clearLinesInjection: () => linesFeature.injection?.clear?.(),
+    clearOutlineInjection: () => outlineFeature.injection.clear(),
+    clearLedgerInjection: () => ledgerInjectionController.clear(),
+    refreshStoryClock: opts => refreshStoryClockInjection(opts),
+    paintPaceSoon,
+});
+function _abortAllBackground() { return pluginLifecycle.abortAllBackground(); }
+function applyPluginEnabled(on) { return pluginLifecycle.applyPluginEnabled(on); }
 
 const axisInlineRenderer = createAxisInlineRenderer({
     settings: getSettings,
@@ -2766,10 +2776,10 @@ inlineHost.replaceFeature(createInlineFeature({
     coordinateChanged: () => coordinateRuntime?.feature?.onChatDomChanged?.(),
     isStreaming: () => linesFeature.isStreaming(),
     syncTheme: () => syncVectorGlyphTheme(document, currentTheme, (getSettings().themeMode || 'auto') !== 'auto'),
-    watchChatDom: !chatSurfaceOwnsDom,
+            watchChatDom: !chatSurfaceOwnsDom,
+            managedChatSurface: chatSurfaceOwnsDom,
 }));
 if (document.querySelector('#chat')) inlineHost.init();
-const LINES_INJECT_KEY   = 'sp_lines_latent';
 function refreshLinesInjection() {
     return linesFeature.injection?.refresh?.();
 }

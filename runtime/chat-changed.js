@@ -53,9 +53,12 @@ export async function runChatChanged(h) {
     await h.loadExternalChat?.({ force: true });
     if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded' };
     const mig = h.migrateChat?.() || { status: 'none' };
+    if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded' };
+    const idMig = await h.migrateBookIds?.() || { status: 'none' };
+    if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded', mig, idMig };
     if (!h.pluginEnabled?.()) {
         h.coordinate?.close?.();
-        return { status: 'disabled', mig };
+        return { status: 'disabled', mig, idMig };
     }
     h.hydratePace?.();
     h.activity?.onChatChanged?.();
@@ -67,5 +70,5 @@ export async function runChatChanged(h) {
     h.refreshLinesInjection?.();
     h.refreshStoryClock?.();
     h.refreshLedgerInjection?.();
-    return { status: 'ready', mig };
+    return { status: 'ready', mig, idMig };
 }

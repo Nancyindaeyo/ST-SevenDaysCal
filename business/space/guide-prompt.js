@@ -32,7 +32,7 @@ export function buildGuideDraftPrompt(context = {}) {
         '没有足够依据的模块可以给很短的草案，但标签还是要有。',
         '',
         '【作者描述与灵感】',
-        clipGuideText(context.seed, 800) || '（无）',
+        clipGuideText(context.seed) || '（无）',
         '',
         '【问答】',
         formatGuideAnswers(context.answers),

@@ -563,18 +563,41 @@ export function createInlineFeature(env = {}) {
         const rect = el.getBoundingClientRect();
         return rect.bottom > 0 && rect.top < (win?.innerHeight || doc?.documentElement?.clientHeight || 0);
     };
+    const liveFloorId = () => {
+        const chat = getContext()?.chat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (chat[i]?.is_system) continue;
+            return i;
+        }
+        return null;
+    };
+    const isLiveElement = el => Number(el?.getAttribute?.('mesid')) === liveFloorId();
+    const boxParentOf = msg => msg?.querySelector?.(':scope > [data-sp-inline-runtime]') || msg;
+    const directBoxes = msg => [...(boxParentOf(msg)?.querySelectorAll?.(':scope > ' + BOX_SELECTOR) || [])];
+    const remountManaged = () => {
+        if (!pluginEnabled() || getSettings().inlineRenderEnabled === false) { clear(); return; }
+        for (const [key, rendered] of [...renderedBoxes]) {
+            const el = rendered.node?.closest?.('.mes');
+            if (!el?.isConnected) {
+                renderedBoxes.delete(key);
+                releaseRenderedBox(rendered);
+                continue;
+            }
+            mount(el, isLiveElement(el));
+        }
+    };
     const unmount = el => {
         if (pendingExpandScroll && el?.contains?.(pendingExpandScroll.summary)) cancelExpandScroll();
         syncRenderedChat();
         releaseRenderedBox(renderedBoxes.get(renderedBoxKey(el)));
         el?.querySelectorAll?.(BOX_SELECTOR)?.forEach(box => box.remove());
     };
-    const directBoxes = msg => [...(msg?.querySelectorAll?.(':scope > ' + BOX_SELECTOR) || [])];
     const mount = (el, isLatest) => {
         if (!pluginEnabled() || !el) return;
         syncRenderedChat();
         const msg = el.querySelector?.('.mes_text');
         if (!msg) return;
+        const parent = boxParentOf(msg);
         const isUser = el.getAttribute('is_user') === 'true';
         const mid = el.getAttribute('mesid');
         const renderKey = renderedBoxKey(el);
@@ -615,10 +638,11 @@ export function createInlineFeature(env = {}) {
             const current = renderedBoxes.get(renderKey);
             if (current?.node === box) current.open = box.open === true;
         });
-        msg.appendChild(box);
+        parent.appendChild(box);
         env.syncTheme?.(doc, box);
     };
     const ensureInlineObserver = () => {
+        if (env.managedChatSurface === true) return;
         if (inlineObserver || typeof globalThis.IntersectionObserver !== 'function') return;
         inlineObserver = new globalThis.IntersectionObserver(entries => {
             const current = computeWindow();
@@ -632,6 +656,7 @@ export function createInlineFeature(env = {}) {
     };
     const recompute = () => {
         if (!pluginEnabled() || getSettings().inlineRenderEnabled === false) { clear(); return; }
+        if (env.managedChatSurface === true) { remountManaged(); return; }
         ensureInlineObserver();
         const current = computeWindow();
         for (const el of [...observedEls]) {
@@ -658,6 +683,10 @@ export function createInlineFeature(env = {}) {
     };
     const mountElement = el => {
         if (!el) return;
+        if (env.managedChatSurface === true) {
+            mount(el, isLiveElement(el));
+            return;
+        }
         const current = computeWindow();
         const latest = el === current.currentEl;
         if (current.winSet.has(el) && (latest || inViewport(el))) mount(el, latest);
@@ -707,5 +736,5 @@ export function createInlineFeature(env = {}) {
         clear();
         renderedBoxes.clear();
     };
-    return { init, refresh, clear, destroy, computeWindow, mount, mountElement, unmount, computeRenderDepth };
+    return { init, refresh, clear, destroy, computeWindow, mount, mountElement, unmount, unmountElement: unmount, computeRenderDepth };
 }

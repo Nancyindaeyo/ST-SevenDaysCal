@@ -44,7 +44,7 @@ function formSeedOf(piece) {
     const named = String(piece?.formSeed || '').trim();
     if (named) return named;
     const source = String(piece?.templateSource?.input || '').trim();
-    if (source) return `体裁：${piece.formName || piece.templateSource?.title || '纯文字番外'}。\n结构与口吻参考：\n${source.slice(0, 800)}\n\n以后再写这种体：不要贴本轮已经答完的题或问卷全文；保持禁忌与不 OOC。`;
+    if (source) return `体裁：${piece.formName || piece.templateSource?.title || '纯文字番外'}。\n结构与口吻参考：\n${source.slice(0, 1600)}\n\n以后再写这种体：不要贴本轮已经答完的题或问卷全文；保持禁忌与不 OOC。`;
     return `以后用「${piece?.formName || '纯文字番外'}」这种体再写：保留结构、题量感、口吻和禁忌，不要复述某一轮成品全文。`;
 }
 

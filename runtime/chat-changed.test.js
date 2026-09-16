@@ -57,6 +57,7 @@ function host(overrides = {}) {
         paintPaceSoon: () => calls.push('paceSoon'),
         loadExternalChat: async () => calls.push('load'),
         migrateChat: () => { calls.push('migrate'); return { status: 'ok' }; },
+        migrateBookIds: async () => { calls.push('migrateIds'); return { status: 'ready' }; },
         hydratePace: () => calls.push('hydrate'),
         reloadPanel: () => calls.push('reloadPanel'),
         scheduleAfterLoad: () => calls.push('afterLoad'),
@@ -81,7 +82,8 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.ok(names.includes('floorQueue.abort'));
     assert.ok(names.includes('floorQueue.resetFailed'));
     assert.ok(names.includes('syncFabFailed'));
-    assert.ok(names.indexOf('migrate') < names.indexOf('hydrate'));
+    assert.ok(names.indexOf('migrate') < names.indexOf('migrateIds'));
+    assert.ok(names.indexOf('migrateIds') < names.indexOf('hydrate'));
     assert.ok(names.indexOf('reloadPanel') < names.indexOf('injLines'));
     assert.equal(names.filter(name => name === 'activity.onChatChanged').length, 2);
 });
@@ -96,6 +98,7 @@ test('a second chat change during load does not migrate the first chat', async (
     const result = await runChatChanged(h);
     assert.equal(result.status, 'superseded');
     assert.ok(!h.calls.includes('migrate'));
+    assert.ok(!h.calls.includes('migrateIds'));
     assert.ok(!h.calls.includes('hydrate'));
 });
 

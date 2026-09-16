@@ -105,6 +105,19 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     const scanButtons = ({ rebindMessageId = null } = {}) => {
         const doc = host.document;
         if (!doc) return;
+        if (host.managedChatSurface?.()) {
+            if (!host.enabled?.() || host.settings?.()?.anchorInlineBtn === false) {
+                doc.querySelectorAll('#chat .sp-anchor-btn').forEach(el => el.remove());
+                return;
+            }
+            doc.querySelectorAll('#chat .mes .sp-anchor-btn').forEach(btn => {
+                const mes = btn.closest('.mes');
+                if (!mes) return;
+                const trusted = rebindMessageId != null && Number.isInteger(Number(rebindMessageId)) && Number(mes.getAttribute('mesid')) === Number(rebindMessageId);
+                refreshButton(mes, btn, { trusted });
+            });
+            return;
+        }
         if (!host.enabled?.() || host.settings?.()?.anchorInlineBtn === false) {
             doc.querySelectorAll('#chat .sp-anchor-btn').forEach(el => el.remove());
             return;
@@ -160,6 +173,59 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         host.toast?.(markerSaved ? '已收藏此楼' : '收藏已保存，但回复关联保存失败', null, !markerSaved);
         await offerItemTags(saved, '楼层已收藏，但标签未保存');
         busyReplies.delete(source.message); btn?.classList.remove('sp-anchor-busy');
+    };
+    const latestAssistantIndex = ctx => {
+        const chat = ctx?.chat || [];
+        for (let i = chat.length - 1; i >= 0; i--) {
+            if (chat[i]?.is_user || chat[i]?.is_system) continue;
+            return i;
+        }
+        return -1;
+    };
+    const saveLatestAssistantFloor = async () => {
+        const ctx = host.context?.() || {};
+        const mid = latestAssistantIndex(ctx);
+        if (mid < 0) return host.toast?.('没有可收藏的 AI 楼', null, true);
+        const mes = host.document?.querySelector?.(`#chat .mes[mesid="${mid}"]`);
+        if (mes) return onFloorButton(mes);
+        const message = messageAt(ctx, mid);
+        const version = replyVersion(message);
+        if (!message || !version) return host.toast?.('找不到楼层数据', null, true);
+        if (busyReplies.has(message)) return;
+        const source = { chatId: ctx.chatId ?? null, mid: String(mid), message, version };
+        const expected = controller.snapshotRevision();
+        busyReplies.add(message);
+        const savedItem = savedItemFor(message, source.chatId);
+        if (savedItem) {
+            busyReplies.delete(message);
+            return host.toast?.('这一楼已经收藏过了');
+        }
+        try {
+            const html = sanitizeSnapshot(String(message.mes || ''));
+            const item = {
+                id: globalThis.crypto?.randomUUID?.() || `a-${Date.now()}`,
+                chatId: source.chatId,
+                chatIdHash: ctx.chatMetadata?.chat_id_hash ?? null,
+                chatName: host.chatName?.() || '',
+                charName: ctx.name2 || ctx.character || '角色',
+                messageId: source.mid,
+                floorIndex: mid,
+                textPreview: makePreview(html),
+                ts: Date.now(),
+                tags: [],
+            };
+            const saved = await controller.save(item, { html, preview: item.textPreview }, expected);
+            savedItems.set(normalizeId(saved.id), saved);
+            if (!currentOperation(source, expected)) { busyReplies.delete(message); return; }
+            const markerSaved = await persistMarker(() => !!writeReplyMarker(source.message, saved.id));
+            try { await repository.checkSize(); } catch (error) { host.warn?.('[SP anchor] 收藏空间检查失败', error); }
+            host.toast?.(markerSaved ? '已收藏此楼' : '收藏已保存，但回复关联保存失败', null, !markerSaved);
+            await offerItemTags(saved, '楼层已收藏，但标签未保存');
+        } catch (error) {
+            if (currentOperation(source, expected)) host.toast?.(`收藏失败：${error?.message || '未知错误'}`, null, true);
+        } finally {
+            busyReplies.delete(message);
+        }
     };
     const bindExcerpts = target => {
         const clickOff = ui.bind(target, 'click', async event => {
@@ -354,7 +420,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     return {
         repository, controller, ui,
         init(meta) { if (!initialized) { initialized = true; controller.beginChat(meta); } return this; },
-        refreshSavedKeys, scanButtons, mountMessageButton, unmountMessageButton, onFloorButton, saveFromTheater,
+        refreshSavedKeys, scanButtons, mountMessageButton, unmountMessageButton, onFloorButton, saveFromTheater, saveLatestAssistantFloor,
         addTag: (name, color) => api.addTag(name, color),
         renameTag: (id, name) => api.renameTag(id, name),
         recolorTag: (id, color) => api.recolorTag(id, color),
@@ -369,7 +435,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
         close() { controller.invalidate(); fullscreen.clear(); ui.clearInteraction?.(); ui.close(); controller.beginView('chars'); },
         bind(...args) { return ui.bind(...args); },
         bindInteractionCapture(target) { const clickOff = ui.bind(target, 'click', event => { const el = event.target?.closest?.('.sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-del, .sp-anchor-tagmgr-btn, .sp-tagmgr-swatch, .sp-tagmgr-del, .sp-tagmgr-del-yes, .sp-tagmgr-del-no, .sp-tagmgr-new-add'); if (el) ui.freezeInteraction?.(); if (el?.matches('.sp-tagmgr-swatch')) { event.stopImmediatePropagation(); el.closest('.sp-anchor-tagmgr-new') ? ui.setTagNewColor(el.dataset.color) : ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el?.matches('.sp-anchor-tagmgr-btn')) { event.stopImmediatePropagation(); ui.setRoute({ level: 'tags', tagEditId: null, tagDeleteId: null }); return renderer.render(); } if (el?.matches('.sp-tagmgr-del')) { event.stopImmediatePropagation(); ui.setTagDelete(el.closest('[data-id]')?.dataset.id); return renderer.tags(); } if (el?.matches('.sp-tagmgr-del-no')) { event.stopImmediatePropagation(); ui.setTagDelete(null); return renderer.tags(); } if (el?.matches('.sp-tagmgr-del-yes')) { event.stopImmediatePropagation(); const id = el.closest('[data-id]')?.dataset.id; return api.deleteTag(id).then(() => { if (ui.state().filter === id) ui.setFilter(null); ui.setTagDelete(null); return renderer.tags(); }).catch(error => { host.toast?.(`删除标签失败：${error?.message || ''}`, null, true); return renderer.tags(); }); } if (el?.matches('.sp-tagmgr-new-add')) { event.stopImmediatePropagation(); const input = target.querySelector('.sp-tagmgr-new-name'); if (!input?.value?.trim()) return; return api.addTag(input.value.trim(), ui.state().tagNewColor).then(() => renderer.tags()); } }, true); const keyOff = ui.bind(target, 'keydown', event => { const input = event.target?.closest?.('.sp-tagmgr-new-name'); if (event.key !== 'Enter' || !input?.value?.trim()) return; event.preventDefault(); event.stopImmediatePropagation(); api.addTag(input.value.trim(), ui.state().tagNewColor).then(() => renderer.tags()); }, true); return () => { clickOff?.(); keyOff?.(); }; },
-        bindUi(target) { const off = ui.bind(target, 'click', async event => { if (event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) { event.stopPropagation(); return; } const el = event.target?.closest?.('[data-to], [data-back], [data-browse], .sp-anchor-group-card, .sp-anchor-tagmgr-btn, .sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-filter-chip, .sp-anchor-char-card, .sp-anchor-chat-card, .sp-anchor-item-open, .sp-anchor-fullscreen, .sp-tagmgr-new-add, .sp-tagmgr-edit, .sp-tagmgr-save, .sp-tagmgr-cancel, .sp-tagmgr-swatch, .sp-tagmgr-del'); if (!el) return; const row = el.closest('[data-id]'); if (el.matches('[data-browse]')) { ui.setBrowse(el.dataset.browse); controller.beginView(ui.route()); return renderer.render(); } if (el.matches('.sp-anchor-group-card')) { ui.setGroup(el.dataset.group); return renderer.render(); } if (el.matches('.sp-anchor-tagmgr-btn')) { ui.setRoute('tags'); return renderer.render(); } if (el.matches('.sp-tagmgr-edit')) { ui.setTagEdit(row?.dataset.id, (await repository.getTags()).find(t => t.id === row?.dataset.id)?.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-swatch')) { ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-cancel')) { ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-tagmgr-save')) { const input = row?.querySelector('.sp-tagmgr-name-input'); await api.renameTag(row?.dataset.id, input?.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-anchor-tag-edit')) { ui.setFullTagEdit(true); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-chip')) { const item = await repository.getItem(ui.itemId()); const next = new Set(item?.tags || []); next.has(el.dataset.id) ? next.delete(el.dataset.id) : next.add(el.dataset.id); await api.setItemTags(ui.itemId(), [...next]); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-add')) { const input = target.querySelector('.sp-anchor-ftag-name'); if (input?.value?.trim()) { const tag = await api.addTag(input.value.trim(), 'slate'); const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } } if (el.matches('.sp-anchor-ftag-done')) { ui.setFullTagEdit(false); return renderer.full(ui.itemId()); } if (el.matches('.sp-tagmgr-new-add')) { const input = target.querySelector('.sp-tagmgr-new-name'); if (input?.value?.trim()) { await api.addTag(input.value.trim(), 'slate'); return renderer.tags(); } } if (el.matches('.sp-tagmgr-del')) { if (row && (await host.confirm?.({ title: '删除分组', body: `删除标签「${row.textContent.trim()}」？`, confirmText: '删除', cancelText: '取消' })) !== false) { await api.deleteTag(row.dataset.id); return renderer.tags(); } } if (el.matches('.sp-anchor-filter-chip')) { ui.setFilter(el.dataset.id); return renderer.render(); } if (el.matches('.sp-anchor-char-card')) { ui.setRoute({ level: 'items', charName: el.dataset.char, chatId: null }); return renderer.render(); } if (el.matches('.sp-anchor-chat-card')) { ui.setRoute('items', el.dataset.chatid); return renderer.render(); } if (el.matches('.sp-anchor-item-open')) { ui.captureFrom(); ui.setRoute('full', el.closest('[data-id]')?.dataset.id); return renderer.full(el.closest('[data-id]')?.dataset.id); } if (el.matches('.sp-anchor-fullscreen')) return fullscreen.toggle(); if (el.matches('[data-back]')) { ui.backFrom(); controller.beginView(ui.route()); return renderer.render(); } if (el.dataset.to) { ui.setRoute(el.dataset.to, el.dataset.chatid || null); return renderer.render(); } }); const keyOff = ui.bind(target, 'keydown', async event => { if (event.target?.closest?.('.sp-anchor-search, .sp-excerpt-search-wrap, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) return; if (event.key !== 'Enter') return; const input = event.target?.closest?.('.sp-tagmgr-new-name, .sp-anchor-ftag-name, .sp-tagmgr-name-input'); if (!input?.value?.trim()) return; event.preventDefault(); if (input.matches('.sp-tagmgr-name-input')) { const row = input.closest('[data-id]'); await api.renameTag(row?.dataset.id, input.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } const tag = await api.addTag(input.value.trim(), 'slate'); if (input.matches('.sp-anchor-ftag-name')) { const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } return renderer.tags(); }); return () => { off?.(); keyOff?.(); fullscreen.destroy(); }; },
+        bindUi(target) { const off = ui.bind(target, 'click', async event => { if (event.target?.closest?.('.sp-excerpt-search-wrap, .sp-anchor-search, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) { event.stopPropagation(); return; } if (event.target?.closest?.('.sp-anchor-save-latest')) return saveLatestAssistantFloor(); const el = event.target?.closest?.('[data-to], [data-back], [data-browse], .sp-anchor-group-card, .sp-anchor-tagmgr-btn, .sp-anchor-tag-edit, .sp-anchor-ftag-chip, .sp-anchor-ftag-add, .sp-anchor-ftag-done, .sp-anchor-filter-chip, .sp-anchor-char-card, .sp-anchor-chat-card, .sp-anchor-item-open, .sp-anchor-fullscreen, .sp-tagmgr-new-add, .sp-tagmgr-edit, .sp-tagmgr-save, .sp-tagmgr-cancel, .sp-tagmgr-swatch, .sp-tagmgr-del'); if (!el) return; const row = el.closest('[data-id]'); if (el.matches('[data-browse]')) { ui.setBrowse(el.dataset.browse); controller.beginView(ui.route()); return renderer.render(); } if (el.matches('.sp-anchor-group-card')) { ui.setGroup(el.dataset.group); return renderer.render(); } if (el.matches('.sp-anchor-tagmgr-btn')) { ui.setRoute('tags'); return renderer.render(); } if (el.matches('.sp-tagmgr-edit')) { ui.setTagEdit(row?.dataset.id, (await repository.getTags()).find(t => t.id === row?.dataset.id)?.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-swatch')) { ui.setTagEditColor(el.dataset.color); return renderer.tags(); } if (el.matches('.sp-tagmgr-cancel')) { ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-tagmgr-save')) { const input = row?.querySelector('.sp-tagmgr-name-input'); await api.renameTag(row?.dataset.id, input?.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } if (el.matches('.sp-anchor-tag-edit')) { ui.setFullTagEdit(true); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-chip')) { const item = await repository.getItem(ui.itemId()); const next = new Set(item?.tags || []); next.has(el.dataset.id) ? next.delete(el.dataset.id) : next.add(el.dataset.id); await api.setItemTags(ui.itemId(), [...next]); return renderer.full(ui.itemId()); } if (el.matches('.sp-anchor-ftag-add')) { const input = target.querySelector('.sp-anchor-ftag-name'); if (input?.value?.trim()) { const tag = await api.addTag(input.value.trim(), 'slate'); const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } } if (el.matches('.sp-anchor-ftag-done')) { ui.setFullTagEdit(false); return renderer.full(ui.itemId()); } if (el.matches('.sp-tagmgr-new-add')) { const input = target.querySelector('.sp-tagmgr-new-name'); if (input?.value?.trim()) { await api.addTag(input.value.trim(), 'slate'); return renderer.tags(); } } if (el.matches('.sp-tagmgr-del')) { if (row && (await host.confirm?.({ title: '删除分组', body: `删除标签「${row.textContent.trim()}」？`, confirmText: '删除', cancelText: '取消' })) !== false) { await api.deleteTag(row.dataset.id); return renderer.tags(); } } if (el.matches('.sp-anchor-filter-chip')) { ui.setFilter(el.dataset.id); return renderer.render(); } if (el.matches('.sp-anchor-char-card')) { ui.setRoute({ level: 'items', charName: el.dataset.char, chatId: null }); return renderer.render(); } if (el.matches('.sp-anchor-chat-card')) { ui.setRoute('items', el.dataset.chatid); return renderer.render(); } if (el.matches('.sp-anchor-item-open')) { ui.captureFrom(); ui.setRoute('full', el.closest('[data-id]')?.dataset.id); return renderer.full(el.closest('[data-id]')?.dataset.id); } if (el.matches('.sp-anchor-fullscreen')) return fullscreen.toggle(); if (el.matches('[data-back]')) { ui.backFrom(); controller.beginView(ui.route()); return renderer.render(); } if (el.dataset.to) { ui.setRoute(el.dataset.to, el.dataset.chatid || null); return renderer.render(); } }); const keyOff = ui.bind(target, 'keydown', async event => { if (event.target?.closest?.('.sp-anchor-search, .sp-excerpt-search-wrap, .sp-anchor-item-note-input, .sp-anchor-full-note-input')) return; if (event.key !== 'Enter') return; const input = event.target?.closest?.('.sp-tagmgr-new-name, .sp-anchor-ftag-name, .sp-tagmgr-name-input'); if (!input?.value?.trim()) return; event.preventDefault(); if (input.matches('.sp-tagmgr-name-input')) { const row = input.closest('[data-id]'); await api.renameTag(row?.dataset.id, input.value); await api.recolorTag(row?.dataset.id, ui.state().tagEditColor); ui.setTagEdit(null); return renderer.tags(); } const tag = await api.addTag(input.value.trim(), 'slate'); if (input.matches('.sp-anchor-ftag-name')) { const item = await repository.getItem(ui.itemId()); await api.setItemTags(ui.itemId(), [...new Set([...(item?.tags || []), tag.id])]); return renderer.full(ui.itemId()); } return renderer.tags(); }); return () => { off?.(); keyOff?.(); fullscreen.destroy(); }; },
         bindGestures(target) { gestureCleanup?.(); const offStart = ui.bind(target, 'mousedown', event => { const el = event.target?.closest?.('.sp-anchor-fs-resize, .sp-anchor-fs-on .sp-anchor-head'); if (!el || (globalThis.innerWidth || 0) <= 640) return; if (el.matches('.sp-anchor-fs-on .sp-anchor-head') && event.target?.closest?.('button, .sp-icon-btn, .sp-anchor-back')) return; fullscreen.beginGesture(el.matches('.sp-anchor-fs-resize') ? 'resize' : 'move', event); }); const doc = host.document || globalThis.document; const move = event => fullscreen.moveGesture(event); const end = () => fullscreen.endGesture(); doc?.addEventListener?.('mousemove', move); doc?.addEventListener?.('mouseup', end); gestureCleanup = () => { offStart?.(); doc?.removeEventListener?.('mousemove', move); doc?.removeEventListener?.('mouseup', end); fullscreen.endGesture(); gestureCleanup = null; }; return gestureCleanup; },
         bindDelete(target) { return ui.bind(target, 'click', async event => { const el = event.target?.closest?.('.sp-anchor-del'); if (!el) return; if ((await host.confirm?.({ title: '删除收藏', body: '删除这条收藏？此操作不可撤销。', confirmText: '删除', cancelText: '取消' })) === false) return; const itemId = ui.itemId(); await controller.delete(itemId, controller.snapshotRevision()); fullscreen.clear(); await refreshSavedKeys(); ui.backFrom(); return renderCurrent(() => renderer.render()); }); },
         bindExcerpts,

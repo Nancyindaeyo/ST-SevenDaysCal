@@ -311,6 +311,7 @@ export function panelMarkup({
                                         <input type="checkbox" id="sp-anchor-inline-btn" ${getSettings().anchorInlineBtn !== false ? 'checked' : ''}>
                                         <span>收藏此楼入口</span>
                                     </label>
+                                    <p class="sp-cfg-hint">关掉后仍可在坐标页点「收藏当前楼」。虚拟化打开时楼内钮随投影回收，坐标页入口不受影响。</p>
 
                                     <label class="sp-mode-opt" style="margin-top:10px">
                                         <input type="checkbox" id="sp-inline-render-enabled" ${getSettings().inlineRenderEnabled !== false ? 'checked' : ''}>

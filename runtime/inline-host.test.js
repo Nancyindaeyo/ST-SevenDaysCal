@@ -8,6 +8,7 @@ function makeHost(overrides = {}) {
         refresh: immediate => calls.push(['refresh', immediate]),
         clear: () => calls.push('clear'),
         mountElement: el => calls.push(['mount', el]),
+        unmountElement: el => calls.push(['unmount', el]),
         init: () => calls.push('init'),
         destroy: () => calls.push('destroy'),
     };
@@ -91,6 +92,14 @@ test('无 feature 时对 #chat 挂观察器，非流式才刷窗', () => {
             resolve();
         }, 450);
     });
+});
+
+test('unmountElement 转给当前 feature', () => {
+    const { host, calls, feature } = makeHost();
+    const mes = { id: 'mes' };
+    host.unmountElement(mes);
+    assert.deepEqual(calls, [['unmount', mes]]);
+    assert.equal(typeof feature.unmountElement, 'function');
 });
 
 test('replaceFeature 先销毁旧实例', () => {

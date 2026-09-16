@@ -44,6 +44,9 @@ test('commit restores the calendar if the almanac write fails', async () => {
     });
     const result = await controller.commit({ kind: 'gregorian', id: 'new' });
     assert.equal(result.ok, false);
+    assert.equal(result.reason, 'almanac-save-failed');
+    assert.equal(result.rolledBack, true);
+    assert.equal(result.error, '当前聊天无法写入节日表');
     assert.equal(writes.at(-1).key.kind, 'caldesc');
     assert.equal(writes.at(-1).value.id, 'old');
 });

@@ -15,6 +15,10 @@ export function createInlineHost(env = {}) {
         return feature?.mountElement?.(element);
     }
 
+    function unmountElement(element) {
+        return feature?.unmountElement?.(element) ?? feature?.unmount?.(element);
+    }
+
     function init() {
         return feature?.init?.();
     }
@@ -82,6 +86,7 @@ export function createInlineHost(env = {}) {
         refresh,
         clear,
         mountElement,
+        unmountElement,
         init,
         destroy,
         syncLatest,

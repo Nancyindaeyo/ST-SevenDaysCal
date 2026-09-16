@@ -144,6 +144,7 @@ test('search box is not a shelf tab', async () => {
         getState: () => ({ level: 'chars', shelf: 'snaps', browse: 'char', snapSearch: '', filter: null }),
     });
     await renderer.chars();
+    assert.match(html, /sp-anchor-save-latest/);
     assert.match(html, /class="sp-anchor-search[^"]*"[^>]*data-search-shelf="snaps"/);
     assert.equal(html.includes('data-browse="theater"'), true);
     assert.equal(/<input[^>]*\sdata-shelf=/.test(html), false);

@@ -97,7 +97,7 @@ export const DEFAULT_SETTINGS = {
     customPrompt   : '',         // 创作链自定义写作规范；机械链只使用统一基础处理层
     spacePersona   : '',         // 间·人格覆盖：空=用内置默认语气（ADVISOR_TONE_GUIDE）；非空=换间的语气/行文/人格（顾问身份恒保留、不可覆盖）
     // 坐标（收藏楼层）
-    anchorInlineBtn      : true,               // 楼层头部显示「收藏此楼」入口（关掉则只能从别处收藏，暂无）
+    anchorInlineBtn      : true,               // 楼层头部显示「收藏此楼」入口（关掉后走坐标页「收藏当前楼」）
     anchorSizeWarnBytes  : 8 * 1024 * 1024,    // 坐标收藏占用预警阈值（快照带样式偏大，给足余量）
     // 历法模板保存可复用描述符；绑定表以角色 avatar 精确映射模板 id。
     calendarTemplates    : [],

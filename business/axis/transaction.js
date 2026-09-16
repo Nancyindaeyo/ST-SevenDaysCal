@@ -86,17 +86,17 @@ export function createAxisTransactionController(env = {}) {
             rollback: state.results,
         });
         const calSaved = await persist(calKey, nextCal);
-        if (!(calSaved?.ok === true)) return { ok: false, error: '当前聊天无法写入历法' };
+        if (!(calSaved?.ok === true)) return { ok: false, reason: 'calendar-save-failed', error: '当前聊天无法写入历法' };
         if (!boundaryCurrent()) {
             const restored = await rollback({ calendar: true });
             if (!restored.ok) return rollbackFailed(restored);
-            return { ok: false, cancelled: true };
+            return { ok: false, cancelled: true, rolledBack: true };
         }
         const almSaved = await persist(almKey, nextAlmanac);
         if (!(almSaved?.ok === true)) {
             const restored = await rollback({ calendar: true });
             if (!restored.ok) return rollbackFailed(restored);
-            return { ok: false, error: '当前聊天无法写入历法' };
+            return { ok: false, reason: 'almanac-save-failed', error: '当前聊天无法写入节日表', rolledBack: true };
         }
         if (!boundaryCurrent()) {
             const restored = await rollback({ almanac: true, calendar: true });

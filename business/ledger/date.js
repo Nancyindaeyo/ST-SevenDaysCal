@@ -21,6 +21,20 @@ export function ledgerDueInfo(entry, today = deps.today()) {
     return delta === 0 ? { 天数: 0, 过期: false } : (delta > 0 ? { 天数: delta, 过期: false } : { 天数: Math.abs(delta), 过期: true });
 }
 
+export function rollLedgerDueDate(entry, calendar, helpers = {}) {
+    const cycle = Number(entry?.周期长度);
+    const base = entry?.到期锚?.历日期;
+    if (!(cycle > 0) || !base || !Number.isFinite(+base.month) || !Number.isFinite(+base.day)) return null;
+    const year = Number(base.year);
+    if (Number.isInteger(year) && year >= 1) {
+        const next = helpers.addCalendarDays?.({ year, month: Number(base.month), day: Number(base.day) }, cycle, calendar);
+        if (next) return next;
+    }
+    const doy = helpers.dayOfYear?.(base.month, base.day, calendar);
+    if (!Number.isFinite(doy)) return null;
+    return helpers.monthDayFromDoy?.(doy + cycle, calendar) || null;
+}
+
 export function listJudgeableLedger({ includePending = false } = {}) {
     return deps.listEntries().filter(entry => entry.锁 !== '用户锁'
         && (includePending || entry.来源状态 !== '待确认')

@@ -43,3 +43,15 @@ test('guide prompts never ask for theater', () => {
     assert.equal(formatGuideAnswers([{ prompt: '现在最卡住的是？', value: '下一楼不知道写什么' }]).includes('下一楼'), true);
     assert.equal(SPACE_CHAT_STARTERS.some(item => item.label === '下一楼怎么写'), true);
 });
+
+test('guide draft seed clips at 1600 like other book excerpts', () => {
+    const seed = 'x'.repeat(1800);
+    const draft = buildGuideDraftPrompt({ seed, answers: [] });
+    const start = draft.indexOf('【作者描述与灵感】');
+    const end = draft.indexOf('【问答】');
+    assert.ok(start >= 0 && end > start);
+    const body = draft.slice(start, end);
+    assert.equal(body.includes('x'.repeat(1600)), true);
+    assert.equal(body.includes('x'.repeat(1601)), false);
+    assert.match(body, /\n…/);
+});

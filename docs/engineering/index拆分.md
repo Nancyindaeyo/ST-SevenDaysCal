@@ -8,23 +8,22 @@
 
 ## 已经不在装配根里的
 
-点 codec/渲染、线 schema/生成、面、轴叶子（data/anchor/panel/editor）、刻度控制器、刷新条/节拍、活动「改」、开局排队、换日 `shift`、间、棱、坐标、设置绑定、外置存储、楼内框 feature、时旅宿主、锚点善后、楼内宿主、面板宿主、生成消息宿主。
+点 codec/渲染、线 schema/生成、面、轴叶子（data/anchor/panel/editor）、刻度控制器、刷新条/节拍、活动「改」、开局排队、换日 `shift`、间、棱、坐标、设置绑定、外置存储、楼内框 feature、时旅宿主、锚点善后、楼内宿主、面板宿主、生成消息宿主、插件生命周期（开关 / 后台中止 / 注入清理）。
 
 其中 `runtime/generation-messages.js` 已承接点/线/历观察者消息和面聊天拼装，装配根只负责 `createGenerationMessagesHost({...})` 接线。
 
 ## 下一刀最值
 
-- **块**：`applyPluginEnabled` / `_abortAllBackground`
-- **当前范围**：插件开关、后台中止、注入清理
-- **目标文件**：`runtime/plugin-lifecycle.js`
-- **价值与风险**：把关停路径集中，减少漏 abort；但必须完整注入各 controller，不能静默漏掉任务。
+- **块**：最近请求 payload 的复制和展示
+- **当前范围**：调试面板里的 payload 文本
+- **目标文件**：`runtime/debug-payload.js`
+- **价值与风险**：风险最低，可单独完成。
 
 ## 可以后移的中块
 
 - 身份 / 边界：把 `captureParticipantIdentity`、`chatBoundaryEpoch` 迁入 `runtime/generation-context.js`。该文件目前只有 reroll/标签清洗，身份逻辑尚未迁入。
 - 日期检测接线：把 `createDateDetectionController({...})` 迁入 `business/axis/date-detection-host.js`，避免与时旅、锚点善后形成循环依赖。
 - 世界书读取、排除和面板端口：迁入 `runtime/world-info-host.js`。底层已有 `world-info-context.js` / `world-info-panel.js`，宿主解析仍在根。
-- 调试 payload 复制：迁入 `runtime/debug-payload.js`，风险低，可单独完成。
 - 节拍条：把 `paintPace` / `readPaceSnapshot` 迁入 `business/refresh/pace-host.js`，DOM 端口仍由装配根注入。
 - 引导落地：继续压薄已有 space feature 的 `applyGuideDraft` 封装，不新增万能层。
 
@@ -50,4 +49,4 @@
 
 ## 执行节奏
 
-一次只搬一块，先补或确认目标块的契约测试，再跑仓内全部 `*.test.js`。第一刀仍是插件开关 / 后台中止；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。
+一次只搬一块，先补或确认目标块的契约测试，再跑仓内全部 `*.test.js`。插件开关 / 后台中止已迁出；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。
