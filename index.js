@@ -34,6 +34,8 @@ import { createLawFeature } from './business/law/feature.js';
 import { enterLawSidebar } from './business/law/ui.js';
 import { collectStageSnapshot, buildFestivalRows } from './business/stage/snapshot.js';
 import { createStageFeature, enterStageSidebar } from './business/stage/feature.js';
+import { detectLampConflicts, readLampBaiBai } from './business/lamp/detect.js';
+import { createLampFeature, enterLampSidebar } from './business/lamp/feature.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -1289,6 +1291,7 @@ const _iKey  = (icon, name, desc) => `<div class="sp-intro-key"><i class="fa-sol
 const _iSvgKey = (svg, name, desc) => `<div class="sp-intro-key">${svg}<b>${name}</b><span>${desc}</span></div>`;
 const _coordinateIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 3.5 L6 18 L20.5 18"/><circle cx="14" cy="9.4" r="1.9" fill="currentColor" stroke="none"/></svg>';
 const _stageIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg>';
+const _lampIntroSvg = '<svg viewBox="0 0 24 24" width="1em" height="1em" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="7.2" r="2.6" fill="currentColor" stroke="none"/><path d="M9.2 11.2 L12 18 L14.8 11.2"/><line x1="8" y1="18.5" x2="16" y2="18.5"/></svg>';
 
 const MODULE_INTROS = {
     schedule:
@@ -1376,6 +1379,10 @@ const MODULE_INTROS = {
         _iLede('「日台」把今天该演什么收成一屏：点的今天、近七天节日、到期或持续的刻度、时机写近日的线。柏宝书管世界现在怎样；日台管作者打算这几天演什么。') +
         _iSub('只读、不注入、不另建一本账。点一条就跳到原来那本账。没有可靠「今天」时不猜现实日期。') +
         _iSvgKey(_stageIntroSvg, '日台', '台上一点：今天的演出单，不是第二份摘要'),
+    lamp:
+        _iLede('「对账灯」只提示打架的账：点还在家养伤、刻度已到期、线却写今夜赴约；装着柏宝书时再对照地点、伤情和未核销计划。') +
+        _iSub('不改任何一侧，不另建一本账，也不注入。点构画那一条跳过去；柏宝书只给对照原文。') +
+        _iSvgKey(_lampIntroSvg, '对账灯', '灯：只照差异，不替你改账'),
 };
 
 let lastDebugPayload = null;
@@ -1492,7 +1499,7 @@ const apiPresetUi = createApiPresetUi({
 
 let settingsOpen   = false;
 let currentView        = 'user';  // 'user' | 'char'
-let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺/律/日台），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
+let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺/律/日台/对账灯），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
 let outlineMode         = false;
 let linesMode           = false;
@@ -2033,6 +2040,41 @@ const stageFeature = createStageFeature({
     jump: openActivityItem,
     $in,
 });
+function collectLampSnapshotHost() {
+    const cal = loadCalDesc();
+    let days = [];
+    try {
+        const saved = readStore(getCacheKey('user', ''));
+        if (saved?.raw) days = parseCalendar(saved.raw, cal)?.days || [];
+    } catch { days = []; }
+    const ledgerEntries = (ledger.listEntries() || []).map(entry => ({
+        ...entry,
+        due: ledgerDueInfo(entry),
+    }));
+    let lines = [];
+    try {
+        lines = activeLines(readStore(getLinesCacheKey())?.raw || '');
+    } catch { lines = []; }
+    let hasBaiBai = false;
+    let bbb = null;
+    try {
+        if (getSettings().useBaiBaiBook) {
+            hasBaiBai = true;
+            bbb = readLampBaiBai(globalThis.STBaiBaiBook?.getSnapshot?.());
+        }
+    } catch {
+        hasBaiBai = true;
+    }
+    return {
+        hasBaiBai,
+        conflicts: detectLampConflicts({ days, ledger: ledgerEntries, lines, bbb }),
+    };
+}
+const lampFeature = createLampFeature({
+    collect: collectLampSnapshotHost,
+    jump: openActivityItem,
+    $in,
+});
 let theaterMode          = false;
 let beatFeature          = null;
 const refreshController = createRefreshController({
@@ -2502,6 +2544,7 @@ jQuery(async () => {
         slip: slipFeature,
         law: lawFeature,
         stage: stageFeature,
+        lamp: lampFeature,
         activity: activityFeature,
         dashed: linesFeature.dashed,
         theater: theaterFeature,
@@ -2752,6 +2795,7 @@ const pluginLifecycle = createPluginLifecycle({
     slip: slipFeature,
     law: lawFeature,
     stage: stageFeature,
+    lamp: lampFeature,
     dashed: linesFeature.dashed,
     refresh: refreshController,
     floorQueue,
@@ -3396,6 +3440,7 @@ function injectModal() {
     slipFeature.bindUi();
     lawFeature.bindUi();
     stageFeature.bindUi();
+    lampFeature.bindUi();
     beatFeature.bindUi();
     bindLinesPanel({
         $, $in, $chat: $('#chat'),
@@ -3534,6 +3579,7 @@ function injectModal() {
             slipOn: () => slipFeature.isOpen(),
             lawOn: () => lawFeature.isOpen(),
             stageOn: () => stageFeature.isOpen(),
+            lampOn: () => lampFeature.isOpen(),
             get theater() { return theaterFeature; },
             closeTaDrawer: () => taDrawer.close(),
             toggleTaDrawer: () => taDrawer.toggle(),
@@ -3600,9 +3646,15 @@ function injectModal() {
                 show: () => showPanelView($in, 'stage'),
                 feature: stageFeature,
             }),
+            enterLamp: () => enterLampSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'lamp'),
+                feature: lampFeature,
+            }),
             get slip() { return slipFeature; },
             get law() { return lawFeature; },
             get stage() { return stageFeature; },
+            get lamp() { return lampFeature; },
             get coordinate() { return coordinateRuntime?.feature; },
             currentView: () => currentView,
             setView,
@@ -3761,6 +3813,7 @@ function resetPanelToScheduleHome() {
     slipFeature.close();
     lawFeature.close();
     stageFeature.close();
+    lampFeature.close();
     outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
     axisState._almanacEditor = null;
     resetLedgerRenderState();

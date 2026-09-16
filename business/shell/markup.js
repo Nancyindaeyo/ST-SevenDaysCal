@@ -71,6 +71,10 @@ export function panelMarkup({
                             <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18 L8 13 H16 L20 18"/><line x1="6" y1="18" x2="18" y2="18"/><circle cx="12" cy="8.2" r="2.2" fill="currentColor" stroke="none"/></svg></span>
                             <span class="sp-tab-label">日台</span>
                         </button>
+                        <button id="sp-tab-lamp" class="sp-side-tab sp-view-btn" data-view="lamp" role="tab" aria-controls="sp-lamp-wrap" aria-selected="false" tabindex="-1">
+                            <span class="sp-tab-glyph" aria-hidden="true"><svg class="sp-tab-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7.2" r="2.6" fill="currentColor" stroke="none"/><path d="M9.2 11.2 L12 18 L14.8 11.2"/><line x1="8" y1="18.5" x2="16" y2="18.5"/></svg></span>
+                            <span class="sp-tab-label">对账灯</span>
+                        </button>
                     </nav>
                     <div class="sp-sidebar-spacer"></div>
                     <nav class="sp-sidebar-tabs sp-sidebar-util" aria-label="工具">
@@ -713,6 +717,8 @@ export function panelMarkup({
                         </div>
 
                         <div class="sp-stage-wrap" id="sp-stage-wrap" role="tabpanel" aria-labelledby="sp-tab-stage" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
+
+                        <div class="sp-lamp-wrap" id="sp-lamp-wrap" role="tabpanel" aria-labelledby="sp-tab-lamp" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
 
                         <div class="sp-almanac-wrap" id="sp-almanac-wrap" role="tabpanel" aria-labelledby="sp-tab-almanac" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0"></div>
                     </div><!-- /sp-main -->

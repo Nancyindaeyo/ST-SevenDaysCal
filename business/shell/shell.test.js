@@ -108,6 +108,9 @@ function switchHost(over = {}) {
         stageOn: () => false,
         enterStage: () => calls.push('enterStage'),
         stage: { close: () => calls.push('stage.close') },
+        lampOn: () => false,
+        enterLamp: () => calls.push('enterLamp'),
+        lamp: { close: () => calls.push('lamp.close') },
         coordinate: { close: () => calls.push('coordinate.close') },
         currentView: () => 'char',
         setView: view => calls.push(`setView:${view}`),
@@ -174,6 +177,19 @@ test('side tab to 日台 opens once and leaving closes', () => {
     assert.equal(again.status, 'same');
     handlePanelViewClick(h, btn({ view: 'schedule', side: true }));
     assert.ok(calls.includes('stage.close'));
+});
+
+test('side tab to 对账灯 opens once and leaving closes', () => {
+    const { h, calls } = switchHost({
+        lampOn: () => calls.includes('enterLamp'),
+    });
+    const first = handlePanelViewClick(h, btn({ view: 'lamp', side: true }));
+    assert.equal(first.status, 'lamp');
+    assert.ok(calls.includes('enterLamp'));
+    const again = openSideView(h, 'lamp');
+    assert.equal(again.status, 'same');
+    handlePanelViewClick(h, btn({ view: 'schedule', side: true }));
+    assert.ok(calls.includes('lamp.close'));
 });
 
 test('leaving theater calls leave before opening schedule', () => {

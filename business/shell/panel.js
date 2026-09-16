@@ -9,6 +9,7 @@ export const PANEL_VIEWS = Object.freeze({
     slip: Object.freeze({ sel: '#sp-slip-wrap', display: 'flex', title: '笺' }),
     law: Object.freeze({ sel: '#sp-law-wrap', display: 'flex', title: '律' }),
     stage: Object.freeze({ sel: '#sp-stage-wrap', display: 'flex', title: '日台' }),
+    lamp: Object.freeze({ sel: '#sp-lamp-wrap', display: 'flex', title: '对账灯' }),
 });
 
 function specOf(view) {

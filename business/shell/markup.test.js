@@ -44,6 +44,9 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.match(html, /id="sp-tab-stage"[^>]*role="tab"/);
     assert.match(html, /id="sp-stage-wrap"[^>]*role="tabpanel"[^>]*aria-labelledby="sp-tab-stage"/);
     assert.match(html, /sp-tab-label">日台/);
+    assert.match(html, /id="sp-tab-lamp"[^>]*role="tab"/);
+    assert.match(html, /id="sp-lamp-wrap"[^>]*role="tabpanel"[^>]*aria-labelledby="sp-tab-lamp"/);
+    assert.match(html, /sp-tab-label">对账灯/);
     assert.match(html, /id="sp-lines-wrap"/);
     assert.match(html, /role="tablist" aria-orientation="vertical"/);
     assert.match(html, /id="sp-tab-schedule"[^>]*role="tab"[^>]*aria-selected="true"/);

@@ -20,6 +20,7 @@ export async function runChatChanged(h) {
     h.slip?.onChatChanged?.();
     h.law?.onChatChanged?.();
     h.stage?.onChatChanged?.();
+    h.lamp?.onChatChanged?.();
     h.activity?.onChatChanged?.();
     h.activity?.close?.();
     h.dashed?.abort?.(REASON);

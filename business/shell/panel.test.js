@@ -57,6 +57,13 @@ test('showPanelView can open 日台', () => {
     assert.equal(dom.title.text, '日台');
 });
 
+test('showPanelView can open 对账灯', () => {
+    const dom = fakeDom();
+    showPanelView(dom.$in, 'lamp');
+    assert.equal(dom.display['#sp-lamp-wrap'], 'flex');
+    assert.equal(dom.title.text, '对账灯');
+});
+
 test('schedule home can paint tabs without touching wrap visibility', () => {
     const dom = fakeDom();
     paintScheduleHome(dom.$in, dom.$inAll, { sub: 'user', wraps: false });
