@@ -24,7 +24,7 @@ import { createActivityChatStorage } from './business/activity/store.js';
 import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
-import { spaceMessagePlainText } from './business/space/schema.js';
+import { createBeatContextCollector } from './business/beat/context.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { createSlipFeature } from './business/slip/feature.js';
@@ -250,7 +250,8 @@ import { buildLedgerSources } from './business/ledger/reconcile.js';
 import { ledgerOwnerIdentity, sameLedgerOwner } from './business/ledger/owner.js';
 import { bindLedgerCapture, createLedgerCaptureController, ledgerNarrativeMessage, ledgerFloorDateContext, ledgerAiFloorRecords, LEDGER_EVENT_TYPES, LEDGER_FIELD_SPEC } from './business/ledger/capture.js';
 import { filterRerollItems, shouldRunPendingPointFollowup } from './runtime/refactor-adapters.js';
-import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, readBaiBaiBookHistory, usesBaiBaiBook } from './business/memory/baibaoshu.js';
+import { baiBaiBookCoverage, baiBaiBookStatusHtml, readBaiBaiBookGarnish, usesBaiBaiBook } from './business/memory/baibaoshu.js';
+import { createMemoryInjectHost } from './business/memory/inject-host.js';
 import { createTaskOwnerManager } from './runtime/task-owner.js';
 import { evaluateTaskLifecycle } from './runtime/task-orchestration.js';
 import { parseLines, TERMINAL_LINE_STAGES } from './business/lines/schema.js';
@@ -2034,27 +2035,16 @@ paceHost.hydrate();
 function syncRefreshBar() {
     $in('#sp-panel-tools').css('display', 'none');
 }
-function collectBeatLedgerContext() {
-    const ctx = getContext() || {};
-    const snap = outlineFeature.readSnapshot?.() || { beats: [], cursor: 0 };
-    const current = snap.beats?.[Number(snap.cursor) - 1];
-    const outlineNode = current
-        ? `${current.time ? current.time + '·' : ''}《${current.title || ''}》${current.scene ? `\n${current.scene}` : ''}`
-        : '';
-    const spaceRecent = (spaceFeature.chat.history() || []).slice(-8)
-        .map(message => `${message.role === 'assistant' ? '顾问' : '作者'}：${spaceMessagePlainText(message)}`)
-        .join('\n');
-    return {
-        userName: ctx.name1 || '用户',
-        charName: ctx.name2 || '角色',
-        pointRaw: readStore(getCacheKey('user', ''))?.raw || '',
-        linesRaw: readStore(getLinesCacheKey())?.raw || '',
-        outlineRaw: outlineFeature.readRaw?.() || '',
-        outlineNode,
-        spaceRecent,
-        latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
-    };
-}
+const beatContext = createBeatContextCollector({
+    getContext,
+    readOutlineSnapshot: () => outlineFeature.readSnapshot?.() || { beats: [], cursor: 0 },
+    readPointRaw: () => readStore(getCacheKey('user', ''))?.raw || '',
+    readLinesRaw: () => readStore(getLinesCacheKey())?.raw || '',
+    readOutlineRaw: () => outlineFeature.readRaw?.() || '',
+    readSpaceHistory: () => spaceFeature.chat.history() || [],
+    readLatestStory: () => readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
+});
+function collectBeatLedgerContext() { return beatContext.collect(); }
 function revealBeatAndGenerate() {
     showPanel();
     if (_lastMainView !== 'schedule' && _lastMainView !== 'lines' && _lastMainView !== 'outline') {
@@ -3548,47 +3538,21 @@ function checkMemoryMigrationNotice() {
 
 // Called by the three generation triggers (schedule/outline/lines).
 // Returns a Promise<boolean>: true if user wants to continue, false if canceled.
-async function memoryPreCheckConfirm() {
-    if (usesBaiBaiBook(getSettings())) {
-        const coverage = baiBaiBookCoverage(globalThis.STBaiBaiBook);
-        if (!coverage.ready) {
-            return spConfirm({
-                title  : '柏宝书未就绪',
-                body   : '当前选的是柏宝书记忆源，但检测不到柏宝书 API。\n继续生成会没有历史记忆注入。',
-                note   : '请把柏宝书更新到最新版（旧版没有读取接口），或临时关掉本插件的"使用柏宝书作为记忆源"。',
-                confirmText: '仍然继续',
-                cancelText : '取消',
-            });
+const memoryInject = createMemoryInjectHost({
+    settings: getSettings,
+    getApi: () => globalThis.STBaiBaiBook,
+    confirm: options => spConfirm(options),
+    healthReport: () => memory.getHealthReport(),
+    builtinContext: () => memory.getMemoryContext(),
+    warnMissingApi: () => {
+        if (!getMemText._bbbWarned) {
+            getMemText._bbbWarned = true;
+            console.info('[7dayscal] 使用柏宝书记忆但 API 未就绪，本次生成无历史注入');
         }
-        if (coverage.complete === false) {
-            return spConfirm({
-                title  : '柏宝书记忆未覆盖完整',
-                body   : `柏宝书报告缺 ${coverage.missing} 楼摘要（missingAiFloors）。`,
-                note   : '继续生成会使用当前柏宝书的历史（可能不完整）。你也可以先去柏宝书补齐。',
-                confirmText: '继续生成',
-                cancelText : '取消',
-            });
-        }
-        return true;
-    }
-    const report = memory.getHealthReport();
-    // No memory data yet is OK (fresh chat) — only warn when there ARE issues
-    const hasPending = report.pending > 0 || report.permaFailed > 0 || report.strippedEmpty > 0 || report.paused;
-    if (!hasPending) return true;
-    const lines = [];
-    if (report.paused) lines.push('• 记忆系统已暂停（连续失败或单楼超过 3 次）');
-    if (report.pending > 0)    lines.push(`• 有 ${report.pending} 楼待摘要`);
-    if (report.permaFailed > 0) lines.push(`• 有 ${report.permaFailed} 楼摘要永久失败（需手动补齐）`);
-    if (report.strippedEmpty > 0) lines.push(`• 有 ${report.strippedEmpty} 组净化后正文几乎为空（请重查「保留标签」设置）`);
-    if (report.busy)           lines.push('• 记忆系统正在后台生成');
-    return spConfirm({
-        title  : '记忆库不完整',
-        body   : lines.join('\n'),
-        note   : '继续生成会使用当前记忆库（可能不完整）。你也可以先去修复。',
-        confirmText: '继续生成',
-        cancelText : '取消',
-    });
-}
+    },
+    warnReadError: err => console.warn('[7dayscal] 柏宝书取历史出错', safeDiagnosticLog('memory', 'request', err, { background: true })),
+});
+async function memoryPreCheckConfirm() { return memoryInject.precheck(); }
 
 function spConfirm(options, fallbackBody) {
     return customDialog.confirm(options, fallbackBody);
@@ -3767,29 +3731,7 @@ async function buildRecentChatContext(ctx, floorCount = 6, perMessageChars = Inf
     return `【最近对话】以下是主聊天中最近几层对话原文，供理解当前剧情走向。\n\n${rows.join('\n\n')}`;
 }
 
-async function _getMemTextRaw(opts = {}) {
-    if (usesBaiBaiBook(getSettings())) {
-        const api = globalThis.STBaiBaiBook;
-        if (!api || typeof api.getInjectedHistory !== 'function') {
-            if (!getMemText._bbbWarned) {
-                getMemText._bbbWarned = true;
-                console.info('[7dayscal] 使用柏宝书记忆但 API 未就绪，本次生成无历史注入');
-            }
-            return '';
-        }
-        try {
-            // opts.full：通读全故事的分析任务（如「历」编排全年纪念日）要完整时间线——
-            // 用 getHistory（柏宝书「全部压缩历史」，含滑动窗口楼层）；而非 getInjectedHistory
-            // （后者是按当前剧情向量召回、跳过滑动窗口的注入版，会漏掉与"此刻"无关的旧里程碑）。
-            // 点/线/面贴当前剧情，保持 getInjectedHistory（聚焦近景、省额度）。
-            return readBaiBaiBookHistory(api, { full: !!opts.full });
-        } catch (err) {
-            console.warn('[7dayscal] 柏宝书取历史出错', safeDiagnosticLog('memory', 'request', err, { background: true }));
-            return '';
-        }
-    }
-    return memory.getMemoryContext();
-}
+async function _getMemTextRaw(opts = {}) { return memoryInject.getTextRaw(opts); }
 
 // 记忆原文交给生成，不再按 60000 tk 抽块。柏宝书自己召回；内置 L0/L1 宁可变长，也不要再节选成「读不全」。
 async function getMemText(opts = {}) {
