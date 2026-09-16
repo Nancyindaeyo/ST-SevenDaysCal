@@ -97,7 +97,7 @@ import { postChatCompletion, callCustomApi, callMemoryApi, callTheaterApi, bindA
 import { normalizeApiUrl } from './api/sse.js';
 import { safeDiagnosticLog, diagnosticMessage, makeDiagnosticError, shouldNotifyGeneration, classifyGenerationError } from './api/diagnostics.js';
 import { readDiagnosticTrace, recordChatBoundary, traceDiagnosticEvent } from './runtime/diagnostic-trace.js';
-import { buildSafeDiagnosticPack, dayKey, mergeAssistantDiagnosticPackage } from './runtime/diagnostic-pack.js';
+import { createDiagnosticPackHost } from './runtime/diagnostic-pack-host.js';
 import {
     abortMigration,
     bindExternalChatStorage,
@@ -1539,6 +1539,27 @@ function enqueueStoryDateBeat() {
     scheduleFloorDrain();
 }
 const sameFloorGate = createSameFloorGate();
+const diagnosticPack = createDiagnosticPackHost({
+    pluginVersion: PLUGIN_VERSION,
+    getContext,
+    settings: getSettings,
+    latestStoryClock,
+    todayAnchor: almTodayAnchor,
+    latestAiFloor,
+    sameFloorPending: () => sameFloorGate.pending(),
+    linesMode: getLinesMode,
+    queueSnapshot: () => floorQueue?.snapshot?.() || null,
+    compactActivity: limit => activityFeature.compactEntries(limit),
+    readTrace: readDiagnosticTrace,
+    buildCurrentChat: opts => buildCurrentChatDiagnosticPackage(opts),
+    copyText: copyPlainText,
+    promptTextarea: options => customDialog.promptTextarea(options),
+    choose: options => customDialog.choose(options),
+    toast: showToast,
+});
+function collectDiagnosticRuntime(note) { return diagnosticPack.collect(note); }
+function exportSafeDiagnosticPack() { return diagnosticPack.exportSafe(); }
+function exportCurrentChatDiagnosticPackage() { return diagnosticPack.exportAssistant(); }
 const STAGE_COLORS = {
     起线: '#7de9d9', 延展: '#58e8b3', 成形: '#d6b85a', 收束: '#2a8a5d', 淡出: '#888888',
 };
@@ -4240,103 +4261,6 @@ async function importGouhuaBackup(file) {
         overlay.close();
         showToast(`导入失败：${error?.message || '未知错误'}`, null, true);
     }
-}
-
-function downloadDiagnosticPackage(data) {
-    const text = JSON.stringify(data, null, 2);
-    const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob); const anchor = document.createElement('a');
-    anchor.href = url; anchor.download = `gouhua-diagnostic-${Date.now()}.json`; anchor.style.display = 'none';
-    document.body.appendChild(anchor); anchor.click(); anchor.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-    return text;
-}
-
-function collectDiagnosticRuntime(userNote = '') {
-    const ctx = getContext();
-    const chat = ctx?.chat || [];
-    const clock = latestStoryClock();
-    const today = almTodayAnchor();
-    return buildSafeDiagnosticPack({
-        pluginVersion: PLUGIN_VERSION,
-        settings: getSettings(),
-        chat: {
-            floorCount: chat.length,
-            latestAiFloor: latestAiFloor(chat)?.index,
-            stampDay: dayKey((clock?.endMeta?.valid ? clock.endMeta.date || clock.endMeta : null) || (clock?.startMeta?.valid ? clock.startMeta.date || clock.startMeta : null)),
-            axisToday: dayKey(today),
-            sameFloor: sameFloorGate.pending() === true,
-            linesMode: getLinesMode(),
-        },
-        queue: floorQueue?.snapshot?.() || null,
-        activity: activityFeature.compactEntries(8),
-        safeLogs: readDiagnosticTrace(),
-        userNote,
-    });
-}
-
-async function askDiagnosticUserNote() {
-    try {
-        const note = await customDialog.promptTextarea({
-            title: '给助手的一句话（可空）',
-            body: '你点了什么、期望什么、实际怎样。会写进诊断包，不含 Key。',
-            initialValue: '',
-            maxLength: 400,
-            rows: 3,
-            confirmText: '继续',
-            cancelText: '跳过',
-        });
-        return String(note || '').trim();
-    } catch {
-        return '';
-    }
-}
-
-async function exportSafeDiagnosticPack() {
-    try {
-        const text = JSON.stringify(collectDiagnosticRuntime(), null, 2);
-        const copied = await copyPlainText(text);
-        if (copied) {
-            showToast('安全诊断包已复制（无剧情）');
-            return;
-        }
-        await customDialog.promptTextarea({
-            title: '复制安全诊断包',
-            body: '自动复制失败，请长按文本复制。这份没有正文和提示词。',
-            initialValue: text,
-            maxLength: Math.max(1, text.length),
-            rows: 12,
-            confirmText: '关闭',
-            cancelText: '取消',
-        });
-    } catch (error) {
-        showToast(`安全诊断包导出失败：${error?.message || '未知错误'}`, null, true);
-    }
-}
-
-async function exportCurrentChatDiagnosticPackage() {
-    const choice = await customDialog.choose({
-        title: '导出给助手',
-        body: '给改构画的人看：含本聊天账本、最近两楼各模块最新一次完整输入和原始回复、【改】卡片头、本楼队列。默认不附聊天正文。不含 API Key、地址或请求头。',
-        note: '有剧情和模型原文，不要公开发。这不是可再导入的备份。',
-        choices: [
-            { value: 'cancel', label: '取消' },
-            { value: 'safe', label: '导出给助手（不附正文）', primary: true },
-            { value: 'narrative', label: '导出并附最近楼正文' },
-        ],
-    });
-    if (!choice || choice === 'cancel') return;
-    const userNote = await askDiagnosticUserNote();
-    try {
-        const base = await buildCurrentChatDiagnosticPackage({ includeNarrative: choice === 'narrative', safeTrace: readDiagnosticTrace() });
-        const runtime = collectDiagnosticRuntime(userNote);
-        const data = mergeAssistantDiagnosticPackage(base, {
-            pluginVersion: PLUGIN_VERSION,
-            userNote,
-            runtime,
-        });
-        const text = downloadDiagnosticPackage(data);
-        showToast('给助手的诊断包已导出', async () => { if (await copyPlainText(text)) showToast('诊断包已复制'); });
-    } catch (error) { showToast(`诊断包导出失败：${error?.message || '未知错误'}`, null, true); }
 }
 
 // 渲染三层用量到 #sp-storage-body。异步（坐标要读服务器索引）。
