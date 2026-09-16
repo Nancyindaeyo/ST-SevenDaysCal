@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { formatGuideAnswers, parseGuideDrafts, parseGuideInspirations, SPACE_CHAT_STARTERS } from './guide-schema.js';
+import { clipGuideLinesRaw, clipGuidePointRaw } from './guide-clip.js';
 import { buildGuideDraftPrompt, buildGuideInspirePrompt } from './guide-prompt.js';
 
 test('parse inspirations and drafts', () => {
@@ -44,14 +45,62 @@ test('guide prompts never ask for theater', () => {
     assert.equal(SPACE_CHAT_STARTERS.some(item => item.label === '下一楼怎么写'), true);
 });
 
-test('guide draft seed clips at 1600 like other book excerpts', () => {
+test('guide draft seed and outline pass through unclipped', () => {
     const seed = 'x'.repeat(1800);
-    const draft = buildGuideDraftPrompt({ seed, answers: [] });
+    const outline = `Beat: ${'面'.repeat(900)}`;
+    const draft = buildGuideDraftPrompt({ seed, outlineRaw: outline, answers: [] });
     const start = draft.indexOf('【作者描述与灵感】');
     const end = draft.indexOf('【问答】');
     assert.ok(start >= 0 && end > start);
     const body = draft.slice(start, end);
-    assert.equal(body.includes('x'.repeat(1600)), true);
-    assert.equal(body.includes('x'.repeat(1601)), false);
-    assert.match(body, /\n…/);
+    assert.equal(body.includes(seed), true);
+    assert.equal(body.includes('\n…'), false);
+    assert.equal(draft.includes(outline), true);
+});
+
+test('guide point keeps window days and future, drops past days', () => {
+    const raw = `<calendar_widget>
+StartDate: 2024-05-01
+PastDay: 2024-04-30|阴|12℃
+Event: main|旧事|已经过了|晚|家||false
+Day: 1|5月1日|晴|20℃
+Event: main|体检|去医院|上午|医院||false
+Day: 2|5月2日
+Event: main|回访|再去一趟|下午|医院||false
+Day: 3|5月3日
+Event: main|休息|在家躺着|全天|家||false
+Day: 4|5月4日
+Event: main|窗外|不该进窗口|早|街||false
+Future:
+Event: main|周年|带月日|5月10日 晚|店||false
+</calendar_widget>`;
+    const clipped = clipGuidePointRaw(raw);
+    assert.match(clipped, /StartDate: 2024-05-01/);
+    assert.match(clipped, /体检/);
+    assert.match(clipped, /回访/);
+    assert.match(clipped, /休息/);
+    assert.match(clipped, /周年/);
+    assert.equal(clipped.includes('旧事'), false);
+    assert.equal(clipped.includes('窗外'), false);
+    assert.equal(clipped.includes('PastDay'), false);
+    assert.equal(clipped.includes('Day: 4'), false);
+});
+
+test('guide lines keep complete records instead of cutting by characters', () => {
+    const desc = '描'.repeat(1700);
+    const raw = `<storylines_widget>
+Line: 柳的调查|延展|近日|world|false|false
+Desc: ${desc}
+Next: 路过
+Id: LINE-keep-out
+</storylines_widget>`;
+    const clipped = clipGuideLinesRaw(raw);
+    assert.match(clipped, /柳的调查/);
+    assert.equal(clipped.includes(desc), true);
+    assert.equal(clipped.includes('LINE-keep-out'), false);
+    const draft = buildGuideDraftPrompt({ linesRaw: raw, answers: [] });
+    const start = draft.indexOf('【现有线】');
+    const end = draft.indexOf('【现有面】');
+    assert.ok(start >= 0 && end > start);
+    assert.equal(draft.slice(start, end).includes(desc), true);
 });

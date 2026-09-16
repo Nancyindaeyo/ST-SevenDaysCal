@@ -62,8 +62,3 @@ export function formatGuideAnswers(answers = []) {
     if (!Array.isArray(answers) || !answers.length) return '（用户还没作答，按现有账本和近文收束）';
     return answers.map(item => `- ${item.prompt || item.id}：${item.value || '跳过'}`).join('\n');
 }
-
-export function clipGuideText(value, limit = 1600) {
-    const text = String(value || '').trim();
-    return text.length > limit ? `${text.slice(0, limit)}\n…` : text;
-}

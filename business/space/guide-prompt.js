@@ -1,4 +1,9 @@
-import { formatGuideAnswers, clipGuideText } from './guide-schema.js';
+import { formatGuideAnswers } from './guide-schema.js';
+import { clipGuideLinesRaw, clipGuidePointRaw, guideText } from './guide-clip.js';
+
+function guideBlock(value) {
+    return guideText(value) || '（无）';
+}
 
 export function buildGuideInspirePrompt(context = {}) {
     return [
@@ -6,13 +11,13 @@ export function buildGuideInspirePrompt(context = {}) {
         '不问番外，不填棱，不写正文。每条：短标题 + 一句会发生什么、落到什么结果。',
         '',
         '【点】',
-        clipGuideText(context.pointRaw) || '（无）',
+        clipGuidePointRaw(context.pointRaw) || '（无）',
         '【线】',
-        clipGuideText(context.linesRaw) || '（无）',
+        clipGuideLinesRaw(context.linesRaw) || '（无）',
         '【面当前节点】',
-        clipGuideText(context.outlineNode) || '（无）',
+        guideBlock(context.outlineNode),
         '【刚落地的正文】',
-        clipGuideText(context.latestStory, 50000) || '（无）',
+        guideBlock(context.latestStory),
         context.avoid ? `【避开】不要再出：${context.avoid}` : '',
         '',
         '只输出：',
@@ -32,20 +37,20 @@ export function buildGuideDraftPrompt(context = {}) {
         '没有足够依据的模块可以给很短的草案，但标签还是要有。',
         '',
         '【作者描述与灵感】',
-        clipGuideText(context.seed) || '（无）',
+        guideBlock(context.seed),
         '',
         '【问答】',
         formatGuideAnswers(context.answers),
         context.comment ? `\n【只要重做这一块】模块=${context.comment.module}；意见：${context.comment.text}` : '',
         '',
         '【现有点】',
-        clipGuideText(context.pointRaw) || '（无）',
+        clipGuidePointRaw(context.pointRaw) || '（无）',
         '【现有线】',
-        clipGuideText(context.linesRaw) || '（无）',
+        clipGuideLinesRaw(context.linesRaw) || '（无）',
         '【现有面】',
-        clipGuideText(context.outlineRaw, 2000) || '（无）',
+        guideBlock(context.outlineRaw),
         '【刚落地的正文】',
-        clipGuideText(context.latestStory, 50000) || '（无）',
+        guideBlock(context.latestStory),
         '',
         '只输出：',
         'understand: 一段理解（不要卡片）',
