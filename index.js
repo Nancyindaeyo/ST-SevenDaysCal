@@ -612,13 +612,7 @@ const pointController = createPointController({
     today: almTodayAnchor,
     forceStart: forceStartDate,
     appendHorizon: (existing, fill, calendar) => appendHorizonDays(existing, fill, calendar),
-    recordFill: ({ previous, merged, added } = {}) => activityFeature.record({
-        source: 'fill',
-        snapshot: { point: previous },
-        after: { point: merged },
-        items: [{ module: 'point', title: `后面 ${added} 天`, action: 'add' }],
-        note: `点窗口补齐 ${added} 天`,
-    }),
+    recordFill: payload => activityFeature.record(payload),
     render: renderSchedule,
     sync: syncLatestScheduleBlock,
     refreshStoryClock: () => refreshStoryClockInjection({ announce: true }),
@@ -1586,6 +1580,9 @@ const activityFeature = createActivityFeature({
     openItem: item => openActivityItem(item),
     queueSnapshot: () => floorQueue?.snapshot?.() || null,
     retryQueueJob: id => retryFloorAutomation(id),
+    retryBootstrap: () => retryBootstrapGeneration(),
+    retryFill: () => pointController.fillHorizon(false),
+    retryRefresh: entry => retryRefreshModule(entry),
 });
 const floorQueue = createFloorJobQueue({
     identityCurrent: (floor) => {
@@ -1632,6 +1629,8 @@ async function retryFloorAutomation(id) {
     const key = String(id || '');
     if (key === 'align' || key === 'align-auto') return activityFeature.realign({ cause: 'retry' });
     if (key === 'advance') return activityFeature.readvance({ cause: 'retry' });
+    if (key === 'bootstrap') return retryBootstrapGeneration();
+    if (key === 'fill') return pointController.fillHorizon(false);
     if (floorQueue.failed.some(job => job.id === key)) return floorQueue.retry(key);
     if (key === 'supplement') return triggerSupplementAnniversary();
     if (key === 'outline') return outlineFeature.judge.runAdvance((getContext()?.chat?.length || 0) - 1);
@@ -1642,6 +1641,21 @@ async function retryFloorAutomation(id) {
     if (key === 'ledger-capture') return runLedgerCaptureStep(false, { automationFloor: (getContext()?.chat?.length || 0) - 1 });
     if (key === 'ledger-judge') return runLedgerJudgeStep(false, { automationFloor: (getContext()?.chat?.length || 0) - 1 });
     return { status: 'skipped' };
+}
+async function retryBootstrapGeneration() {
+    const state = bootstrapFeature?.state?.() || {};
+    if (state.busy && state.failed) return bootstrapFeature.retry();
+    if (state.busy) return { status: 'skipped', reason: 'busy' };
+    return bootstrapFeature.start();
+}
+async function retryRefreshModule(entry) {
+    const module = String(entry?.items?.[0]?.module || '');
+    if (!module || (module !== 'point' && module !== 'lines' && module !== 'dashed' && module !== 'outline')) return { status: 'skipped' };
+    return refreshController.regenerate({
+        selected: [module],
+        reason: '【改】重试这次失败的刷新',
+        outlineMode: module === 'outline' ? 'current' : undefined,
+    });
 }
 function syncFabFailed() {
     const failed = (floorQueue.snapshot().failed || []).length > 0;
@@ -1875,6 +1889,7 @@ bootstrapFeature = createBootstrapFeature({
     },
     setProgress: html => paintBootstrapProgress(html),
     toast: (message, error) => showToast(message, null, error),
+    onActivity: payload => activityFeature.record(payload),
     onDone: () => {
         paintCurrentBookAfterBootstrap();
         try { refreshStoryClockInjection({ announce: true }); } catch {}
@@ -2881,6 +2896,7 @@ function needsAdvanceCatchup() {
             latestIndex: latest.index,
             latestDay,
             parseClock: parseStoryClockPure,
+            scanLimit: ALM_CHAT_SCAN_LIMIT,
         }),
         latestFloorAdvanced: !!activityFeature.latestAdvanceForFloor?.(latest.index),
     });

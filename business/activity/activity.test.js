@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAdvanceEntry, isAlignEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
+import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAdvanceEntry, isAlignEntry, isRetryableEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
@@ -586,4 +586,53 @@ test('activity clock label prefers the latest stamp, else axis today', () => {
         weekdayFor: () => '周四',
     }), /这楼还没有时间戳，轴上今天是 5月1日 周四/);
     assert.equal(activityClockLabel({}), '还没有故事日期');
+});
+
+test('failed bootstrap fill and refresh cards can be retried from 【改】', () => {
+    for (const source of ['bootstrap', 'fill', 'refresh']) {
+        const entry = normalizeActivityEntry({ source, outcome: 'failed', error: '挂了', reasonCode: `${source}-failed` });
+        assert.equal(isRetryableEntry(entry), true);
+        assert.match(renderActivityList([entry]), /重试/);
+        assert.match(renderActivityList([entry]), /挂了/);
+    }
+});
+
+test('manual outline cursor can be undone only while the snapshot still matches', async () => {
+    const raw = 'Beat: 当下|起|铺垫|线A|待演\nScene: 一\nSubtext: 潜\nThink: 想\nBeat: 其后|承|推进|线A|待演\nScene: 二\nSubtext: 潜\nThink: 想';
+    let outline = { raw, cursor: 2 };
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readOutline: () => outline,
+        writeOutline: async next => { outline = next; },
+        query: () => ({ length: 0 }),
+        toast() {},
+    });
+    const entry = feature.record({
+        source: 'outline',
+        cause: 'manual',
+        items: [{ module: 'outline', title: '其后', action: 'cursor' }],
+        snapshot: { outline: { raw, cursor: 1 } },
+        after: { outline: { raw, cursor: 2 } },
+        note: '手改面游标到「其后」',
+    });
+    const html = renderActivityList([entry]);
+    assert.match(html, /手改/);
+    assert.match(html, /撤回/);
+    const ok = await feature.undo(entry.id);
+    assert.equal(ok.status, 'updated');
+    assert.equal(outline.cursor, 1);
+    outline = { raw, cursor: 2 };
+    feature.record({
+        source: 'outline',
+        cause: 'manual',
+        items: [{ module: 'outline', title: '其后', action: 'cursor' }],
+        snapshot: { outline: { raw, cursor: 1 } },
+        after: { outline: { raw, cursor: 2 } },
+    });
+    outline = { raw, cursor: 0 };
+    const refused = await feature.undo(feature.list()[0].id);
+    assert.equal(refused.reason, 'diverged');
+    assert.equal(outline.cursor, 0);
 });

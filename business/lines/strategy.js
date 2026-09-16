@@ -23,10 +23,12 @@ export function latestStampDay(chat, latestIndex, parseClock) {
     return stampDayKey(parseClock(message.mes || ''));
 }
 
-export function previousStampDay(chat, latestIndex, parseClock) {
+export function previousStampDay(chat, latestIndex, parseClock, scanLimit) {
     const mid = Number(latestIndex);
     if (!Array.isArray(chat) || !Number.isInteger(mid) || mid < 1 || typeof parseClock !== 'function') return null;
-    for (let i = mid - 1; i >= 0; i--) {
+    const limit = Math.max(0, Math.floor(Number(scanLimit) || 0));
+    const stop = limit > 0 ? Math.max(0, mid - limit) : 0;
+    for (let i = mid - 1; i >= stop; i--) {
         const message = chat[i];
         if (!message || message.is_user || message.is_system) continue;
         const key = stampDayKey(parseClock(message.mes || ''));
@@ -35,9 +37,9 @@ export function previousStampDay(chat, latestIndex, parseClock) {
     return null;
 }
 
-export function dayCrossedSincePreviousFloor({ chat = [], latestIndex, latestDay, parseClock } = {}) {
+export function dayCrossedSincePreviousFloor({ chat = [], latestIndex, latestDay, parseClock, scanLimit } = {}) {
     const latest = latestDay ?? latestStampDay(chat, latestIndex, parseClock);
-    const previous = previousStampDay(chat, latestIndex, parseClock);
+    const previous = previousStampDay(chat, latestIndex, parseClock, scanLimit);
     return !!(latest && previous && latest !== previous);
 }
 

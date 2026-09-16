@@ -1,4 +1,4 @@
-import { BOOTSTRAP_LABELS, nextBootstrapIndex, planBootstrapSteps } from './queue.js';
+import { BOOTSTRAP_LABELS, bootstrapStepActivity, nextBootstrapIndex, planBootstrapSteps } from './queue.js';
 import { bootstrapProgressHtml } from './ui.js';
 
 export function createBootstrapFeature(env = {}) {
@@ -45,6 +45,11 @@ export function createBootstrapFeature(env = {}) {
                 failed = true;
                 error = String(result.errorMessage || result.error?.message || '生成失败');
                 paint();
+                env.onActivity?.(bootstrapStepActivity(steps[i], {
+                    outcome: 'failed',
+                    error,
+                    reasonCode: result.reasonCode || result.error?.diagnosticCode || `bootstrap-${steps[i]}-failed`,
+                }));
                 env.toast?.(`${BOOTSTRAP_LABELS[steps[i]] || '这一项'}生成失败：${error}`, true);
                 return result;
             }

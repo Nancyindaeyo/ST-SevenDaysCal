@@ -30,7 +30,17 @@ export function refreshRegenToast(result) {
     if (result?.status === 'invalid') return { message: '重新生成请先写「为什么刷新」', error: true, focus: true };
     if (result?.status === 'skipped' && result.reason === 'busy') return { message: '正在对齐或刷新，请稍后再点', error: true };
     if (result?.status === 'skipped') return { message: '请先勾选要重新生成的模块', error: true };
-    if (result?.status === 'updated') return { message: '勾选项已重新生成' };
+    if (result?.status === 'updated') {
+        const blocks = Array.isArray(result.blocks) ? result.blocks : [];
+        const failed = blocks.filter(block => block.outcome === 'failed');
+        if (failed.length) {
+            return { message: `刷新完成，但${failed.map(block => block.label).join('、')}失败，可在【改】里重试`, error: true };
+        }
+        if (blocks.length && blocks.every(block => block.outcome === 'unchanged' || block.outcome === 'skipped')) {
+            return { message: '勾选项都没有变化' };
+        }
+        return { message: '勾选项已重新生成' };
+    }
     return null;
 }
 

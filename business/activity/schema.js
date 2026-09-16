@@ -22,6 +22,7 @@ export const ACTIVITY_SOURCES = Object.freeze({
 export const ACTIVITY_CAUSES = Object.freeze({
     reroll: '重 roll 后按新正文补',
     retry: '按最新楼重试',
+    manual: '手改',
 });
 
 export const ACTIVITY_OUTCOMES = Object.freeze({
@@ -99,7 +100,10 @@ export function isRetryableEntry(entry) {
         || entry?.source === 'outline'
         || entry?.source === 'dashed'
         || entry?.source === 'ledger-capture'
-        || entry?.source === 'ledger-judge';
+        || entry?.source === 'ledger-judge'
+        || entry?.source === 'bootstrap'
+        || entry?.source === 'fill'
+        || entry?.source === 'refresh';
 }
 
 export function alignSourceOf(options = {}) {

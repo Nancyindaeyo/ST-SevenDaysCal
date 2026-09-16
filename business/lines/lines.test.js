@@ -1106,7 +1106,9 @@ test('stamp helpers compare previous and latest floor days', () => {
     ];
     assert.equal(latestStampDay(chat, 3, stampClock), '1-2');
     assert.equal(previousStampDay(chat, 3, stampClock), '1-1');
+    assert.equal(previousStampDay(chat, 3, stampClock, 1), null);
     assert.equal(dayCrossedSincePreviousFloor({ chat, latestIndex: 3, parseClock: stampClock }), true);
+    assert.equal(dayCrossedSincePreviousFloor({ chat, latestIndex: 3, parseClock: stampClock, scanLimit: 1 }), false);
     assert.equal(dayCrossedSincePreviousFloor({ chat: stampChat(['1-1', '1-1']), latestIndex: 1, parseClock: stampClock }), false);
     assert.equal(dayCrossedSincePreviousFloor({ chat: stampChat(['1-1', 'none']), latestIndex: 1, parseClock: stampClock }), false);
     assert.equal(dayCrossedForAdvance({ latestDay: '5-4', previousFloorDay: '5-3' }), true);

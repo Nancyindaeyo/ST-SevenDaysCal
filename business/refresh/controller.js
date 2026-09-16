@@ -1,6 +1,6 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
-import { itemsFromPatches } from '../activity/diff.js';
-import { alignSourceOf, floorUnchangedNote } from '../activity/schema.js';
+import { itemsFromPatches, sameSnapshot } from '../activity/diff.js';
+import { ACTIVITY_MODULES, alignSourceOf, floorUnchangedNote } from '../activity/schema.js';
 import { pointDayEventGap } from '../point/horizon.js';
 import { pointTodayDayIndex } from '../point/shift.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
@@ -20,6 +20,60 @@ export function latestAiFloor(chat = []) {
 function writeRejected(saved) {
     if (saved === true) return false;
     return !saved || typeof saved !== 'object' || saved.ok !== true || saved.stale === true;
+}
+
+function refreshModuleLabel(name) {
+    return ACTIVITY_MODULES[name] || name;
+}
+
+export function refreshBlockActivity(name, result, before = {}, after = {}) {
+    const label = refreshModuleLabel(name);
+    const snapshot = before?.[name] != null ? { [name]: before[name] } : {};
+    const next = after?.[name] != null ? { [name]: after[name] } : {};
+    if (result?.status === 'cancelled') {
+        return {
+            source: 'refresh',
+            outcome: 'skipped',
+            note: `刷新账本 · ${label} 已取消`,
+            items: [{ module: name, title: label, action: 'replace' }],
+        };
+    }
+    if (result?.status === 'skipped') {
+        return {
+            source: 'refresh',
+            outcome: 'skipped',
+            note: `刷新账本 · ${label} 跳过`,
+            reasonCode: result.reason ? `refresh-${name}-${result.reason}` : `refresh-${name}-skipped`,
+            items: [{ module: name, title: label, action: 'replace' }],
+        };
+    }
+    if (!result || result.status === 'failed') {
+        const error = diagnosticMessage(result?.error) || result?.errorMessage || '刷新失败';
+        return {
+            source: 'refresh',
+            outcome: 'failed',
+            error,
+            reasonCode: result?.error?.diagnosticCode || result?.reasonCode || `refresh-${name}-failed`,
+            note: `刷新账本 · ${label} 失败`,
+            items: [{ module: name, title: label, action: 'replace' }],
+        };
+    }
+    if (result.status === 'unchanged' || sameSnapshot(snapshot, next)) {
+        return {
+            source: 'refresh',
+            outcome: 'unchanged',
+            note: `刷新账本 · ${label} 没有变化`,
+            items: [{ module: name, title: label, action: 'replace' }],
+        };
+    }
+    return {
+        source: 'refresh',
+        outcome: 'patched',
+        note: `刷新账本 · ${label} 已重做`,
+        items: [{ module: name, title: label, action: 'replace' }],
+        snapshot,
+        after: next,
+    };
 }
 
 export function createRefreshController(env = {}) {
@@ -180,19 +234,32 @@ export function createRefreshController(env = {}) {
             if (!reason) return { status: 'invalid', reason: 'need-reason' };
             const addon = buildRefreshAddon({ reason, feedback: options.feedback, align: false });
             const travel = { feedback: 'refresh-bar', promptAddon: addon };
-            const before = snapshotSelected(selected);
             const results = {};
-            if (selected.includes('point')) results.point = await env.regenPoint?.(travel);
-            if (generation !== token) return { status: 'cancelled', reason: 'aborted' };
-            if (selected.includes('lines')) results.lines = await env.regenLines?.(travel);
-            if (generation !== token) return { status: 'cancelled', reason: 'aborted' };
-            if (selected.includes('dashed')) results.dashed = await env.regenDashed?.({ reroll: true, manual: true, promptAddon: addon });
-            if (generation !== token) return { status: 'cancelled', reason: 'aborted' };
-            if (selected.includes('outline')) results.outline = await env.regenOutline?.({ reroll: true, module: 'outline', promptAddon: addon, mode: options.outlineMode || 'current' });
-            if (generation !== token) return { status: 'cancelled', reason: 'aborted' };
-            const after = snapshotSelected(selected);
-            env.onActivity?.({ source: 'refresh', snapshot: before, after });
-            return { status: 'updated', results };
+            const blocks = [];
+            const runModule = async (name, fn) => {
+                if (!selected.includes(name)) return;
+                if (generation !== token) return;
+                const before = snapshotSelected([name]);
+                let result;
+                try {
+                    result = await fn();
+                } catch (error) {
+                    if (error?.name === 'AbortError') throw error;
+                    result = { status: 'failed', error };
+                }
+                results[name] = result;
+                if (generation !== token) return;
+                const after = snapshotSelected([name]);
+                const entry = refreshBlockActivity(name, result, before, after);
+                blocks.push({ name, label: refreshModuleLabel(name), outcome: entry.outcome, error: entry.error || '', note: entry.note });
+                env.onActivity?.(entry);
+            };
+            await runModule('point', () => env.regenPoint?.(travel));
+            await runModule('lines', () => env.regenLines?.(travel));
+            await runModule('dashed', () => env.regenDashed?.({ reroll: true, manual: true, promptAddon: addon }));
+            await runModule('outline', () => env.regenOutline?.({ reroll: true, module: 'outline', promptAddon: addon, mode: options.outlineMode || 'current' }));
+            if (generation !== token) return { status: 'cancelled', reason: 'aborted', results, blocks };
+            return { status: 'updated', results, blocks };
         } finally { endGeneration(token); }
     }
 

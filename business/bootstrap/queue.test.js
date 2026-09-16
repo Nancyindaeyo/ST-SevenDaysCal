@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { booksAreEmpty, planBootstrapSteps, automationAllowed, storyClockAllowed } from './queue.js';
+import { booksAreEmpty, bootstrapStepActivity, planBootstrapSteps, automationAllowed, storyClockAllowed } from './queue.js';
 import { createBootstrapFeature } from './feature.js';
 
 test('empty books queue outline then point then lines, axis ledger and dashed only if needed', () => {
@@ -39,10 +39,15 @@ test('empty books stop story clock and all auto jobs; later only the existing bo
     assert.equal(automationAllowed('outline', { hasOutline: true }), true);
     assert.equal(automationAllowed('dashed', { hasLines: true, dashedEnabled: true }), true);
     assert.equal(automationAllowed('dashed', { hasLines: true }), false);
+    const failed = bootstrapStepActivity('point', { outcome: 'failed', error: '点挂了' });
+    assert.equal(failed.source, 'bootstrap');
+    assert.equal(failed.items[0].module, 'point');
+    assert.match(failed.note, /点开局生成失败/);
 });
 
 test('bootstrap stops on failure and retries the same step', async () => {
     const calls = [];
+    const activities = [];
     let failPoint = true;
     const feature = createBootstrapFeature({
         chatId: () => 'c1',
@@ -58,10 +63,14 @@ test('bootstrap stops on failure and retries the same step', async () => {
         setProgress() {},
         toast() {},
         onDone() {},
+        onActivity: payload => activities.push(payload),
     });
     const first = await feature.start();
     assert.equal(first.status, 'failed');
     assert.deepEqual(calls, ['outline', 'point']);
+    assert.equal(activities[0].source, 'bootstrap');
+    assert.equal(activities[0].outcome, 'failed');
+    assert.match(activities[0].note, /点开局生成失败/);
     assert.match(feature.progressHtml(), /点/);
     assert.match(feature.progressHtml(), /sp-bootstrap-retry/);
     failPoint = false;

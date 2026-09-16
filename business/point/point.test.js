@@ -855,8 +855,29 @@ Event: main|报到|去宿舍报到并安顿行李|上午|基地||false
     assert.equal(travels[0].travel.horizonFill, 2);
     assert.deepEqual(travels[0].pinned, []);
     assert.equal(testCase.env._forced, undefined);
-    assert.equal(testCase.recorded.added, 1);
+    assert.equal(testCase.recorded.source, 'fill');
+    assert.equal(testCase.recorded.items[0].title, '后面 1 天');
     assert.match(testCase.toasts[0], /点已补上后面 1 天/);
+});
+
+test('point controller fillHorizon records a retryable failure when the fill is empty', async () => {
+    const testCase = pointControllerTestEnv({ validation: { ok: true } });
+    testCase.saved.raw = `<calendar_widget>
+StartDate: 2024-05-01
+Day: 1|晴|18℃
+Event: main|体检|去做体检|上午|医院||false
+</calendar_widget>`;
+    testCase.env.generate = async () => `<calendar_widget>
+Day: 1|阴|16℃
+Event: main|报到|去宿舍|上午|基地||false
+</calendar_widget>`;
+    testCase.env.appendHorizon = () => ({ changed: false, added: 0, raw: testCase.saved.raw });
+    testCase.env.recordFill = payload => { testCase.recorded = payload; };
+    const result = await createPointController(testCase.env).fillHorizon(false);
+    assert.equal(result.status, 'failed');
+    assert.equal(testCase.recorded.source, 'fill');
+    assert.equal(testCase.recorded.outcome, 'failed');
+    assert.equal(testCase.recorded.reasonCode, 'horizon-empty');
 });
 
 test('point controller manual generation exposes field diagnostic and restores cached content', async () => {

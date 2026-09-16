@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRefreshController } from './controller.js';
+import { createRefreshController, refreshBlockActivity } from './controller.js';
 
 function env(over = {}) {
     let chatId = 'a';
@@ -277,4 +277,39 @@ test('reroll skips floors that were not the align floor', async () => {
     }));
     await controller.onAiFloor(0);
     assert.equal((await controller.onRerollAlign(0)).reason, 'not-align-floor');
+});
+
+test('regenerate records each module as patched unchanged or failed', async () => {
+    const activities = [];
+    let pointRaw = 'old-point';
+    const host = env({
+        snapshotModules: names => {
+            const snap = {};
+            if (names.includes('point')) snap.point = pointRaw;
+            if (names.includes('lines')) snap.lines = 'same-lines';
+            if (names.includes('outline')) snap.outline = { raw: 'beat', cursor: 1 };
+            return snap;
+        },
+        regenPoint: async () => {
+            pointRaw = 'new-point';
+            return { status: 'updated' };
+        },
+        regenLines: async () => ({ status: 'updated' }),
+        regenOutline: async () => ({ status: 'failed', error: new Error('面挂了') }),
+        onActivity: entry => activities.push(entry),
+    });
+    const result = await createRefreshController(host).regenerate({ selected: ['point', 'lines', 'outline'], reason: '重做' });
+    assert.equal(result.status, 'updated');
+    assert.deepEqual(result.blocks.map(block => [block.name, block.outcome]), [
+        ['point', 'patched'],
+        ['lines', 'unchanged'],
+        ['outline', 'failed'],
+    ]);
+    assert.equal(activities[0].source, 'refresh');
+    assert.equal(activities[0].outcome, 'patched');
+    assert.equal(activities[1].outcome, 'unchanged');
+    assert.equal(activities[2].outcome, 'failed');
+    assert.match(activities[2].note, /面 失败/);
+    const failed = refreshBlockActivity('point', { status: 'failed', error: new Error('boom') });
+    assert.equal(failed.reasonCode, 'refresh-point-failed');
 });

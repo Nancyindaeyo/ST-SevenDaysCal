@@ -9,6 +9,37 @@ export const BOOTSTRAP_LABELS = Object.freeze({
     dashed: '冷知识',
 });
 
+export const BOOTSTRAP_MODULES = Object.freeze({
+    outline: 'outline',
+    point: 'point',
+    lines: 'lines',
+    axis: 'axis',
+    'ledger-capture': 'ledger',
+    dashed: 'dashed',
+});
+
+export function bootstrapStepActivity(step, { outcome = 'failed', error = '', reasonCode = '' } = {}) {
+    const id = String(step || '');
+    const label = BOOTSTRAP_LABELS[id] || '这一项';
+    const module = BOOTSTRAP_MODULES[id] || '';
+    if (outcome === 'failed') {
+        return {
+            source: 'bootstrap',
+            outcome: 'failed',
+            error: String(error || '').trim().slice(0, 200),
+            reasonCode: String(reasonCode || `bootstrap-${id || 'step'}-failed`).slice(0, 80),
+            note: `${label}开局生成失败`,
+            items: [{ module, title: label, action: 'replace' }],
+        };
+    }
+    return {
+        source: 'bootstrap',
+        outcome,
+        note: outcome === 'unchanged' ? `${label}开局没有变化` : `开局已生成${label}`,
+        items: [{ module, title: label, action: 'replace' }],
+    };
+}
+
 export function booksAreEmpty(flags = {}) {
     return !flags.hasOutline && !flags.hasPoint && !flags.hasLines;
 }

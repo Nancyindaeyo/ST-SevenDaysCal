@@ -5,7 +5,7 @@ import { createOutlineInjection } from './injection.js';
 import { createOutlineJudge } from './judge.js';
 import { createOutlineRenderer } from './render.js';
 import { createOutlineRepository } from './repository.js';
-import { cursorAfterBeatDelete, deleteOutlineBeatFromRaw, parseOutline, editOutlineScene } from './schema.js';
+import { cursorAfterBeatDelete, deleteOutlineBeatFromRaw, parseOutline, editOutlineScene, manualOutlineCursorActivity } from './schema.js';
 import { createOutlineUi } from './ui.js';
 
 export function createOutlineFeature(env = {}) {
@@ -126,8 +126,11 @@ export function createOutlineFeature(env = {}) {
             const saved = repository.readOutline(target);
             if (!saved?.raw) return false;
             const baseline = repository.baseline(target);
-            const next = repository.cursor(target) === cursor ? 0 : cursor;
+            const previous = repository.cursor(target);
+            const next = previous === cursor ? 0 : cursor;
+            if (previous === next) return false;
             if (!repository.setCursor(target, next, baseline)) return false;
+            env.onActivity?.(manualOutlineCursorActivity(saved.raw, previous, next));
             injection.refresh(target);
             refreshPanel(target);
             return true;

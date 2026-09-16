@@ -62,6 +62,7 @@ export function createActivityFeature(env = {}) {
         }
     };
     const paint = () => {
+        // 【改】只从本楼队列和活动存储画状态，不扫聊天正文重建卡片。
         const $body = $in?.('#sp-activity-body');
         if ($body?.length) $body.html(renderActivityList(list(), { expanded: listExpanded }));
         $in?.('#sp-activity-blocked')?.prop?.('hidden', !blockedReroll.length);
@@ -392,6 +393,9 @@ export function createActivityFeature(env = {}) {
             const entry = list().find(item => item.id === String(env.$(this).attr('data-id')));
             if (isAdvanceEntry(entry)) void readvance({ cause: 'retry', floorId: entry.floorId });
             else if (entry?.source === 'align' || entry?.source === 'align-auto') void realign({ cause: 'retry' });
+            else if (entry?.source === 'bootstrap') void env.retryBootstrap?.();
+            else if (entry?.source === 'fill') void env.retryFill?.();
+            else if (entry?.source === 'refresh') void env.retryRefresh?.(entry);
             else if (isRetryableEntry(entry)) void env.retryQueueJob?.(entry.source);
         });
         click('.sp-activity-queue-fail', function () {

@@ -22,6 +22,27 @@ export function pointHorizonGap(raw, calendar = null, horizon = POINT_HORIZON_DA
     return Math.max(0, Number(horizon) - pointDayCount(raw, calendar));
 }
 
+export function fillActivityEntry({ previous, merged, added, outcome, error, reasonCode } = {}) {
+    if (outcome === 'failed') {
+        return {
+            source: 'fill',
+            outcome: 'failed',
+            error: String(error || '').trim().slice(0, 200),
+            reasonCode: String(reasonCode || 'horizon-fill-failed').slice(0, 80),
+            note: String(error || '点窗口补齐失败').trim().slice(0, 280),
+            items: [{ module: 'point', title: '点窗口', action: 'add' }],
+        };
+    }
+    const count = Math.max(0, Math.floor(Number(added) || 0));
+    return {
+        source: 'fill',
+        snapshot: { point: String(previous || '') },
+        after: { point: String(merged || '') },
+        items: [{ module: 'point', title: `后面 ${count} 天`, action: 'add' }],
+        note: `点窗口补齐 ${count} 天`,
+    };
+}
+
 export function horizonExistingSummary(raw, calendar = null) {
     const parsed = parseCalendar(String(raw || ''), calendar);
     return (parsed.allDays || parsed.days || []).map(day => {

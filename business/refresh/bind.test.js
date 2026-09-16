@@ -36,4 +36,15 @@ test('regen asks for modules then a reason', () => {
     assert.equal(refreshRegenGate({ selected: ['point'], reason: '改' }), null);
     assert.deepEqual(refreshRegenToast({ status: 'invalid' }), { message: '重新生成请先写「为什么刷新」', error: true, focus: true });
     assert.deepEqual(refreshRegenToast({ status: 'skipped' }), { message: '请先勾选要重新生成的模块', error: true });
+    assert.deepEqual(refreshRegenToast({
+        status: 'updated',
+        blocks: [
+            { name: 'point', label: '点', outcome: 'patched' },
+            { name: 'outline', label: '面', outcome: 'failed' },
+        ],
+    }), { message: '刷新完成，但面失败，可在【改】里重试', error: true });
+    assert.deepEqual(refreshRegenToast({
+        status: 'updated',
+        blocks: [{ name: 'point', label: '点', outcome: 'unchanged' }],
+    }), { message: '勾选项都没有变化' });
 });

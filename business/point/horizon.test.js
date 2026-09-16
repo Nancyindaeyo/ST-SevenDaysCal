@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appendHorizonDays, horizonExistingSummary, planAdvanceSteps, pointDayEventGap, pointHorizonGap } from './horizon.js';
+import { appendHorizonDays, fillActivityEntry, horizonExistingSummary, planAdvanceSteps, pointDayEventGap, pointHorizonGap } from './horizon.js';
 
 const widget = (start, days) => `<calendar_widget>
 StartDate: ${start}
@@ -16,6 +16,10 @@ test('窗口不足 3 天才有 gap；空账不当补齐', () => {
     assert.equal(pointHorizonGap(oneDay), 2);
     assert.equal(pointHorizonGap(''), 0);
     assert.match(horizonExistingSummary(oneDay), /Day 1：体检/);
+    const failed = fillActivityEntry({ outcome: 'failed', error: '没有补出后面几天', reasonCode: 'horizon-empty' });
+    assert.equal(failed.source, 'fill');
+    assert.equal(failed.outcome, 'failed');
+    assert.equal(failed.reasonCode, 'horizon-empty');
 });
 
 test('今天事项不足 3 条才有当天名额；空账不当补当天', () => {

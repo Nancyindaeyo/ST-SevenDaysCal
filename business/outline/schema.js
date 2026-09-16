@@ -128,6 +128,21 @@ export function cursorAfterBeatDelete(cursor, deletedIndex, remainingCount) {
     return current > deletedIndex + 1 ? current - 1 : Math.min(current, Math.max(0, remainingCount));
 }
 
+export function manualOutlineCursorActivity(raw, fromCursor, toCursor) {
+    const beats = parseOutline(raw);
+    const from = Math.max(0, Math.floor(Number(fromCursor) || 0));
+    const to = Math.max(0, Math.floor(Number(toCursor) || 0));
+    const title = to >= 1 ? (beats[to - 1]?.title || `节点 ${to}`) : '取消当前节点';
+    return {
+        source: 'outline',
+        cause: 'manual',
+        items: [{ module: 'outline', title, action: 'cursor' }],
+        snapshot: { outline: { raw: String(raw || ''), cursor: from } },
+        after: { outline: { raw: String(raw || ''), cursor: to } },
+        note: to >= 1 ? `手改面游标到「${title}」` : '手改面游标：取消当前节点',
+    };
+}
+
 export function outlineBaseline(saved) {
     return Object.freeze({
         raw: String(saved?.raw || ''),

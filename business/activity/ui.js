@@ -226,7 +226,7 @@ export function renderAlignRounds(entries = []) {
 
 export function renderActivityList(entries = [], { expanded = false } = {}) {
     if (!entries.length) {
-        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">上面能看见这楼正在跑谁、后面排谁。自动对齐、推进、补录、刻度、面、冷知识跑完会记在下面，失败可重试。</p></div>`;
+        return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">上面能看见这楼正在跑谁、后面排谁。自动对齐、推进、补录、刻度、面、冷知识跑完会记在下面；开局生成、补窗口和刷新账本失败也能在这里重试。</p></div>`;
     }
     const preview = Math.max(1, ACTIVITY_LIST_PREVIEW);
     const shown = expanded ? entries : entries.slice(0, preview);

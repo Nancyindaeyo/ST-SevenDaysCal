@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { serializeOutlineBeats } from './schema.js';
+import { serializeOutlineBeats, manualOutlineCursorActivity } from './schema.js';
 import { appendOutlineNodes, canPartialOutlineRegen, normalizeOutlineRegenMode, replaceOutlineNode } from './regen.js';
 
 const beat = (title, extra = '场景') => ({
@@ -35,4 +35,17 @@ test('partial regen needs existing outline and a current/continue mode', () => {
     assert.equal(canPartialOutlineRegen(raw([beat('开端')]), 'current'), true);
     assert.equal(canPartialOutlineRegen('', 'current'), false);
     assert.equal(canPartialOutlineRegen(raw([beat('开端')]), 'all'), false);
+});
+
+test('manual outline cursor activity keeps an undo snapshot', () => {
+    const existing = raw([beat('开端'), beat('转折')]);
+    const entry = manualOutlineCursorActivity(existing, 1, 2);
+    assert.equal(entry.source, 'outline');
+    assert.equal(entry.cause, 'manual');
+    assert.equal(entry.items[0].action, 'cursor');
+    assert.equal(entry.snapshot.outline.cursor, 1);
+    assert.equal(entry.after.outline.cursor, 2);
+    assert.match(entry.note, /转折/);
+    const cleared = manualOutlineCursorActivity(existing, 2, 0);
+    assert.match(cleared.note, /取消当前节点/);
 });

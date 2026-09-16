@@ -1,6 +1,8 @@
 // 楼内统一渲染窗口：宿主只注入内容 builder、快照与运行时依赖。
 // 这里不保存业务数据；DOM 生命周期与观察器由本 feature 独占。
 
+import { collectTailMessages } from './near-window.js';
+
 const BOX_SELECTOR = '.sp-inline-box';
 const RENDER_DEPTH_FALLBACK = 6;
 
@@ -478,10 +480,10 @@ export function createInlineFeature(env = {}) {
     //
     // 当前窗口由深度与视口共同决定；超窗只留 message.extra 快照，不挂 DOM，滑回再重建。
     //
-    // 深度窗口：最新 N 层 AI 楼（N=有效 render_depth）。N=0（跟随酒馆助手且它设 0=全渲）→ 不设上限、全挂。
+    // 深度窗口：从聊天末尾往回只收最近 N 层 AI 楼（N=有效 render_depth），不扫整串 .mes。
     //   inlineRenderDepth>0 → 用它；=0 → 跟随酒馆助手 render.depth；读不到/为 0 → 用兜底常量。
-    // 视口：IntersectionObserver 观察每层 AI 楼，进视口才真正 build DOM、离开视口卸 DOM（省重排）。
-    //   深度窗外的楼直接不观察、不挂（连快照都不建 DOM，只静静躺在 extra 里）。
+    // 视口：IntersectionObserver 观察深度窗内的楼，进视口才真正 build DOM、离开视口卸 DOM。
+    //   深度窗外的楼不观察、不挂投影；聊天数据仍完整留在 message.extra。
     //
     // 深度按最近 N 个 AI 楼确定，但窗口覆盖其间用户楼；仅当前最后一个可见楼读活态出口，其余一律读各自快照。
 
@@ -490,12 +492,18 @@ export function createInlineFeature(env = {}) {
 
     const renderedBoxes = new Map();
     let renderedChatId = Symbol('unbound-chat');
+    const observedEls = new Set();
 
+    const forgetObserved = () => {
+        for (const el of observedEls) inlineObserver?.unobserve?.(el);
+        observedEls.clear();
+    };
     const syncRenderedChat = () => {
         const chatId = getContext().chatId ?? null;
         if (chatId === renderedChatId) return;
         cancelExpandScroll();
         renderedBoxes.clear();
+        forgetObserved();
         renderedChatId = chatId;
     };
     const renderedBoxKey = el => `${el.getAttribute('is_user') === 'true' ? 'user' : 'assistant'}:${el.getAttribute('mesid') ?? ''}`;
@@ -524,6 +532,7 @@ export function createInlineFeature(env = {}) {
         syncRenderedChat();
         renderedBoxes.forEach(releaseRenderedBox);
         doc?.querySelectorAll?.('#chat ' + BOX_SELECTOR)?.forEach(el => el.remove());
+        forgetObserved();
         clearLegacy();
     };
     const computeRenderDepth = () => {
@@ -541,21 +550,13 @@ export function createInlineFeature(env = {}) {
     };
     const computeWindow = () => {
         const hidden = ignoreHidden();
-        const allSelector = hidden ? '#chat .mes:not([is_system="true"])' : '#chat .mes';
-        const aiSelector = hidden ? '#chat .mes:not([is_user="true"]):not([is_system="true"])' : '#chat .mes:not([is_user="true"])';
-        const all = [...(doc?.querySelectorAll?.(allSelector) || [])];
-        const ai = [...(doc?.querySelectorAll?.(aiSelector) || [])];
-        const users = all.filter(el => el.getAttribute('is_user') === 'true');
-        const latestAiEl = ai.at(-1) || null;
-        const latestUserEl = users.at(-1) || null;
-        const currentEl = [...all].reverse().find(el => el.getAttribute('is_system') !== 'true') || null;
         const depth = computeRenderDepth();
-        let floors = all;
-        if (depth > 0 && ai.length > depth) {
-            const start = all.indexOf(ai[ai.length - depth]);
-            floors = start >= 0 ? all.slice(start) : all;
-        }
-        return { winSet: new Set(floors), latestAiEl, latestUserEl, currentEl };
+        const chat = doc?.querySelector?.('#chat');
+        const { floors } = collectTailMessages(chat?.lastElementChild, { depth, ignoreHidden: hidden });
+        const latestAiEl = [...floors].reverse().find(el => el.getAttribute('is_user') !== 'true') || null;
+        const latestUserEl = [...floors].reverse().find(el => el.getAttribute('is_user') === 'true') || null;
+        const currentEl = [...floors].reverse().find(el => el.getAttribute('is_system') !== 'true') || floors.at(-1) || null;
+        return { winSet: new Set(floors), floors, latestAiEl, latestUserEl, currentEl };
     };
     const inViewport = el => {
         if (!el?.getBoundingClientRect) return true;
@@ -633,16 +634,19 @@ export function createInlineFeature(env = {}) {
         if (!pluginEnabled() || getSettings().inlineRenderEnabled === false) { clear(); return; }
         ensureInlineObserver();
         const current = computeWindow();
-        const floors = doc?.querySelectorAll?.('#chat .mes:not([is_system="true"])') || [];
-        for (const el of floors) {
+        for (const el of [...observedEls]) {
+            if (current.winSet.has(el)) continue;
+            inlineObserver?.unobserve?.(el);
+            observedEls.delete(el);
+            unmount(el);
+        }
+        for (const el of current.floors) {
             const latest = el === current.currentEl;
-            if (current.winSet.has(el)) {
-                inlineObserver?.observe(el);
-                if (latest || inViewport(el)) mount(el, latest);
-            } else {
-                inlineObserver?.unobserve(el);
-                unmount(el);
+            if (!observedEls.has(el)) {
+                inlineObserver?.observe?.(el);
+                observedEls.add(el);
             }
+            if (latest || inViewport(el)) mount(el, latest);
         }
     };
     const refresh = (immediate = false) => {
@@ -697,6 +701,7 @@ export function createInlineFeature(env = {}) {
         clearTimer(refreshTimer); clearTimer(chatMutationTimer); clearTimer(chatRetryTimer);
         refreshTimer = chatMutationTimer = chatRetryTimer = null;
         cancelExpandScroll();
+        forgetObserved();
         if ($) $(doc).off('.spalmstrip').off('.spschstrip').off('.spinlineregioncollapse').off('.spinlinescroll');
         delegated = false;
         clear();
