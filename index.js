@@ -11,7 +11,7 @@ import * as memory from './memory.js';
 import { createTheaterRuntime } from './business/theater/runtime.js';
 import { THEATER_COUNT_DEFAULT, THEATER_EXPORT_BOOK } from './business/theater/constants.js';
 import { refreshFoldHtml } from './business/refresh/bar.js';
-import { collectPaceRows, overlayQueueOnRows, paceStripHtml } from './business/refresh/pace.js';
+import { collectPaceRows, paceStripHtml } from './business/refresh/pace.js';
 import { createFloorJobQueue } from './business/refresh/floor-queue.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createSameFloorGate } from './business/refresh/same-floor.js';
@@ -57,6 +57,8 @@ import { bindAdultReveal } from './business/utils/adult-reveal.js';
 import { bindActionMenuDismiss, bindManualActionMenus, closeOpenActionMenus } from './business/utils/action-menu.js';
 import { bindSettingsPanel } from './runtime/settings-bind.js';
 import { bindApiFields, bindDiagnostics, filterModelList } from './runtime/api-fields-bind.js';
+import { createDebugPayload } from './runtime/debug-payload.js';
+import { createPaceHost } from './business/refresh/pace-host.js';
 import { bindMemorySettings } from './business/memory/settings-bind.js';
 import { bindTheaterSettings } from './business/theater/settings-bind.js';
 import { bindStoragePanel, migrationProgressCopy, paintStorageMode, paintStorageUsage, readStorageChatIdentity } from './runtime/storage-panel.js';
@@ -508,7 +510,7 @@ const axisDateActions = createAxisDateActions({
 // 绑定 API 网络层所需的 UI/业务回调（避免 api/client.js 反向依赖 index.js 造成循环引用）。
 bindApiClient({
     setFabBusy,
-    setLastDebugPayload: (v) => { lastDebugPayload = v; },
+    setLastDebugPayload: (v) => debugPayload.set(v),
     buildMessages: (...args) => generationMessages.buildMessages(...args),
     getDiagnosticContext: () => {
         const ctx = getContext?.() || {};
@@ -1286,64 +1288,12 @@ function buildDateRenderKey(messageId) {
 const EXT_BASE = new URL('.', import.meta.url).href;                 // …/ST-SevenDaysCal/
 const ST_BASE  = new URL('../../../../../', import.meta.url).href;   // ST 站点根（public/ 即 /）
 
-let lastDebugPayload = null;
-
-function lastDebugPayloadJson() {
-    if (lastDebugPayload === null || lastDebugPayload === undefined) return null;
-    try {
-        const json = JSON.stringify(lastDebugPayload, null, 2);
-        return typeof json === 'string' ? json : null;
-    } catch { return null; }
-}
-
-function refreshLastDebugPayloadPreview() {
-    const json = lastDebugPayloadJson();
-    const hasPayload = Boolean(json);
-    const preview = inEl('#sp-diagnostics-ai-input-pre');
-    if (preview) preview.textContent = json || '（尚未发送请求）';
-    $in('#sp-diagnostics-ai-input-preview').toggleClass('sp-diagnostics-preview-empty', !hasPayload);
-    $in('#sp-diagnostics-ai-input-actions').prop('hidden', !hasPayload);
-    $in('#sp-diagnostics-ai-input-copy').prop('disabled', !hasPayload);
-    return json;
-}
-
-async function copyLastDebugPayload({
-    copyText = copyPlainText,
-    promptTextarea = options => customDialog.promptTextarea(options),
-    notify = (message, isError) => showToast(message, null, isError),
-} = {}) {
-    const text = lastDebugPayloadJson();
-    if (!text) {
-        refreshLastDebugPayloadPreview();
-        try { notify?.('尚未发送请求', false); } catch {}
-        return Object.freeze({ status: 'empty' });
-    }
-    let copied = false;
-    try { copied = await copyText?.(text) === true; } catch {}
-    if (copied) {
-        try { notify?.('AI 输入已复制', false); } catch {}
-        return Object.freeze({ status: 'copied' });
-    }
-    if (typeof promptTextarea !== 'function') {
-        try { notify?.('自动复制失败，请在预览区手动选择内容', true); } catch {}
-        return Object.freeze({ status: 'failed' });
-    }
-    try {
-        await promptTextarea({
-            title: '复制 AI 输入',
-            body: '自动复制失败，请长按文本复制。这里可能包含最近聊天、上下文、世界书和提示词等敏感内容，请勿公开分享。',
-            initialValue: text,
-            maxLength: Math.max(1, text.length),
-            rows: 12,
-            confirmText: '关闭',
-            cancelText: '取消',
-        });
-        return Object.freeze({ status: 'manual-copy' });
-    } catch {
-        try { notify?.('自动复制失败，请在预览区手动选择内容', true); } catch {}
-        return Object.freeze({ status: 'failed' });
-    }
-}
+const debugPayload = createDebugPayload({
+    $in, inEl,
+    copyText: (...args) => copyPlainText(...args),
+    promptTextarea: options => customDialog.promptTextarea(options),
+    notify: (message, isError) => showToast(message, null, isError),
+});
 
 const getCacheKey = getScheduleKey;
 const loadCachedForCurrentChat = (view, charName) => {
@@ -2274,6 +2224,22 @@ const paceBook = createPaceBook({
     sameFloor: () => sameFloorGate.pending(),
     paintSoon: () => paintPaceSoon(),
 });
+const paceHost = createPaceHost({
+    $in,
+    settings: getSettings,
+    pluginEnabled,
+    paceBook,
+    queueSnapshot: () => floorQueue.snapshot(),
+    alignInterval: getLedgerReconcileInterval,
+    linesMode: getLinesMode,
+    advanceInterval: getLinesInterval,
+    outlineInterval: () => outlineFeature.judge?.getInterval?.() || 3,
+    missingLatestStamp,
+    latestAlignFailed: () => activityFeature.latestAlignAttempt?.()?.outcome === 'failed',
+    latestAdvanceFailed: () => activityFeature.latestAdvanceAttempt?.()?.outcome === 'failed',
+    syncActivityPaceOpen: () => activityFeature.syncPaceOpen?.(),
+});
+paceHost.hydrate();
 function syncRefreshBar() {
     $in('#sp-panel-tools').css('display', 'none');
 }
@@ -3007,110 +2973,17 @@ function refreshLinesInjection() {
     return linesFeature.injection?.refresh?.();
 }
 
-// 历 / 暗账的攒楼闸在 paceBook 里；间隔仍由设置读。
-function getAlmanacJudgeInterval() {
-    const n = Number(getSettings().almanacJudgeInterval);
-    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 3;
-}
-
-function getAlmanacSupplementInterval() {
-    const n = Number(getSettings().almanacSupplementInterval);
-    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 10;
-}
-
-// 暗账标注间隔（缺省/非法 → 5；≥1）。抄 getAlmanacJudgeInterval。
-function getLedgerCaptureInterval() {
-    const n = Number(getSettings().ledgerCaptureInterval);
-    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 5;
-}
-
-// 暗账判定（刷现状）间隔（缺省/非法 → 4；≥1）。抄 getLedgerCaptureInterval。
-function getLedgerJudgeInterval() {
-    const n = Number(getSettings().ledgerJudgeInterval);
-    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 4;
-}
-
-function readPaceSnapshot() {
-    const settings = getSettings();
-    const gates = paceBook.liveGates();
-    return {
-        alignOn: settings.ledgerReconcileEnabled === true,
-        alignUsed: gates.align.counter,
-        alignInterval: getLedgerReconcileInterval(),
-        alignFailed: activityFeature.latestAlignAttempt?.()?.outcome === 'failed',
-        linesOn: settings.linesEnabled !== false,
-        linesMode: getLinesMode(),
-        pendingAdvance: gates.pendingAdvance,
-        pendingDashed: gates.pendingDashed,
-        missingStamp: missingLatestStamp(),
-        advanceFailed: activityFeature.latestAdvanceAttempt?.()?.outcome === 'failed',
-        advanceUsed: gates.advance.counter,
-        advanceInterval: getLinesInterval(),
-        outlineOn: settings.outlineJudgeEnabled === true,
-        outlineUsed: gates.outline.counter,
-        outlineInterval: outlineFeature.judge?.getInterval?.() || 3,
-        dateOn: settings.almanacAutoDetect !== false,
-        dateUsed: gates.date.counter,
-        dateInterval: getAlmanacJudgeInterval(),
-        supplementOn: true,
-        supplementUsed: gates.supplement?.counter || 0,
-        supplementInterval: getAlmanacSupplementInterval(),
-        dashedOn: settings.dashedEnabled === true,
-        dashedUsed: gates.dashed.counter,
-        dashedInterval: Math.max(1, Number(settings.dashedAutoInterval) || 6),
-        ledgerOn: settings.ledgerCaptureEnabled === true,
-        ledgerCaptureUsed: gates.ledgerCapture.counter,
-        ledgerCaptureInterval: getLedgerCaptureInterval(),
-        ledgerJudgeUsed: gates.ledgerJudge.counter,
-        ledgerJudgeInterval: getLedgerJudgeInterval(),
-    };
-}
-
-function persistPaceNow() { paceBook.persist(); }
-function rememberPace() { paceBook.remember(); }
-function hydratePaceFromStore() { paceBook.hydrate(); }
-
-hydratePaceFromStore();
-
-function paintPace() {
-    const rows = pluginEnabled()
-        ? overlayQueueOnRows(collectPaceRows(readPaceSnapshot()), floorQueue.snapshot())
-        : [];
-    const empty = pluginEnabled() ? '后台节奏都关着' : '插件关着';
-    const interactive = ['align', 'advance', 'outline', 'dashed', 'supplement', 'ledger-capture', 'ledger-judge'];
-    const $fold = $in('#sp-pace-fold');
-    if ($fold.length) $fold.html(paceStripHtml(rows, { empty }));
-    const $host = $in('#sp-activity-pace-strip-host');
-    if ($host.length) {
-        $host.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive, compact: true }));
-        activityFeature.syncPaceOpen?.();
-    } else {
-        const $activityPace = $in('#sp-activity-pace');
-        if ($activityPace.length) $activityPace.html(paceStripHtml(rows, { empty, id: 'sp-activity-pace-strip', interactive, compact: true }));
-    }
-    const $settings = $in('#sp-pace-settings');
-    if ($settings.length) $settings.html(paceStripHtml(rows, { empty, id: 'sp-pace-settings-strip' }));
-    for (const row of rows) {
-        const $el = $in(`[data-pace-remain="${row.id}"]`);
-        if (!$el.length) continue;
-        $el.text(row.text)
-            .toggleClass('is-off', !!row.off)
-            .toggleClass('is-due', !row.off && (!!row.due || row.text === '下一楼' || row.text === '下一楼补' || row.live === 'running' || row.live === 'queued' || row.live === 'failed'))
-            .toggleClass('is-running', row.live === 'running')
-            .toggleClass('is-queued', row.live === 'queued')
-            .toggleClass('is-failed', row.live === 'failed');
-    }
-    if (!rows.length) $in('[data-pace-remain]').text('').removeClass('is-due is-off is-running is-queued is-failed');
-}
-
-let _pacePaintQueued = false;
-function paintPaceSoon() {
-    if (_pacePaintQueued) return;
-    _pacePaintQueued = true;
-    const kick = () => { _pacePaintQueued = false; paintPace(); };
-    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(kick);
-    else setTimeout(kick, 0);
-}
+// 历 / 暗账的攒楼闸在 paceBook 里；间隔、快照和画条在 paceHost。这些名字留给声明提升的早接线。
+function getAlmanacJudgeInterval() { return paceHost.almanacJudgeInterval(); }
+function getAlmanacSupplementInterval() { return paceHost.almanacSupplementInterval(); }
+function getLedgerCaptureInterval() { return paceHost.ledgerCaptureInterval(); }
+function getLedgerJudgeInterval() { return paceHost.ledgerJudgeInterval(); }
+function readPaceSnapshot() { return paceHost.readSnapshot(); }
+function persistPaceNow() { paceHost.persist(); }
+function rememberPace() { paceHost.remember(); }
+function hydratePaceFromStore() { paceHost.hydrate(); }
+function paintPace() { paceHost.paint(); }
+function paintPaceSoon() { paceHost.paintSoon(); }
 
 function missingLatestStamp() {
     if (!pluginEnabled() || getSettings().linesEnabled === false || getLinesMode() !== 'days') return false;
@@ -3400,8 +3273,8 @@ const panelHost = createPanelHost({
         bindModuleIntro({ $in, $, intros: MODULE_INTROS });
         bindDiagnostics({
             $in, inEl,
-            refreshPreview: refreshLastDebugPayloadPreview,
-            copyPayload: copyLastDebugPayload,
+            refreshPreview: () => debugPayload.refreshPreview(),
+            copyPayload: (...args) => debugPayload.copy(...args),
             exportTrace: () => exportSafeDiagnosticPack(),
             exportCurrent: exportCurrentChatDiagnosticPackage,
         });

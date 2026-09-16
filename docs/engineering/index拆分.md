@@ -1,6 +1,6 @@
 # 构画：`index.js` 还可以怎么拆
 
-更新：2026-09-16。装配根大约 **5600** 行，还要保留酒馆事件、feature 接线和跨模块 env。下面按「能整段搬走、少改行为」排序。
+更新：2026-09-16。装配根大约 **5370** 行，还要保留酒馆事件、feature 接线和跨模块 env。下面按「能整段搬走、少改行为」排序。
 
 原则：新功能继续放 `business/` / `runtime/`；`index.js` 只留 `createX({...})` 和必要的薄封装。不要为拆而拆。灯工作台这一轮已经证明：产品可以进 `business/lamp/`，但 collect / extras / 手改如果顺手写在根上，根会立刻再胖一圈。
 
@@ -8,9 +8,9 @@
 
 ## 已经不在装配根里的
 
-点 codec/渲染、线 schema/生成、面、轴叶子（data/anchor/panel/editor）、刻度控制器、刷新条/节拍算法、活动「改」、开局排队、换日 `shift`、间聊天/引导状态机、棱、坐标、笺、律、日台快照、对账灯检测/UI/打架提示词、设置绑定、外置存储、楼内框 feature、时旅宿主、锚点善后、楼内宿主、面板宿主、生成消息宿主、插件生命周期（开关 / 后台中止 / 注入清理）、侧栏模块介绍文案。
+点 codec/渲染、线 schema/生成、面、轴叶子（data/anchor/panel/editor）、刻度控制器、刷新条/节拍算法、活动「改」、开局排队、换日 `shift`、间聊天/引导状态机、棱、坐标、笺、律、日台快照、对账灯检测/UI/打架提示词、设置绑定、外置存储、楼内框 feature、时旅宿主、锚点善后、楼内宿主、面板宿主、生成消息宿主、插件生命周期（开关 / 后台中止 / 注入清理）、侧栏模块介绍文案、调试 payload 预览、节拍条宿主。
 
-其中 `runtime/generation-messages.js` 已承接点/线/历观察者消息和面聊天拼装，装配根只负责 `createGenerationMessagesHost({...})` 接线。
+其中 `runtime/generation-messages.js` 已承接点/线/历观察者消息和面聊天拼装，装配根只负责 `createGenerationMessagesHost({...})` 接线。节拍间隔 / `paintPace` / `readPaceSnapshot` 已在 `business/refresh/pace-host.js`；根上只留声明提升的薄转发，避免 `bindLedgerRender` / `paceBook` 踩 TDZ。
 
 ## 这一轮又堆回去的（优先消化）
 
@@ -20,32 +20,29 @@
 - `collectStageSnapshotHost`：日台取数（快照算法已在 `business/stage/snapshot.js`）。
 - `handoffToLamp` / `clarifyIntent` / `sendToSpace`：间 ↔ 灯。
 - `applyGuideDraft`：引导旧写入路径。生产已经改成意图交灯，这段不要在拆分时接回 commit。
-- `getAlmanacSupplementInterval` 和 `paintPace` 里的补录行：节拍宿主该带走。
 
 ## 下一刀最值
 
-- **块**：最近请求 payload 的复制和展示
-- **当前范围**：调试面板里的 payload 文本
-- **目标文件**：`runtime/debug-payload.js`
-- **价值与风险**：风险最低，可单独完成。
+- **块**：灯读账、打架 extras、手改、拿到间 / 回间写清
+- **当前范围**：`collectLampSnapshotHost` / `applyLampFightExtras` / `applyLampHandEdit` 和间 ↔ 灯胶水
+- **目标文件**：`business/lamp/host.js`
+- **价值与风险**：根上最肥的一坨产品接线；`fight()` 留在 refresh controller。抽的时候不要把间引导的 commit 接回来。
 
-侧栏模块介绍文案已迁到 `business/shell/module-intros.js`。
+调试 payload 已迁到 `runtime/debug-payload.js`。节拍条已迁到 `business/refresh/pace-host.js`。
 
 ## 可以后移的中块
 
 按依赖，不要跳刀：
 
-1. **节拍条** → `business/refresh/pace-host.js`  
-   `readPaceSnapshot` / `paintPace` / interval 读取（对齐、推进、面、冷知识、补录、刻度）。DOM 端口仍由装配根注入。
-2. **灯宿主** → `business/lamp/host.js`  
+1. **灯宿主** → `business/lamp/host.js`  
    collect、打架 extras、手改、拿到间/回间写清。`refreshController.fight()` 留在 refresh；根上 `runKind` 只转发。抽之前确认引导不再走 `applyGuideDraft`。
-3. **身份 / 边界** → 扩写 `runtime/generation-context.js`  
+2. **身份 / 边界** → 扩写 `runtime/generation-context.js`  
    `captureParticipantIdentity`、`chatBoundaryEpoch`、`scheduleForChatBoundary`。该文件目前只有 reroll/标签清洗。
-4. **世界书** → `runtime/world-info-host.js`  
+3. **世界书** → `runtime/world-info-host.js`  
    角色/聊天/全局解析、排除、面板端口。底层已有 `world-info-context.js` / `world-info-panel.js`。
-5. **诊断包** → `runtime/diagnostics-pack.js`（可与 debug-payload 分文件）  
+4. **诊断包** → `runtime/diagnostics-pack.js`（可与 debug-payload 分文件）  
    `collectDiagnosticRuntime`、安全包/当前聊天包导出。不要和 payload 预览绑死。
-6. **日期检测接线** → `business/axis/date-detection-host.js`  
+5. **日期检测接线** → `business/axis/date-detection-host.js`  
    最后迁，避免与时旅、锚点善后形成循环依赖。
 
 机械清理（空节标题、相同 `syncLatest` 实现、纯转发 `parseLines` / `buildLinesPrompt`、仅测试使用的 `recall.js` 抽块）已做完。仓内测试入口是 `node scripts/run-tests.mjs`。不要把为声明提升 / TDZ 留下的 deferred 包装误删成死代码。灯宿主尤其容易踩 TDZ：`lampFeature` 现在建在 `refreshController` 前面，靠闭包晚调用。
@@ -67,4 +64,4 @@
 
 ## 执行节奏
 
-一次只搬一块，先补或确认目标块的契约测试，再跑 `node scripts/run-tests.mjs`。插件开关 / 后台中止已迁出；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。灯/节拍迁移额外看：刷新条是否还在 `#sp-lamp-refresh-host`，paint 会不会把折叠条冲掉。
+一次只搬一块，先补或确认目标块的契约测试，再跑 `node scripts/run-tests.mjs`。插件开关 / 后台中止已迁出；每次迁移都要重点检查切聊天、关插件、热重载和在途请求。灯/节拍迁移额外看：刷新条是否还在 `#sp-lamp-refresh-host`，paint 会不会把折叠条冲掉。搬完后git commit push，版本号+0.0.1。
