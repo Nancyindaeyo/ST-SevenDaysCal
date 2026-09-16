@@ -204,7 +204,8 @@ import {
 } from './runtime/generation-messages.js';
 import { createChatBoundaryGate } from './runtime/generation-context.js';
 import { mountBackupOverlay as createBackupOverlay, mountMigrationOverlay as createMigrationOverlay } from './runtime/storage-overlay.js';
-import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, applyStoryClockToMessage, previousCompleteStoryClock, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
+import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
+import { createStoryClockFillHost } from './business/axis/story-clock-fill.js';
 import { createWeekdayConsumerContext } from './business/axis/weekday-coordinator.js';
 import { createDateDetectionHost } from './business/axis/date-detection-host.js';
 
@@ -268,6 +269,7 @@ import {
     dispatchStoreClearRefreshAfter,
     dispatchStoreClearRefreshFromStore,
 } from './runtime/storage-clear.js';
+import { createStoreClearHost } from './runtime/store-clear-host.js';
 
 // 坐标与楼内框各自持有唯一 runtime 句柄。
 let coordinateRuntime = null;
@@ -2767,55 +2769,24 @@ function needsAdvanceCatchup() {
     });
 }
 
-async function fillLatestStoryClock() {
-    const chat = getContext()?.chat || [];
-    const latest = latestAiFloor(chat);
-    if (!latest) {
-        showToast('没有可补的 AI 楼', null, true);
-        return { status: 'failed' };
-    }
-    const current = parseStoryClockPure(latest.text);
-    const previous = previousCompleteStoryClock(chat, latest.index);
-    const meta = current.endMeta?.valid ? current.endMeta : (current.startMeta?.valid ? current.startMeta : (previous?.endMeta || previous?.startMeta || {}));
-    let today = null;
-    try { today = almTodayAnchor(); } catch { today = null; }
-    const date = (meta.date ? formatCalendarDate(meta.date, loadCalDesc(), calMonthName) : '')
-        || (today ? formatCalendarDate(today, loadCalDesc(), calMonthName) : '');
-    const weekday = String(meta.weekdayText || (today ? almWeekdayFor(today.month, today.day, almWeekdayRef()) : '') || '周一');
-    const startTime = String(current.startMeta?.time || previous?.endMeta?.time || '12:00');
-    const endTime = String(current.endMeta?.time || startTime);
-    const fields = await customDialog.promptFields({
-        title: '补这楼时间戳',
-        body: '只写进本楼隐藏注释，不改正文。日期写法跟故事里一致即可。',
-        confirmText: '写入',
-        fields: [
-            { name: 'date', label: '日期', type: 'input', value: date, placeholder: '如 10月4日', maxLength: 40 },
-            { name: 'weekday', label: '星期', type: 'input', value: weekday, placeholder: '周一至周日', maxLength: 8 },
-            { name: 'startTime', label: '开始时刻', type: 'input', value: startTime, placeholder: '15:30', maxLength: 12 },
-            { name: 'endTime', label: '结束时刻', type: 'input', value: endTime, placeholder: '16:00', maxLength: 12 },
-        ],
-        validate: result => applyStoryClockToMessage('正文', result).ok ? '' : '日期、星期（周一至周日）和时刻都要能解析',
-    });
-    if (!fields) return { status: 'cancelled' };
-    const applied = applyStoryClockToMessage(chat[latest.index].mes || '', {
-        date: fields.date,
-        weekday: fields.weekday,
-        startTime: fields.startTime,
-        endTime: fields.endTime,
-    });
-    if (!applied.ok) {
-        showToast('时间戳写不进去，请检查日期和时刻', null, true);
-        return { status: 'failed' };
-    }
-    chat[latest.index].mes = applied.text;
-    scriptCore.saveChatDebounced?.();
-    eventSource.emit(event_types.MESSAGE_EDITED, latest.index);
-    linesFeature.lifecycle.holdConfirmedFloor({ chatId: getContext().chatId, messageId: latest.index });
-    runAnchorAftermath('story');
-    showToast('已补上这楼时间戳');
-    activityFeature.paint();
-    return { status: 'updated' };
-}
+const storyClockFill = createStoryClockFillHost({
+    getContext,
+    latestAiFloor,
+    todayAnchor: almTodayAnchor,
+    calendar: loadCalDesc,
+    formatDate: formatCalendarDate,
+    monthName: calMonthName,
+    weekdayFor: almWeekdayFor,
+    weekdayRef: almWeekdayRef,
+    promptFields: options => customDialog.promptFields(options),
+    saveChat: () => scriptCore.saveChatDebounced?.(),
+    emitEdited: messageId => eventSource.emit(event_types.MESSAGE_EDITED, messageId),
+    holdConfirmedFloor: payload => linesFeature.lifecycle.holdConfirmedFloor(payload),
+    aftermath: runAnchorAftermath,
+    toast: showToast,
+    paintActivity: () => activityFeature.paint(),
+});
+async function fillLatestStoryClock() { return storyClockFill.fill(); }
 
 // ─── 共享锚点善后 ───────────────────────────────────────────────────────────
 // 任何一处改「今天」锚点后都走这里。今日游标 / 刷楼内框与轴 / 日期制线换日：business/axis/aftermath.js。
@@ -4168,83 +4139,49 @@ function refreshAlmanacAfterStoreClear() {
     if (axisState.almanacMode) renderAlmanacPanel();
 }
 
-function storeClearTrace(kind) {
-    traceDiagnosticEvent('abort-boundary', { module: kind, chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundary.epoch(), abortReason: 'store-clear', status: 'dispatch' });
-}
-
-function storeClearHost() {
-    return {
-        trace: storeClearTrace,
-        abortSchedule() {
-            pointState.scheduleAbortController?.abort('store-clear'); pointState.scheduleAbortController = null;
-            _autoRegenSchedAbort?.abort('store-clear'); _autoRegenSchedAbort = null;
-            pointState.isGenerating = false;
-        },
-        invalidateOutline: kind => outlineFeature.invalidateStoreKind(kind),
-        abortLines: () => linesFeature.abortGeneration({ reason: 'store-clear' }),
-        invalidateSpace: kind => spaceFeature.invalidateStoreKind(kind),
-        invalidateSlip: kind => slipFeature.invalidateStoreKind(kind),
-        invalidateLaw: kind => lawFeature.invalidateStoreKind(kind),
-        abortDashed: () => linesFeature.dashed.abort('store-clear'),
-        refreshScheduleEmpty() {
-            pointState.cachedSchedule = null;
-            setBody(booksEmptyHtml('point'));
-            syncLatestScheduleBlock();
-        },
-        refreshOutlineEmpty: kind => { outlineFeature.refreshAfterStoreClear(kind); syncLatestInlineBlock(); },
-        refreshLinesEmpty() {
-            linesRuntime.reset();
-            if (linesMode) linesFeature.renderBody(booksEmptyHtml('lines'));
-            refreshLinesInjection();
-            syncLatestInlineBlock();
-        },
-        refreshDashed() {
-            linesFeature.dashed.resetError();
-            if (linesMode) linesFeature.refreshPanel();
-            syncLatestInlineBlock();
-        },
-        refreshCreativeEmpty: kind => outlineFeature.refreshAfterStoreClear(kind),
-        refreshSpaceEmpty: kind => spaceFeature.refreshAfterStoreClear(kind),
-        refreshSlipEmpty: kind => slipFeature.refreshAfterStoreClear(kind),
-        refreshLawEmpty: kind => lawFeature.refreshAfterStoreClear(kind),
-        refreshScheduleFromStore() {
-            const key = getCacheKey(currentView, charViewName);
-            const saved = readStore(key);
-            const subject = currentView === 'char' ? (charViewName || getContext().name2 || '角色') : (getContext().name1 || '用户');
-            pointState.cachedSchedule = saved?.raw ? renderSchedule(saved.raw, saved.userName || subject, currentView, loadCalDesc()) : null;
-            if (!outlineMode && !linesMode && !spaceMode && !theaterMode && $(`#${MODAL_ID}`).is(':visible')) {
-                setBody(pointState.cachedSchedule || booksEmptyHtml('point'));
-            }
-            syncLatestScheduleBlock();
-        },
-        refreshOutlineFromStore: kind => outlineFeature.refreshFromStore(kind),
-        refreshLinesFromStore() {
-            linesRuntime.reset();
-            if (linesMode) linesFeature.refreshPanel();
-            refreshLinesInjection();
-        },
-        refreshCreativeFromStore: kind => outlineFeature.refreshFromStore(kind),
-        refreshSpaceFromStore: kind => spaceFeature.refreshFromStore(kind),
-        refreshSlipFromStore: kind => slipFeature.refreshFromStore(kind),
-        refreshLawFromStore: kind => lawFeature.refreshFromStore(kind),
-        refreshDashedFromStore() {
-            linesFeature.dashed.resetError();
-            if (linesMode) linesFeature.refreshPanel();
-            syncLatestInlineBlock();
-        },
-    };
-}
+const storeClear = createStoreClearHost({
+    traceAbort: payload => traceDiagnosticEvent('abort-boundary', payload),
+    chatId: () => getContext?.()?.chatId ?? null,
+    chatRevision: () => pointTaskOwners.currentChatRevision(),
+    boundaryEpoch: () => chatBoundary.epoch(),
+    abortPointSchedule: reason => {
+        pointState.scheduleAbortController?.abort(reason);
+        pointState.scheduleAbortController = null;
+    },
+    abortAutoRegen: reason => { _autoRegenSchedAbort?.abort(reason); _autoRegenSchedAbort = null; },
+    setPointGenerating: value => { pointState.isGenerating = value; },
+    outline: outlineFeature,
+    lines: linesFeature,
+    space: spaceFeature,
+    slip: slipFeature,
+    law: lawFeature,
+    setPointCache: html => { pointState.cachedSchedule = html; },
+    setBody,
+    emptyPointHtml: () => booksEmptyHtml('point'),
+    emptyLinesHtml: () => booksEmptyHtml('lines'),
+    syncScheduleBlock: syncLatestScheduleBlock,
+    syncInlineBlock: syncLatestInlineBlock,
+    resetLinesRuntime: () => linesRuntime.reset(),
+    refreshLinesInjection,
+    linesMode: () => linesMode,
+    readPoint: () => readStore(getCacheKey(currentView, charViewName)),
+    getContext,
+    currentView: () => currentView,
+    charViewName: () => charViewName,
+    renderSchedule: (raw, userName) => renderSchedule(raw, userName, currentView, loadCalDesc()),
+    scheduleVisible: () => !outlineMode && !linesMode && !spaceMode && !theaterMode && $(`#${MODAL_ID}`).is(':visible'),
+});
 
 function invalidateKindTasksForStoreClear(kind) {
-    dispatchStoreClearInvalidate(kind, storeClearHost());
+    dispatchStoreClearInvalidate(kind, storeClear);
 }
 
 function refreshEditorsAfterStoreClear(kind) {
-    dispatchStoreClearRefreshAfter(kind, storeClearHost());
+    dispatchStoreClearRefreshAfter(kind, storeClear);
 }
 
 function refreshEditorsFromCurrentStore(kind) {
-    dispatchStoreClearRefreshFromStore(kind, storeClearHost());
+    dispatchStoreClearRefreshFromStore(kind, storeClear);
 }
 
 function closeActionMenus(except = null) {
