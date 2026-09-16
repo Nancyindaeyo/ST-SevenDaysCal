@@ -25,7 +25,6 @@ import { jumpViewOf, revealActivityTarget } from './business/activity/jump.js';
 import { beatFoldHtml } from './business/beat/ui.js';
 import { createBeatFeature } from './business/beat/feature.js';
 import { spaceMessagePlainText } from './business/space/schema.js';
-import { normalizeOutlineResponse } from './business/outline/schema.js';
 import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordinate/runtime.js';
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { createSlipFeature } from './business/slip/feature.js';
@@ -203,6 +202,7 @@ import {
     createGenerationMessagesHost,
     readCardExtras,
 } from './runtime/generation-messages.js';
+import { createChatBoundaryGate } from './runtime/generation-context.js';
 import { mountBackupOverlay as createBackupOverlay, mountMigrationOverlay as createMigrationOverlay } from './runtime/storage-overlay.js';
 import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, applyStoryClockToMessage, previousCompleteStoryClock, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
 import { createWeekdayConsumerContext } from './business/axis/weekday-coordinator.js';
@@ -379,45 +379,19 @@ store.bindStoreMetadataPersistence({
 });
 
 const pointTaskOwners = createTaskOwnerManager();
-let chatBoundaryEpoch = 0;
-let pendingDateBootstrap = null;
-let activeChatBoundaryIdentity = null;
-function runtimeIdentityHash(value) {
-    let hash = 2166136261;
-    for (const ch of String(value ?? '')) { hash ^= ch.charCodeAt(0); hash = Math.imul(hash, 16777619); }
-    return (hash >>> 0).toString(16);
-}
-function captureParticipantIdentity(ctx = getContext()) {
-    const character = ctx?.characters?.[ctx?.characterId] || {};
-    const personaDescriptor = ctx?.powerUserSettings?.persona_name ?? ctx?.powerUserSettings?.default_persona ?? ctx?.powerUserSettings?.persona_description ?? '';
-    return Object.freeze({
-        boundaryEpoch: chatBoundaryEpoch,
-        chatId: String(ctx?.chatId ?? ''),
-        characterId: String(ctx?.characterId ?? ''),
-        characterKey: String(character?.avatar || charStableKey(ctx) || ''),
-        personaKey: runtimeIdentityHash(personaDescriptor),
-        userName: String(ctx?.name1 || '用户'),
-        charName: String(ctx?.name2 || '角色'),
-    });
-}
-function sameParticipantIdentity(left, right) {
-    return !!left && !!right && ['boundaryEpoch', 'chatId', 'characterId', 'characterKey', 'personaKey', 'userName', 'charName'].every(key => String(left[key] ?? '') === String(right[key] ?? ''));
-}
-function captureGenerationContext(ctx = getContext()) {
-    const chat = Array.isArray(ctx?.chat) ? ctx.chat.map(message => ({ ...message, extra: message?.extra && typeof message.extra === 'object' ? { ...message.extra } : message?.extra })) : [];
-    return { ...ctx, chat, name1: ctx?.name1 || '用户', name2: ctx?.name2 || '角色' };
-}
-function captureChatBoundary() { return Object.freeze({ epoch: chatBoundaryEpoch, chatId: String(getContext()?.chatId ?? '') }); }
-function isCurrentChatBoundary(boundary) { return !!boundary && boundary.epoch === chatBoundaryEpoch && boundary.chatId === String(getContext()?.chatId ?? ''); }
-function scheduleForChatBoundary(callback, delay) {
-    const boundary = captureChatBoundary();
-    return setTimeout(() => { if (isCurrentChatBoundary(boundary)) callback(boundary); }, delay);
-}
-function latestFloorBoundaryIdentity() {
-    const ctx = getContext(); const messageId = (ctx?.chat?.length ?? 0) - 1;
-    if (messageId < 0) return null;
-    return Object.freeze({ ...captureChatBoundary(), messageId, swipeId: Number(ctx.chat?.[messageId]?.swipe_id ?? 0), contentSignature: _floorSig(messageId) || 'empty' });
-}
+const chatBoundary = createChatBoundaryGate({
+    getContext,
+    charStableKey,
+    floorSignature: mid => _floorSig(mid),
+    floorKey: mid => buildDateRenderKey(mid),
+});
+function captureParticipantIdentity(ctx) { return chatBoundary.captureParticipantIdentity(ctx); }
+function sameParticipantIdentity(left, right) { return chatBoundary.sameParticipantIdentity(left, right); }
+function captureGenerationContext(ctx) { return chatBoundary.captureGenerationContext(ctx); }
+function captureChatBoundary() { return chatBoundary.captureChatBoundary(); }
+function isCurrentChatBoundary(boundary) { return chatBoundary.isCurrentChatBoundary(boundary); }
+function scheduleForChatBoundary(callback, delay) { return chatBoundary.scheduleForChatBoundary(callback, delay); }
+function consumeDateBootstrap(messageId) { return chatBoundary.consumeDateBootstrap(messageId); }
 function downloadJsonFile(filename, text) {
     const blob = new Blob([String(text ?? '')], { type: 'application/json;charset=utf-8' });
     const url = URL.createObjectURL(blob);
@@ -428,14 +402,6 @@ function downloadJsonFile(filename, text) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
-}
-function consumeDateBootstrap(messageId) {
-    const pending = pendingDateBootstrap;
-    if (!pending) return false;
-    const current = buildDateRenderKey(messageId);
-    const matches = isCurrentChatBoundary(pending) && pending.messageId === current.messageId && pending.swipeId === current.swipeId && pending.contentSignature === current.contentSignature;
-    if (matches) pendingDateBootstrap = null;
-    return matches;
 }
 let theaterFeature;
 let memoryPauseNoticeShown = false;
@@ -522,7 +488,7 @@ bindApiClient({
         return {
             chatId: ctx.chatId ?? null,
             chatRevision: pointTaskOwners.currentChatRevision(),
-            boundaryEpoch: chatBoundaryEpoch,
+            boundaryEpoch: chatBoundary.epoch(),
             floor: messageId,
             messageId,
         };
@@ -1258,7 +1224,7 @@ const timeTravel = createTimeTravelHost({
         if (input.length) input.val(removeTimeTravelBlocks(String(input.val() || ''))).trigger('input');
     },
     traceAbort: (active, abortReason) => {
-        traceDiagnosticEvent('abort-boundary', { module: 'time-travel', chatId: active.chatId, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason, status: 'dispatch' });
+        traceDiagnosticEvent('abort-boundary', { module: 'time-travel', chatId: active.chatId, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundary.epoch(), abortReason, status: 'dispatch' });
     },
 });
 
@@ -1579,7 +1545,7 @@ const linesFeature = createLinesFeature({
     get stageColors() { return STAGE_COLORS; },
     escapeHtml, escapeAttr, cleanText, readFloorStory, enqueueJob: enqueueFloorJob, makeInjectBtn,
     cacheKey: () => getLinesCacheKey(), chatId: () => getContext().chatId,
-    boundaryEpoch: () => chatBoundaryEpoch,
+    boundaryEpoch: () => chatBoundary.epoch(),
     participantIdentity: captureParticipantIdentity,
     sameParticipantIdentity,
     contextSnapshot: captureGenerationContext,
@@ -1840,9 +1806,6 @@ const spaceFeature = createSpaceFeature({
         }),
     },
     collectGuideContext: () => collectBeatLedgerContext(),
-    applyGuideDraft: (name, draft) => applyGuideDraft(name, draft),
-    snapshotGuideModules: names => activityFeature.capture(names),
-    recordGuideActivity: entry => activityFeature.record(entry),
     generateBeat: () => revealBeatAndGenerate(),
     intentFromGuide: state => intentFromGuide(state, { kind: 'fight' }),
     handoffToLamp: intent => lampHost.handoffFromGuide(intent),
@@ -2064,41 +2027,6 @@ function collectBeatLedgerContext() {
         spaceRecent,
         latestStory: readFloorStory(latestAiFloor(getContext().chat)?.text || ''),
     };
-}
-async function applyGuideDraft(name, draft) {
-    const raw = String(draft || '').trim();
-    if (!raw) return false;
-    if (name === 'point') {
-        const key = getCacheKey('user', '');
-        if (!key) return false;
-        const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, userName: getContext()?.name1 || saved.userName, ts: Date.now() });
-        pointState.cachedSchedule = renderSchedule(raw, saved.userName || getContext()?.name1 || '用户', currentView, loadCalDesc());
-        if (!outlineMode && !linesMode && !spaceMode && !theaterMode && !axisState.almanacMode) setBody(pointState.cachedSchedule);
-        syncLatestScheduleBlock();
-        return true;
-    }
-    if (name === 'lines') {
-        const key = getLinesCacheKey();
-        if (!key) return false;
-        const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
-        linesFeature.refreshPanel?.();
-        syncLatestInlineBlock();
-        return true;
-    }
-    if (name === 'outline') {
-        const normalized = normalizeOutlineResponse(raw);
-        if (!normalized) { showToast('面草案解析失败，没有写入', null, true); return false; }
-        const target = outlineFeature.repository.capture();
-        const saved = outlineFeature.repository.readOutline(target);
-        const stored = await outlineFeature.repository.commitOutlineConfirmed(target, { raw: normalized, ts: Date.now(), cursor: saved?.cursor ?? 1 });
-        if (!(stored === true || stored?.ok === true)) return false;
-        outlineFeature.refreshPanel();
-        outlineFeature.injection.refresh();
-        return true;
-    }
-    return false;
 }
 function revealBeatAndGenerate() {
     showPanel();
@@ -2397,7 +2325,7 @@ jQuery(async () => {
     coordinateRuntime.feature.bindExcerpts($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.bindGestures($in('#sp-anchor-wrap')?.[0] || null);
     coordinateRuntime.feature.refreshSavedKeys();
-    activeChatBoundaryIdentity = captureChatBoundary();
+    chatBoundary.markReady();
     setTimeout(() => coordinateRuntime.feature.scanButtons(), 900);
     initChatObserver();
     // 首屏补挂：backfill 内部 refreshLinesInjection()（潜伏注入）+ refreshInlineWindow(true)
@@ -2406,21 +2334,18 @@ jQuery(async () => {
     // Reset view state and reload cache on chat switch
     if (_stListeners.chat) eventSource.removeListener?.(event_types.CHAT_CHANGED, _stListeners.chat);
     _stListeners.chat = () => runChatChanged({
-        activeChatId: () => activeChatBoundaryIdentity?.chatId ?? null,
+        activeChatId: () => chatBoundary.activeIdentity()?.chatId ?? null,
         chatLength: () => getContext().chat?.length ?? 0,
         chatId: () => getContext()?.chatId,
         chatMetadata: () => getContext()?.chatMetadata ?? null,
         pluginEnabled,
         beginBoundary({ previousChatId }) {
-            const previousBoundaryEpoch = chatBoundaryEpoch;
             const previousChatRevision = pointTaskOwners.currentChatRevision();
-            chatBoundaryEpoch++;
-            activeChatBoundaryIdentity = captureChatBoundary();
-            pendingDateBootstrap = latestFloorBoundaryIdentity();
+            const boundary = chatBoundary.beginBoundary();
             const chatRevision = pointTaskOwners.nextChatRevision();
             linesFeature.nextChatRevision();
-            recordChatBoundary({ previousChatId, currentChatId: activeChatBoundaryIdentity.chatId, previousBoundaryEpoch, boundaryEpoch: chatBoundaryEpoch, previousChatRevision, chatRevision });
-            traceDiagnosticEvent('abort-boundary', { module: 'runtime', chatId: activeChatBoundaryIdentity.chatId, chatRevision, boundaryEpoch: chatBoundaryEpoch, abortReason: 'chat-boundary', status: 'dispatch' });
+            recordChatBoundary({ previousChatId, currentChatId: boundary.chatId, previousBoundaryEpoch: boundary.previousEpoch, boundaryEpoch: boundary.epoch, previousChatRevision, chatRevision });
+            traceDiagnosticEvent('abort-boundary', { module: 'runtime', chatId: boundary.chatId, chatRevision, boundaryEpoch: boundary.epoch, abortReason: 'chat-boundary', status: 'dispatch' });
         },
         pointTasks: pointTaskOwners,
         pointController,
@@ -2666,7 +2591,7 @@ jQuery(async () => {
 const pluginLifecycle = createPluginLifecycle({
     context: () => getContext?.() || {},
     chatRevision: () => pointTaskOwners.currentChatRevision(),
-    boundaryEpoch: () => chatBoundaryEpoch,
+    boundaryEpoch: () => chatBoundary.epoch(),
     traceAbort: payload => traceDiagnosticEvent('abort-boundary', payload),
     memory,
     timeTravel,
@@ -4653,7 +4578,7 @@ async function renderStorageUsage() {
 }
 
 function invalidateLedgerTasksForStoreClear() {
-    traceDiagnosticEvent('abort-boundary', { module: 'ledger', chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason: 'store-clear', status: 'dispatch' });
+    traceDiagnosticEvent('abort-boundary', { module: 'ledger', chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundary.epoch(), abortReason: 'store-clear', status: 'dispatch' });
     ledgerCaptureController.reset('store-clear');
     ledgerJudgeController.reset('store-clear');
     resetLedgerRenderState();
@@ -4666,7 +4591,7 @@ function refreshLedgerAfterStoreClear() {
 }
 
 function invalidateAlmanacTasksForStoreClear() {
-    traceDiagnosticEvent('abort-boundary', { module: 'axis-generation', chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason: 'store-clear', status: 'dispatch' });
+    traceDiagnosticEvent('abort-boundary', { module: 'axis-generation', chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundary.epoch(), abortReason: 'store-clear', status: 'dispatch' });
     axisGenerationController.reset('store-clear');
     axisState._almanacEditor = null;
     axisCalendarManager.close();
@@ -4681,7 +4606,7 @@ function refreshAlmanacAfterStoreClear() {
 }
 
 function storeClearTrace(kind) {
-    traceDiagnosticEvent('abort-boundary', { module: kind, chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundaryEpoch, abortReason: 'store-clear', status: 'dispatch' });
+    traceDiagnosticEvent('abort-boundary', { module: kind, chatId: getContext?.()?.chatId ?? null, chatRevision: pointTaskOwners.currentChatRevision(), boundaryEpoch: chatBoundary.epoch(), abortReason: 'store-clear', status: 'dispatch' });
 }
 
 function storeClearHost() {

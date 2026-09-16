@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { formatGuideAnswers, parseGuideDrafts, parseGuideInspirations, SPACE_CHAT_STARTERS } from './guide-schema.js';
 import { clipGuideLinesRaw, clipGuidePointRaw } from './guide-clip.js';
 import { buildGuideDraftPrompt, buildGuideInspirePrompt } from './guide-prompt.js';
+import { createSpaceGuide } from './guide.js';
 
 test('parse inspirations and drafts', () => {
     const cards = parseGuideInspirations(`<guide_inspire>
@@ -103,4 +104,22 @@ Id: LINE-keep-out
     const end = draft.indexOf('【现有面】');
     assert.ok(start >= 0 && end > start);
     assert.equal(draft.slice(start, end).includes(desc), true);
+});
+
+test('guide commit hands off to lamp and never writes books', async () => {
+    const calls = [];
+    const guide = createSpaceGuide({
+        intentFromGuide: () => ({ kind: 'fight' }),
+        handoffToLamp: intent => calls.push(['lamp', intent]),
+        applyDraft: () => { throw new Error('guide must not write books'); },
+        generateBeat: () => calls.push('beat'),
+    });
+    guide.start();
+    guide.decide('point', 'keep');
+    guide.decide('lines', 'keep');
+    guide.decide('outline', 'keep');
+    const result = await guide.commit();
+    assert.equal(result.status, 'updated');
+    assert.deepEqual(calls, [['lamp', { kind: 'fight' }]]);
+    assert.equal(guide.isActive(), false);
 });
