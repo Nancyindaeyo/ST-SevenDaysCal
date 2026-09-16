@@ -220,8 +220,9 @@ import { formatPointDayDate } from './business/point/event-when.js';
 import { parseCalendar, serializeCalendar, validateGeneratedCalendar, bindPointAdultTickets, parsePointEventRecord, firstPointEventBlock, replacePointEventBlock, buildPointInjectText, numberedPointList, mergePinnedPoints, forceStartDate } from './business/point/parse.js';
 import { createBootstrapFeature } from './business/bootstrap/feature.js';
 import { automationAllowed, booksAreEmpty } from './business/bootstrap/queue.js';
-import { openModuleHistory, historyToolbarState } from './business/history/dialog.js';
-import { rawAdapter, itemsAdapter, axisAdapter, ledgerAdapter } from './business/history/versions.js';
+import { historyToolbarState } from './business/history/dialog.js';
+import { createHistoryHost } from './business/history/host.js';
+import { axisAdapter, ledgerAdapter } from './business/history/versions.js';
 import { emptyLinesHtml, emptyOutlineHtml, emptyPointHtml, openRefreshFold } from './business/bootstrap/ui.js';
 import { isGregorian as isGregorianCalendar, addCalendarDays } from './business/calendar/date.js';
 import { buildPrompt, buildHorizonFillPrompt } from './business/point/prompt.js';
@@ -260,6 +261,7 @@ import { createOutlineFeature } from './business/outline/feature.js';
 import { createSpaceFeature } from './business/space/feature.js';
 import { getSpaceChatPlaceholder } from './business/space/prompts.js';
 import { createChatAnchorRepository } from './runtime/chat-date-anchor.js';
+import { createDateAnchorPolicy } from './runtime/date-anchor-policy.js';
 import { createWorldInfoHost } from './runtime/world-info-host.js';
 import {
     dispatchStoreClearInvalidate,
@@ -475,6 +477,18 @@ const axisDateActions = createAxisDateActions({
     monthName: (cal, month) => calMonthName(cal, month),
     toast: showToast,
 });
+const dateAnchorPolicy = createDateAnchorPolicy({
+    repository: chatAnchorRepository,
+    calendar: loadCalDesc,
+    storyClock: () => latestStoryClockPure(getContext(), ALM_CHAT_SCAN_LIMIT),
+    completeStoryClock: completeStoryClockPure,
+    monthCount: calMonthCount,
+    monthDays: calMonthDays,
+    saveAnchor: (charKey, month, day, source, options) => axisDateActions.saveAnchor(charKey, month, day, source, options),
+});
+function getDateAnchor(charKey) { return dateAnchorPolicy.getDateAnchor(charKey); }
+function getStoryCalibration(charKey) { return dateAnchorPolicy.getStoryCalibration(charKey); }
+function setDateAnchor(charKey, month, day, source, options) { return dateAnchorPolicy.setDateAnchor(charKey, month, day, source, options); }
 
 // 绑定 API 网络层所需的 UI/业务回调（避免 api/client.js 反向依赖 index.js 造成循环引用）。
 bindApiClient({
@@ -3018,163 +3032,60 @@ const panelHost = createPanelHost({
     },
 });
 
-function sameHistorySnapshot(left, right) {
-    return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
-}
-
-function openBookHistory(kind) {
-    const chatId = getContext()?.chatId;
-    if (!chatId) {
-        showToast('请先打开一个聊天', null, true);
-        return Promise.resolve(false);
-    }
-    const stillHere = () => getContext()?.chatId === chatId;
-    const shared = {
-        dialog: customDialog,
-        toast: (message, error) => showToast(message, null, error),
-        chatId,
-    };
-    if (kind === 'point') {
-        const key = getCacheKey(currentView, charViewName);
-        if (!key) { showToast('当前没有可恢复的点', null, true); return Promise.resolve(false); }
-        const read = () => readStore(key) || {};
-        return openModuleHistory({
-            ...shared,
-            title: '点 · 历史版本',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
-            adapter: rawAdapter,
-            preview: payload => String(payload || '').trim() || '此版本没有内容',
-            summary: payload => String(payload || '').trim() ? '有内容' : '空',
-            afterRestore: () => {
-                refreshCachedSchedule(currentView, charViewName, {
-                    setCached: html => { pointState.cachedSchedule = html; },
-                    setBody,
-                    visible: true,
-                });
-                syncLatestScheduleBlock();
-                refreshInlineWindow(true);
-                refreshStoryClockInjection({ announce: true });
-            },
-        });
-    }
-    if (kind === 'lines') {
-        const key = getLinesCacheKey();
-        const read = () => readStore(key) || {};
-        return openModuleHistory({
-            ...shared,
-            title: '线 · 历史版本',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
-            adapter: rawAdapter,
-            preview: payload => String(payload || '').trim() || '此版本没有内容',
-            summary: payload => String(payload || '').trim() ? '有内容' : '空',
-            afterRestore: () => {
-                linesFeature.refreshPanel();
-                syncLatestInlineBlock();
-                refreshInlineWindow(true);
-                refreshStoryClockInjection({ announce: true });
-            },
-        });
-    }
-    if (kind === 'dashed') {
-        const key = keyDesc('dashed', 'user', '');
-        const read = () => readStore(key) || {};
-        return openModuleHistory({
-            ...shared,
-            title: '冷知识 · 历史版本',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
-            adapter: itemsAdapter,
-            preview: payload => {
-                const items = Array.isArray(payload) ? payload : [];
-                return items.length ? items.map((item, index) => `${index + 1}. ${item?.text || ''}`).join('\n') : '此版本没有冷知识';
-            },
-            summary: payload => `${Array.isArray(payload) ? payload.length : 0} 条`,
-            afterRestore: () => {
-                linesFeature.refreshPanel();
-                refreshInlineWindow(true);
-            },
-        });
-    }
-    if (kind === 'outline') {
-        const key = keyDesc('outline', 'user', '');
-        const read = () => readStore(key) || {};
-        return openModuleHistory({
-            ...shared,
-            title: '面 · 历史版本',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: value => writeStoreConfirmed(key, value, { ownerGuard: stillHere }),
-            adapter: rawAdapter,
-            preview: payload => String(payload || '').trim() || '此版本没有内容',
-            summary: payload => String(payload || '').trim() ? '有内容' : '空',
-            afterRestore: () => {
-                outlineFeature.refreshPanel();
-                outlineFeature.injection?.refresh?.();
-                refreshStoryClockInjection({ announce: true });
-            },
-        });
-    }
-    if (kind === 'axis') {
-        const read = () => readAxisHistoryStore();
-        return openModuleHistory({
-            ...shared,
-            title: '轴 · 历史版本',
-            restoreNote: '会恢复节日表和历法描述，不会改「今天」的日期锚点。',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: async value => {
-                const saved = await writeStoreConfirmed(getAlmanacKey(), value, { ownerGuard: stillHere });
-                if (!(saved === true || saved?.ok === true) || saved?.stale) return saved;
-                if (value?.caldesc) saveCalDesc(value.caldesc, { archive: false });
-                return saved;
-            },
-            adapter: axisAdapter,
-            preview: payload => {
-                const cal = payload?.caldesc;
-                const calLine = cal?.era || cal?.id ? `历法：${cal.era || cal.id}` : '历法：默认';
-                const items = Array.isArray(payload?.items) ? payload.items : [];
-                const list = items.length ? items.map(item => `• ${item?.name || ''} ${item?.month || ''}/${item?.day || ''}`).join('\n') : '没有节日条目';
-                return `${calLine}\n${list}`;
-            },
-            summary: payload => `${Array.isArray(payload?.items) ? payload.items.length : 0} 条`,
-            afterRestore: () => {
-                if (axisState.almanacMode) renderAlmanacPanel();
-                syncLatestAlmanacBlock();
-                syncLatestScheduleBlock();
-            },
-        });
-    }
-    if (kind === 'ledger') {
-        const read = () => ledger.snapshotLedgerState();
-        return openModuleHistory({
-            ...shared,
-            title: '刻度 · 历史版本',
-            confirmRestore: true,
-            confirmTitle: '确认恢复刻度历史版本',
-            confirmBody: '会整表回到这一版，之后标注进去的条目也会一起消失。确定恢复？',
-            readStore: read,
-            isCurrent: baseline => stillHere() && sameHistorySnapshot(read(), baseline),
-            writeStore: value => ledger.replaceLedgerStateAtomic(value, { guard: stillHere }),
-            adapter: ledgerAdapter,
-            preview: payload => {
-                const entries = Array.isArray(payload?.entries) ? payload.entries : [];
-                return entries.length ? entries.map(entry => `• ${entry?.事由 || entry?.id || ''}（${entry?.状态 || ''}）`).join('\n') : '此版本没有刻度条目';
-            },
-            summary: payload => `${Array.isArray(payload?.entries) ? payload.entries.length : 0} 条`,
-            afterRestore: () => {
-                if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel();
-                refreshLedgerInjection();
-                refreshInlineWindow(true);
-            },
-        });
-    }
-    return Promise.resolve(false);
-}
+const historyHost = createHistoryHost({
+    getContext,
+    toast: showToast,
+    dialog: customDialog,
+    readStore,
+    writeStoreConfirmed,
+    pointKey: () => getCacheKey(currentView, charViewName),
+    linesKey: () => getLinesCacheKey(),
+    dashedKey: () => keyDesc('dashed', 'user', ''),
+    outlineKey: () => keyDesc('outline', 'user', ''),
+    almanacKey: getAlmanacKey,
+    readAxis: readAxisHistoryStore,
+    saveCalDesc,
+    snapshotLedger: () => ledger.snapshotLedgerState(),
+    replaceLedger: (value, options) => ledger.replaceLedgerStateAtomic(value, options),
+    afterRestore: {
+        point: () => {
+            refreshCachedSchedule(currentView, charViewName, {
+                setCached: html => { pointState.cachedSchedule = html; },
+                setBody,
+                visible: true,
+            });
+            syncLatestScheduleBlock();
+            refreshInlineWindow(true);
+            refreshStoryClockInjection({ announce: true });
+        },
+        lines: () => {
+            linesFeature.refreshPanel();
+            syncLatestInlineBlock();
+            refreshInlineWindow(true);
+            refreshStoryClockInjection({ announce: true });
+        },
+        dashed: () => {
+            linesFeature.refreshPanel();
+            refreshInlineWindow(true);
+        },
+        outline: () => {
+            outlineFeature.refreshPanel();
+            outlineFeature.injection?.refresh?.();
+            refreshStoryClockInjection({ announce: true });
+        },
+        axis: () => {
+            if (axisState.almanacMode) renderAlmanacPanel();
+            syncLatestAlmanacBlock();
+            syncLatestScheduleBlock();
+        },
+        ledger: () => {
+            if (axisState.almanacMode && axisState._almanacSheet === 'ledger') renderAlmanacPanel();
+            refreshLedgerInjection();
+            refreshInlineWindow(true);
+        },
+    },
+});
+function openBookHistory(kind) { return historyHost.open(kind); }
 
 function injectModal() {
     panelHost.mount();
@@ -3809,43 +3720,6 @@ async function generate(ctx, userName, charName, perspective = 'user', signal = 
 function charStableKey(ctx) {
     const c = ctx?.characters?.[ctx?.characterId];
     return c?.avatar || null;   // 无角色（群聊/未选卡）→ null，各 getter 守卫返回默认
-}
-
-// 当前聊天共享的历/点日期锚（{month, day}），可含人工校准；pending/unresolved 不是有效锚。
-// 完整故事时间戳在恢复自动后可重新接管日期来源。
-function getDateAnchor(charKey) {
-    if (!charKey) return null;
-    const local = chatAnchorRepository.get();
-    if (local && (local.status === 'unresolved' || local.status === 'pending')) return null;
-    if (local) {
-        const cal = loadCalDesc();
-        if (local.calibration) {
-            if (!local.calibration || !Number.isInteger(local.calibration.weekday)) return null;
-            const current = latestStoryClockPure(getContext(), ALM_CHAT_SCAN_LIMIT);
-            // 半残 SDC 只能作为人工校准的日期相位，不能提前停用校准；
-            // 只有当前 AI 楼的 start/end 两侧都完整且无重复歧义时才允许接管。
-            if (completeStoryClockPure(current)) {
-                const calibrationFloor = local.calibration?.floor;
-                if (!Number.isInteger(calibrationFloor) || current.floor !== calibrationFloor) return null;
-            }
-        }
-        return local.month >= 1 && local.month <= calMonthCount(cal) && local.day >= 1 && local.day <= calMonthDays(cal, local.month) ? { month: local.month, day: local.day, ...(local.year != null ? { year: local.year } : {}), ...(local.eraLabel ? { eraLabel: local.eraLabel } : {}), ...(local.time ? { time: local.time } : {}) } : null;
-    }
-    return null;
-}
-
-function getStoryCalibration(charKey) {
-    if (!charKey) return null;
-    const local = chatAnchorRepository.get();
-    if (!local?.calibration) return null;
-    const cal = loadCalDesc();
-    if (local.month < 1 || local.month > calMonthCount(cal) || local.day < 1 || local.day > calMonthDays(cal, local.month)) return null;
-    if (!Number.isInteger(local.calibration.weekday) || local.calibration.weekday < 0 || local.calibration.weekday > 6) return null;
-    return { month: local.month, day: local.day, refMonth: local.calibration.refMonth ?? local.month, refDay: local.calibration.refDay ?? local.day, weekday: local.calibration.weekday, floor: local.calibration.floor, sourceFloor: local.calibration.sourceFloor, swipe: local.calibration.swipe };
-}
-
-function setDateAnchor(charKey, month, day, source = 'explicit', options = {}) {
-    return axisDateActions.saveAnchor(charKey, month, day, source, options);
 }
 
 // ─── Per-character narrative scale ──────────────────────────────────────────
