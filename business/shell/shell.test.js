@@ -102,6 +102,9 @@ function switchHost(over = {}) {
         enterSlip: () => calls.push('enterSlip'),
         slipOn: () => false,
         slip: { close: () => calls.push('slip.close') },
+        lawOn: () => false,
+        enterLaw: () => calls.push('enterLaw'),
+        law: { close: () => calls.push('law.close') },
         coordinate: { close: () => calls.push('coordinate.close') },
         currentView: () => 'char',
         setView: view => calls.push(`setView:${view}`),
@@ -142,6 +145,19 @@ test('side tab to 笺 opens once and leaving flushes', () => {
     assert.equal(again.status, 'same');
     handlePanelViewClick(h, btn({ view: 'schedule', side: true }));
     assert.ok(calls.includes('slip.close'));
+});
+
+test('side tab to 律 opens once and leaving closes', () => {
+    const { h, calls } = switchHost({
+        lawOn: () => calls.includes('enterLaw'),
+    });
+    const first = handlePanelViewClick(h, btn({ view: 'law', side: true }));
+    assert.equal(first.status, 'law');
+    assert.ok(calls.includes('enterLaw'));
+    const again = openSideView(h, 'law');
+    assert.equal(again.status, 'same');
+    handlePanelViewClick(h, btn({ view: 'schedule', side: true }));
+    assert.ok(calls.includes('law.close'));
 });
 
 test('leaving theater calls leave before opening schedule', () => {

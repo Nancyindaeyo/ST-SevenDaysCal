@@ -34,6 +34,9 @@ function envSpy() {
         invalidateSlip: push('invalidateSlip'),
         refreshSlipEmpty: push('refreshSlipEmpty'),
         refreshSlipFromStore: push('refreshSlipFromStore'),
+        invalidateLaw: push('invalidateLaw'),
+        refreshLawEmpty: push('refreshLawEmpty'),
+        refreshLawFromStore: push('refreshLawFromStore'),
     };
 }
 
@@ -43,6 +46,7 @@ test('store-clear invalidate routes kinds without mixing outline and lines', () 
     dispatchStoreClearInvalidate('creative-chat', env);
     dispatchStoreClearInvalidate('dashed', env);
     dispatchStoreClearInvalidate('slip', env);
+    dispatchStoreClearInvalidate('law', env);
     assert.deepEqual(env.calls, [
         ['trace', 'schedule'],
         ['abortSchedule'],
@@ -52,6 +56,8 @@ test('store-clear invalidate routes kinds without mixing outline and lines', () 
         ['abortDashed'],
         ['trace', 'slip'],
         ['invalidateSlip', 'slip'],
+        ['trace', 'law'],
+        ['invalidateLaw', 'law'],
     ]);
 });
 
@@ -60,12 +66,14 @@ test('successful kind clear paints empty editors; rollback rereads store', () =>
     dispatchStoreClearRefreshAfter('schedule', after);
     dispatchStoreClearRefreshAfter('lines', after);
     dispatchStoreClearRefreshAfter('slip', after);
-    assert.deepEqual(after.calls.map(row => row[0]), ['refreshScheduleEmpty', 'refreshLinesEmpty', 'refreshSlipEmpty']);
+    dispatchStoreClearRefreshAfter('law', after);
+    assert.deepEqual(after.calls.map(row => row[0]), ['refreshScheduleEmpty', 'refreshLinesEmpty', 'refreshSlipEmpty', 'refreshLawEmpty']);
     const from = envSpy();
     dispatchStoreClearRefreshFromStore('schedule', from);
     dispatchStoreClearRefreshFromStore('dashed', from);
     dispatchStoreClearRefreshFromStore('slip', from);
-    assert.deepEqual(from.calls.map(row => row[0]), ['refreshScheduleFromStore', 'refreshDashedFromStore', 'refreshSlipFromStore']);
+    dispatchStoreClearRefreshFromStore('law', from);
+    assert.deepEqual(from.calls.map(row => row[0]), ['refreshScheduleFromStore', 'refreshDashedFromStore', 'refreshSlipFromStore', 'refreshLawFromStore']);
     assert.match(STORE_CLEAR_EMPTY_SCHEDULE_HTML, /sp-gen-schedule-now/);
     assert.match(STORE_CLEAR_EMPTY_LINES_HTML, /sp-gen-lines-now/);
 });

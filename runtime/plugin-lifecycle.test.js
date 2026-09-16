@@ -55,6 +55,7 @@ function host(overrides = {}) {
         reloadOutlineChatIfOpen: () => calls.push('reloadOutlineChatIfOpen'),
         coordinate: track(calls, 'coordinate'),
         slip: track(calls, 'slip'),
+        law: track(calls, 'law'),
         showFab: () => calls.push('showFab'),
         hideFab: () => calls.push('hideFab'),
         backfillInline: () => calls.push('backfillInline'),
@@ -66,6 +67,7 @@ function host(overrides = {}) {
         clearLinesInjection: () => calls.push('clearLinesInjection'),
         clearOutlineInjection: () => calls.push('clearOutlineInjection'),
         clearLedgerInjection: () => calls.push('clearLedgerInjection'),
+        clearLawInjection: () => calls.push('clearLawInjection'),
         refreshStoryClock: opts => calls.push(['refreshStoryClock', opts]),
         paintPaceSoon: () => calls.push('paintPaceSoon'),
         ...overrides,
@@ -93,6 +95,8 @@ test('disabling the plugin aborts first, then clears chat injections', () => {
     applyPluginEnabled(h, false);
     const names = h.calls.map(item => Array.isArray(item) ? item[0] : item);
     assert.ok(names.indexOf('slip.flush') < names.indexOf('coordinate.close'));
+    assert.ok(names.indexOf('law.flush') < names.indexOf('coordinate.close'));
+    assert.ok(names.includes('clearLawInjection'));
     assert.ok(names.indexOf('coordinate.close') < names.indexOf('traceAbort'));
     assert.ok(names.indexOf('clearInline') < names.indexOf('traceAbort'));
     assert.ok(names.indexOf('memory.abortAll') < names.indexOf('clearLinesInjection'));

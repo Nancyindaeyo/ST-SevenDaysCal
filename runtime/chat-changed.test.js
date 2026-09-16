@@ -36,6 +36,7 @@ function host(overrides = {}) {
         outline: track(calls, 'outline'),
         space: track(calls, 'space'),
         slip: track(calls, 'slip'),
+        law: track(calls, 'law'),
         activity: track(calls, 'activity'),
         dashed: track(calls, 'dashed'),
         theater: track(calls, 'theater'),
@@ -67,6 +68,7 @@ function host(overrides = {}) {
         refreshLinesInjection: () => calls.push('injLines'),
         refreshStoryClock: () => calls.push('injClock'),
         refreshLedgerInjection: () => calls.push('injLedger'),
+        refreshLawInjection: () => calls.push('injLaw'),
         setChatId(next) { chatId = next; },
         ...overrides,
     };
@@ -81,6 +83,8 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.ok(names.indexOf('begin') < names.indexOf('load'));
     assert.ok(names.indexOf('space.onChatChanged') < names.indexOf('migrate'));
     assert.ok(names.includes('slip.onChatChanged'));
+    assert.ok(names.includes('law.onChatChanged'));
+    assert.ok(names.includes('injLaw'));
     assert.ok(names.includes('refresh.abort'));
     assert.ok(names.includes('floorQueue.abort'));
     assert.ok(names.includes('floorQueue.resetFailed'));

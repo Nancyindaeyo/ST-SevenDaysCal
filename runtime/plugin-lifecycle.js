@@ -70,6 +70,7 @@ export function applyPluginEnabled(h, on) {
         try { h.applyBoundCalendar?.(); } catch {}
     } else {
         try { h.slip?.flush?.(); } catch {}
+        try { h.law?.flush?.(); } catch {}
         try { h.coordinate?.close?.(); } catch {}
         try { h.hideFab?.(); } catch {}
         try { h.clearInline?.(); } catch {}
@@ -77,6 +78,7 @@ export function applyPluginEnabled(h, on) {
         try { h.clearLinesInjection?.(); } catch {}
         try { h.clearOutlineInjection?.(); } catch {}
         try { h.clearLedgerInjection?.(); } catch {}
+        try { h.clearLawInjection?.(); } catch {}
     }
     try { h.refreshStoryClock?.({ announce: true }); } catch {}
     try { h.paintPaceSoon?.(); } catch {}

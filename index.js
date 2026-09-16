@@ -30,6 +30,8 @@ import { createCoordinateRuntime, getCoordinateRuntime } from './business/coordi
 import { enterCoordinateSidebar } from './business/coordinate/ui.js';
 import { createSlipFeature } from './business/slip/feature.js';
 import { enterSlipSidebar } from './business/slip/ui.js';
+import { createLawFeature } from './business/law/feature.js';
+import { enterLawSidebar } from './business/law/ui.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
@@ -1363,6 +1365,9 @@ const MODULE_INTROS = {
     slip:
         _iLede('「笺」是只给你看的作者私笺：下章想坑谁、不要写的东西、这张卡的私设。跟这一次聊天走，和坐标的全局收藏分开。') +
         _iSub('永远不进主楼、间、引导、点/线/面生成或柏宝书。没有「拿去生成」按钮。切聊天会换一份笺。'),
+    law:
+        _iLede('「律」是这一次聊天的短合同：几条必须遵守的红线或文风句。默认不进模型；勾选「注入主楼」并且设置里的潜伏注入总闸也开着，才每轮塞进主楼。') +
+        _iSub('和世界书蓝灯 D0 同类，但这份只跟这次聊天走。笺永不进模型。律不审稿、不代写正文。'),
 };
 
 let lastDebugPayload = null;
@@ -1479,7 +1484,7 @@ const apiPresetUi = createApiPresetUi({
 
 let settingsOpen   = false;
 let currentView        = 'user';  // 'user' | 'char'
-let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
+let _lastMainView      = 'schedule';  // 记住上次打开的模块视图（点/历/线/面/间/棱/坐标/笺/律），同 chat 内跨开关面板保留；切 chat 复位成 schedule（第一页），见 CHAT_CHANGED
 let charViewName       = null;    // confirmed char name; preserved when switching to user view
 let outlineMode         = false;
 let linesMode           = false;
@@ -1975,6 +1980,14 @@ const slipFeature = createSlipFeature({
     writeStore,
     $in,
 });
+const lawFeature = createLawFeature({
+    context: getContext,
+    keyDesc,
+    readStore,
+    writeStore,
+    injectEnabled,
+    $in,
+});
 let theaterMode          = false;
 let beatFeature          = null;
 const refreshController = createRefreshController({
@@ -2442,6 +2455,7 @@ jQuery(async () => {
         outline: outlineFeature,
         space: spaceFeature,
         slip: slipFeature,
+        law: lawFeature,
         activity: activityFeature,
         dashed: linesFeature.dashed,
         theater: theaterFeature,
@@ -2529,6 +2543,7 @@ jQuery(async () => {
         refreshLinesInjection,
         refreshStoryClock: refreshStoryClockInjection,
         refreshLedgerInjection,
+        refreshLawInjection: () => lawFeature.refreshInjection(),
     });
     eventSource.on(event_types.CHAT_CHANGED, _stListeners.chat);
     // 首屏补迁移：扩展初始化时当前 chat 往往已 ready（CHAT_CHANGED 早已错过），
@@ -2689,6 +2704,7 @@ const pluginLifecycle = createPluginLifecycle({
     outline: outlineFeature,
     space: spaceFeature,
     slip: slipFeature,
+    law: lawFeature,
     dashed: linesFeature.dashed,
     refresh: refreshController,
     floorQueue,
@@ -2719,6 +2735,7 @@ const pluginLifecycle = createPluginLifecycle({
     clearLinesInjection: () => linesFeature.injection?.clear?.(),
     clearOutlineInjection: () => outlineFeature.injection.clear(),
     clearLedgerInjection: () => ledgerInjectionController.clear(),
+    clearLawInjection: () => lawFeature.clearInjection(),
     refreshStoryClock: opts => refreshStoryClockInjection(opts),
     paintPaceSoon,
 });
@@ -3330,6 +3347,7 @@ function injectModal() {
 
     spaceFeature.bindUi();
     slipFeature.bindUi();
+    lawFeature.bindUi();
     beatFeature.bindUi();
     bindLinesPanel({
         $, $in, $chat: $('#chat'),
@@ -3466,6 +3484,7 @@ function injectModal() {
             activity: activityFeature,
             theaterOn: () => theaterMode,
             slipOn: () => slipFeature.isOpen(),
+            lawOn: () => lawFeature.isOpen(),
             get theater() { return theaterFeature; },
             closeTaDrawer: () => taDrawer.close(),
             toggleTaDrawer: () => taDrawer.toggle(),
@@ -3522,7 +3541,13 @@ function injectModal() {
                 show: () => showPanelView($in, 'slip'),
                 feature: slipFeature,
             }),
+            enterLaw: () => enterLawSidebar({
+                resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
+                show: () => showPanelView($in, 'law'),
+                feature: lawFeature,
+            }),
             get slip() { return slipFeature; },
+            get law() { return lawFeature; },
             get coordinate() { return coordinateRuntime?.feature; },
             currentView: () => currentView,
             setView,
@@ -3573,6 +3598,7 @@ function injectModal() {
         refreshLinesInjection,
         refreshOutlineInjection: () => outlineFeature.injection.refresh(),
         refreshLedgerInjection,
+        refreshLawInjection: () => lawFeature.refreshInjection(),
         refreshStoryClockInjection,
         refreshInline: refreshInlineWindow,
         backfillInline: backfillLinesInlineBlocks,
@@ -3678,6 +3704,7 @@ function refreshCharPinIcon() { return panelHost.refreshCharPinIcon(); }
 // false 却不动 DOM，若这里再按标志判断就会漏隐藏 → 出现「点 + 坐标」同屏。故一律硬隐藏。
 function resetPanelToScheduleHome() {
     slipFeature.close();
+    lawFeature.close();
     outlineMode = linesMode = spaceMode = theaterMode = axisState.almanacMode = false;
     axisState._almanacEditor = null;
     resetLedgerRenderState();
@@ -4745,6 +4772,7 @@ function storeClearHost() {
         abortLines: () => linesFeature.abortGeneration({ reason: 'store-clear' }),
         invalidateSpace: kind => spaceFeature.invalidateStoreKind(kind),
         invalidateSlip: kind => slipFeature.invalidateStoreKind(kind),
+        invalidateLaw: kind => lawFeature.invalidateStoreKind(kind),
         abortDashed: () => linesFeature.dashed.abort('store-clear'),
         refreshScheduleEmpty() {
             pointState.cachedSchedule = null;
@@ -4766,6 +4794,7 @@ function storeClearHost() {
         refreshCreativeEmpty: kind => outlineFeature.refreshAfterStoreClear(kind),
         refreshSpaceEmpty: kind => spaceFeature.refreshAfterStoreClear(kind),
         refreshSlipEmpty: kind => slipFeature.refreshAfterStoreClear(kind),
+        refreshLawEmpty: kind => lawFeature.refreshAfterStoreClear(kind),
         refreshScheduleFromStore() {
             const key = getCacheKey(currentView, charViewName);
             const saved = readStore(key);
@@ -4785,6 +4814,7 @@ function storeClearHost() {
         refreshCreativeFromStore: kind => outlineFeature.refreshFromStore(kind),
         refreshSpaceFromStore: kind => spaceFeature.refreshFromStore(kind),
         refreshSlipFromStore: kind => slipFeature.refreshFromStore(kind),
+        refreshLawFromStore: kind => lawFeature.refreshFromStore(kind),
         refreshDashedFromStore() {
             linesFeature.dashed.resetError();
             if (linesMode) linesFeature.refreshPanel();

@@ -18,6 +18,7 @@ export async function runChatChanged(h) {
     h.outline?.onChatChanged?.({ lastSeen });
     h.space?.onChatChanged?.({ enabled: h.pluginEnabled?.() });
     h.slip?.onChatChanged?.();
+    h.law?.onChatChanged?.();
     h.activity?.onChatChanged?.();
     h.activity?.close?.();
     h.dashed?.abort?.(REASON);
@@ -71,5 +72,6 @@ export async function runChatChanged(h) {
     h.refreshLinesInjection?.();
     h.refreshStoryClock?.();
     h.refreshLedgerInjection?.();
+    h.refreshLawInjection?.();
     return { status: 'ready', mig, idMig };
 }

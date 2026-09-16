@@ -40,6 +40,7 @@ test('almanac kind clear is blocked so calendar uses the exact dataKey path', ()
     assert.match(kindClearDetail('almanac', '轴'), /节日、生日、纪念日/);
     assert.match(kindClearDetail('lines', '线（伏笔）'), /我方 \/ TA 方视角都会一并清掉/);
     assert.match(kindClearDetail('slip', '笺（作者私笺）'), /从不进任何生成上下文/);
+    assert.match(kindClearDetail('law', '律（作者合同）'), /从主楼提示词里撤掉/);
 });
 
 test('own-key clear routes ledger and theater away from generic wipe', () => {

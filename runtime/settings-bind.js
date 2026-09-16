@@ -59,6 +59,7 @@ export function bindSettingsPanel(env = {}) {
             env.refreshLinesInjection?.();
             env.refreshOutlineInjection?.();
             env.refreshLedgerInjection?.();
+            env.refreshLawInjection?.();
         },
     });
     bindCheck($in, '#sp-lines-enabled', 'linesEnabled', {

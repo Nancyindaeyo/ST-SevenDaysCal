@@ -5724,6 +5724,26 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     line-height: 1.55;
 }
 
+#sp-law-wrap {
+    overflow: hidden;
+}
+.sp-law-inject-row {
+    flex: 0 0 auto;
+    margin: 10px 12px 0;
+}
+.sp-law-hint {
+    flex: 0 0 auto;
+    margin: 4px 12px 0;
+}
+.sp-law-textarea {
+    flex: 1;
+    min-height: 0;
+    width: calc(100% - 24px);
+    margin: 8px 12px 12px;
+    resize: none;
+    line-height: 1.55;
+}
+
 /* 角色层 / 聊天桶 / 缩略卡片 共用列容器 */
 .sp-anchor-char-list, .sp-anchor-chat-list, .sp-anchor-item-list { display: flex; flex-direction: column; gap: 8px; }
 

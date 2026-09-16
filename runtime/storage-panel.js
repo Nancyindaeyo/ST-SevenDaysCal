@@ -9,6 +9,7 @@ export const STORAGE_KIND_LABELS = {
     'dashed'       : '虚线·冷知识',
     'almanac'      : '轴·日历条目（节日/生日/纪念日）',
     'slip'         : '笺（作者私笺）',
+    'law'          : '律（作者合同）',
 };
 
 export const STORAGE_OWNKEY_LABELS = {
@@ -49,6 +50,9 @@ export function kindClearDetail(kind, label) {
     }
     if (kind === 'slip') {
         return '仅删除本聊天的作者私笺。笺从不进任何生成上下文，清掉也不会改提示词。';
+    }
+    if (kind === 'law') {
+        return '仅删除本聊天的作者合同。若当时勾着注入，清掉后会从主楼提示词里撤掉。';
     }
     return `确定清除本聊天的「${label}」数据吗？我方 / TA 方视角都会一并清掉。`;
 }
