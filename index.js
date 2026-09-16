@@ -31,8 +31,8 @@ import { createSlipFeature } from './business/slip/feature.js';
 import { enterSlipSidebar } from './business/slip/ui.js';
 import { createLawFeature } from './business/law/feature.js';
 import { enterLawSidebar } from './business/law/ui.js';
-import { collectStageSnapshot, buildFestivalRows } from './business/stage/snapshot.js';
-import { createStageFeature, enterStageSidebar } from './business/stage/feature.js';
+import { enterStageSidebar } from './business/stage/feature.js';
+import { createStageHost } from './business/stage/host.js';
 import { createLampFeature, enterLampSidebar } from './business/lamp/feature.js';
 import { createLampHost } from './business/lamp/host.js';
 import { intentFromGuide } from './business/lamp/intent.js';
@@ -206,8 +206,7 @@ import { createChatBoundaryGate } from './runtime/generation-context.js';
 import { mountBackupOverlay as createBackupOverlay, mountMigrationOverlay as createMigrationOverlay } from './runtime/storage-overlay.js';
 import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, applyStoryClockToMessage, previousCompleteStoryClock, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
 import { createWeekdayConsumerContext } from './business/axis/weekday-coordinator.js';
-import { buildDateJudgePrompt as buildDateJudgePromptPure } from './business/axis/date-detection.js';
-import { createDateDetectionController } from './business/axis/date-detection.js';
+import { createDateDetectionHost } from './business/axis/date-detection-host.js';
 
 bindExternalChatStorage({ getContext, coreModule: scriptCore, fetchImpl: (...args) => globalThis.fetch(...args) });
 
@@ -1059,34 +1058,37 @@ const refreshStoryClockInjection = ({ announce = false } = {}) => {
 globalThis.addEventListener?.(STORY_CLOCK_COORDINATION_EVENT, event => { if (event?.detail?.owner !== 'sdc') refreshStoryClockInjection(); });
 const latestStoryClock = () => latestStoryClockPure(getContext(), ALM_CHAT_SCAN_LIMIT);
 const storyClockDate = () => storyClockDatePure(getContext(), parseJudgedDatePure, ALM_CHAT_SCAN_LIMIT);
-const dateDetectionController = createDateDetectionController({
-    context: () => captureGenerationContext(),
-    charKey: ctx => charStableKey(ctx),
+const dateDetection = createDateDetectionHost({
+    captureGenerationContext,
+    charStableKey,
+    getContext,
     config: loadUtilityCfg,
     storyEnabled: storyClockEnabled,
     storyDate: storyClockDate,
-    storyClock: () => latestStoryClockPure(getContext(), ALM_CHAT_SCAN_LIMIT),
-    completeStoryClock: clock => completeStoryClockPure(clock),
+    storyClock: latestStoryClock,
+    completeStoryClock: completeStoryClockPure,
     identity: latestStoryOwnerIdentity,
-    getCalibration: () => getStoryCalibration(charStableKey(getContext())),
-    prompt: () => buildDateJudgePromptPure(getCalDescInjectText()),
+    getCalibration: getStoryCalibration,
+    calendarInjectText: getCalDescInjectText,
     callApi: callCustomApi,
     parse: parseJudgedDatePure,
     bridge: bridgeAbortSignal,
     getAnchor: getDateAnchor,
     setAnchor: setDateAnchor,
-    setAnchorConfirmed: (_charKey, month, day, source, anchorOptions, persistenceOptions) => chatAnchorRepository.setConfirmed(month, day, source, anchorOptions, persistenceOptions),
+    setAnchorConfirmed: (month, day, source, anchorOptions, persistenceOptions) =>
+        chatAnchorRepository.setConfirmed(month, day, source, anchorOptions, persistenceOptions),
     settings: getSettings,
-    monthName: month => calMonthName(loadCalDesc(), month),
+    loadCalendar: loadCalDesc,
+    monthName: calMonthName,
     toast: showToast,
-    logDiagnostic: diagnostic => console.warn('[SP axis failure]', diagnostic),
-    aftermath: info => runAnchorAftermath('story', info),
+    aftermath: runAnchorAftermath,
     captureParticipantIdentity,
     sameParticipantIdentity,
 });
-const applyDetectedDate = (charKey, md, { notify = true } = {}) => dateDetectionController.apply(charKey, md, notify);
-const relandStoryClockAnchor = options => dateDetectionController.reland(options);
-const runJudgeDateStep = options => dateDetectionController.run(options);
+const dateDetectionController = dateDetection.controller;
+const applyDetectedDate = (charKey, md, options) => dateDetection.applyDetectedDate(charKey, md, options);
+const relandStoryClockAnchor = options => dateDetection.reland(options);
+const runJudgeDateStep = options => dateDetection.run(options);
 const timeTravel = createTimeTravelHost({
     getChatId: () => getContext().chatId,
     getChat: () => getContext().chat,
@@ -1850,44 +1852,28 @@ const lawFeature = createLawFeature({
     injectEnabled,
     $in,
 });
-function collectStageSnapshotHost() {
-    const cal = loadCalDesc();
-    const evidence = almTodayAnchorEvidence();
-    const anchor = evidence || almTodayAnchor();
-    const todayLabel = evidence
-        ? formatPointDayDate({ year: almStoryYear(evidence), month: evidence.month, day: evidence.day })
-        : '';
-    let days = [];
-    try {
-        const saved = readStore(getCacheKey('user', ''));
-        if (saved?.raw) days = parseCalendar(saved.raw, cal)?.days || [];
-    } catch { days = []; }
-    const festivals = buildFestivalRows(loadAlmanac() || [], {
-        cal,
-        anchor,
-        daysUntil: almDaysUntil,
-        dayOfYear: almDayOfYear,
-        coversDoy: almItemCoversDoy,
-        clampInt: almClampInt,
-        yearLen: calYearLen,
-        sort: sortAlmanacUpcoming,
-    });
-    const ledgerEntries = (ledger.listEntries() || []).map(entry => ({
-        ...entry,
-        due: ledgerDueInfo(entry),
-    }));
-    let lines = [];
-    try {
-        lines = activeLines(readStore(getLinesCacheKey())?.raw || '');
-    } catch { lines = []; }
-    return collectStageSnapshot({ todayLabel, days, festivals, ledger: ledgerEntries, lines });
-}
-const stageFeature = createStageFeature({
-    collect: collectStageSnapshotHost,
+const stageHost = createStageHost({
+    calendar: loadCalDesc,
+    todayEvidence: almTodayAnchorEvidence,
+    todayAnchor: almTodayAnchor,
+    formatDayDate: formatPointDayDate,
+    storyYear: almStoryYear,
+    readPoint: () => readStore(getCacheKey('user', '')),
+    loadAlmanac,
+    daysUntil: almDaysUntil,
+    dayOfYear: almDayOfYear,
+    coversDoy: almItemCoversDoy,
+    clampInt: almClampInt,
+    yearLen: calYearLen,
+    sortUpcoming: sortAlmanacUpcoming,
+    listLedger: () => ledger.listEntries() || [],
+    dueInfo: ledgerDueInfo,
+    readLinesRaw: () => readStore(getLinesCacheKey())?.raw || '',
     jump: openActivityItem,
     $in,
     onOpen: () => beatFeature.ui?.render?.(),
 });
+const stageFeature = stageHost.feature;
 const lampHost = createLampHost({
     calendar: loadCalDesc,
     settings: getSettings,
