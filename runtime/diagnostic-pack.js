@@ -1,4 +1,5 @@
 import { PLUGIN_VERSION } from '../version.js';
+import { detectPromptContractConflicts, promptContractCatalog } from './prompt-contracts.js';
 
 const SETTING_FLAGS = Object.freeze([
     'pluginEnabled',
@@ -52,6 +53,8 @@ export function jobsFromQueue(queue = null) {
     for (const item of queue?.queued || []) push(item, 'queued');
     for (const item of queue?.failed || []) push(item, 'failed');
     for (const item of queue?.skipped || []) push(item, 'skipped');
+    for (const item of queue?.rejected || []) push(item, 'rejected');
+    for (const item of queue?.cancelled || []) push(item, 'cancelled');
     return jobs;
 }
 
@@ -83,7 +86,7 @@ export function buildDiagnosticOverview({ queue = null, activity = [], safeLogs 
     }
     for (const item of Array.isArray(safeLogs) ? safeLogs : []) {
         if (item?.status !== 'failed' && item?.status !== 'rejected') continue;
-        errors.push(errorItem('trace', `${item.module || '运行时'} · ${item.phase || item.event || '失败'}`, item.reasonCode || item.errorClass, {
+        errors.push(errorItem('trace', `${item.module || '运行时'} · ${item.phase || item.event || '失败'}`, item.detail || item.reasonCode || item.errorClass, {
             module: item.module,
             floorId: item.floor,
             ts: item.ts,
@@ -131,6 +134,8 @@ export function buildSafeDiagnosticPack({
         format: 'st-sevendayscal-safe-pack',
         version: 1,
         pluginVersion: String(pluginVersion || PLUGIN_VERSION),
+        promptContracts: promptContractCatalog(),
+        promptContractConflicts: detectPromptContractConflicts(settings.customPrompt).map(item => item.code),
         exportedAt,
         userNote: String(userNote || '').trim().slice(0, 400),
         chat: {
@@ -148,6 +153,8 @@ export function buildSafeDiagnosticPack({
             queued: queue.queued || [],
             failed: queue.failed || [],
             skipped: queue.skipped || [],
+            rejected: queue.rejected || [],
+            cancelled: queue.cancelled || [],
         } : null,
         jobs: jobsFromQueue(queue),
         activity: compactActivityEntries(activity),

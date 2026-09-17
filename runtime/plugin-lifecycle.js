@@ -59,29 +59,88 @@ export function abortAllBackground(h, reason = PLUGIN_DISABLE_REASON) {
     for (const spec of BACKGROUND_ABORT_PORTS) invokeAbortPort(h, spec, reason);
 }
 
-export function applyPluginEnabled(h, on) {
-    if (on) {
-        try { h.theater?.openIfActive?.(); } catch {}
-        try { h.showFab?.(); } catch {}
-        try { h.backfillInline?.(); } catch {}
-        try { h.refreshOutlineInjection?.(); } catch {}
-        try { h.refreshCoordinateButtons?.(); } catch {}
-        try { h.refreshInline?.(); } catch {}
-        try { h.applyBoundCalendar?.(); } catch {}
-    } else {
-        try { h.slip?.flush?.(); } catch {}
-        try { h.law?.flush?.(); } catch {}
-        try { h.coordinate?.close?.(); } catch {}
-        try { h.hideFab?.(); } catch {}
-        try { h.clearInline?.(); } catch {}
-        abortAllBackground(h);
-        try { h.clearLinesInjection?.(); } catch {}
-        try { h.clearOutlineInjection?.(); } catch {}
-        try { h.clearLedgerInjection?.(); } catch {}
-        try { h.clearLawInjection?.(); } catch {}
+export const LIFECYCLE_EFFECTS = Object.freeze({
+    enable: Object.freeze([
+        Object.freeze({ port: 'theater.openIfActive', level: 'best-effort' }),
+        Object.freeze({ port: 'showFab', level: 'best-effort' }),
+        Object.freeze({ port: 'backfillInline', level: 'best-effort' }),
+        Object.freeze({ port: 'refreshOutlineInjection', level: 'critical' }),
+        Object.freeze({ port: 'refreshCoordinateButtons', level: 'best-effort' }),
+        Object.freeze({ port: 'refreshInline', level: 'best-effort' }),
+        Object.freeze({ port: 'applyBoundCalendar', level: 'best-effort' }),
+    ]),
+    disableBeforeAbort: Object.freeze([
+        Object.freeze({ port: 'slip.flush', level: 'critical' }),
+        Object.freeze({ port: 'law.flush', level: 'critical' }),
+        Object.freeze({ port: 'coordinate.close', level: 'best-effort' }),
+        Object.freeze({ port: 'hideFab', level: 'best-effort' }),
+        Object.freeze({ port: 'clearInline', level: 'best-effort' }),
+    ]),
+    disableAfterAbort: Object.freeze([
+        Object.freeze({ port: 'clearLinesInjection', level: 'critical' }),
+        Object.freeze({ port: 'clearOutlineInjection', level: 'critical' }),
+        Object.freeze({ port: 'clearLedgerInjection', level: 'critical' }),
+        Object.freeze({ port: 'clearLawInjection', level: 'critical' }),
+    ]),
+    finish: Object.freeze([
+        Object.freeze({ port: 'refreshStoryClock', level: 'critical', args: [{ announce: true }] }),
+        Object.freeze({ port: 'paintPaceSoon', level: 'best-effort' }),
+    ]),
+});
+
+function lifecycleFailure(spec, error) {
+    return Object.freeze({
+        port: spec.port,
+        level: spec.level,
+        critical: spec.level === 'critical',
+        message: String(error?.message || error || 'unknown-error').slice(0, 200),
+        errorClass: String(error?.name || 'error').toLowerCase(),
+    });
+}
+
+function reportLifecycleFailure(h, failure, failures, async = false) {
+    if (!async) failures.push(failure);
+    try { h.traceLifecycleFailure?.(failure); } catch {}
+    if (async) {
+        try { h.reportLifecycleFailures?.([failure]); } catch {}
     }
-    try { h.refreshStoryClock?.({ announce: true }); } catch {}
-    try { h.paintPaceSoon?.(); } catch {}
+}
+
+function invokeLifecycleEffect(h, spec, failures) {
+    const fn = readPath(h, spec.port);
+    if (typeof fn !== 'function') {
+        if (spec.level === 'critical') reportLifecycleFailure(h, lifecycleFailure(spec, new Error(`missing lifecycle port: ${spec.port}`)), failures);
+        return;
+    }
+    const ownerPath = spec.port.includes('.') ? spec.port.slice(0, spec.port.lastIndexOf('.')) : null;
+    const owner = ownerPath ? readPath(h, ownerPath) : h;
+    try {
+        const result = fn.apply(owner, spec.args || []);
+        if (result && typeof result.then === 'function') {
+            result.catch(error => reportLifecycleFailure(h, lifecycleFailure(spec, error), failures, true));
+        }
+    } catch (error) {
+        reportLifecycleFailure(h, lifecycleFailure(spec, error), failures);
+    }
+}
+
+export function applyPluginEnabled(h, on) {
+    const failures = [];
+    if (on) {
+        for (const spec of LIFECYCLE_EFFECTS.enable) invokeLifecycleEffect(h, spec, failures);
+    } else {
+        for (const spec of LIFECYCLE_EFFECTS.disableBeforeAbort) invokeLifecycleEffect(h, spec, failures);
+        try { abortAllBackground(h); }
+        catch (error) {
+            reportLifecycleFailure(h, lifecycleFailure({ port: 'abortAllBackground', level: 'critical' }, error), failures);
+        }
+        for (const spec of LIFECYCLE_EFFECTS.disableAfterAbort) invokeLifecycleEffect(h, spec, failures);
+    }
+    for (const spec of LIFECYCLE_EFFECTS.finish) invokeLifecycleEffect(h, spec, failures);
+    if (failures.length) {
+        try { h.reportLifecycleFailures?.(failures); } catch {}
+    }
+    return { ok: !failures.some(item => item.critical), failures };
 }
 
 export function createPluginLifecycle(h) {

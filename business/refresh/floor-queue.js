@@ -37,10 +37,21 @@ function sortJobs(jobs) {
 }
 
 function publicJob(job) {
-    return job ? { id: job.id, label: job.label || jobLabel(job.id), error: job.error || '', reason: job.reason || '' } : null;
+    return job ? {
+        id: job.id,
+        label: job.label || jobLabel(job.id),
+        error: job.error || '',
+        reason: job.reason || '',
+        enqueuedAt: Number(job.enqueuedAt) || 0,
+        startedAt: Number(job.startedAt) || 0,
+    } : null;
 }
 
 export function createFloorJobQueue(env = {}) {
+    const now = () => {
+        const value = Number(env.now?.());
+        return Number.isFinite(value) ? value : Date.now();
+    };
     let generation = 0;
     let floor = null;
     let jobs = [];
@@ -48,6 +59,8 @@ export function createFloorJobQueue(env = {}) {
     let queued = [];
     let failed = [];
     let skipped = [];
+    let rejected = [];
+    let cancelled = [];
     let busy = false;
 
     const snapshot = () => ({
@@ -57,6 +70,8 @@ export function createFloorJobQueue(env = {}) {
         queued: queued.map(publicJob),
         failed: failed.map(publicJob),
         skipped: skipped.map(publicJob),
+        rejected: rejected.map(publicJob),
+        cancelled: cancelled.map(publicJob),
     });
 
     const notify = () => { try { env.onChange?.(snapshot()); } catch {} };
@@ -78,6 +93,8 @@ export function createFloorJobQueue(env = {}) {
             running = null;
             failed = [];
             skipped = [];
+            rejected = [];
+            cancelled = [];
             notify();
         }
         if (!busy) floor = incoming;
@@ -85,14 +102,24 @@ export function createFloorJobQueue(env = {}) {
     };
 
     const enqueue = (job = {}) => {
-        if (!job?.id || typeof job.run !== 'function') return false;
-        if (running?.id === job.id || queued.some(item => item.id === job.id) || jobs.some(item => item.id === job.id)) return false;
+        const reject = reason => {
+            if (job?.id) {
+                rejected = [{ id: job.id, label: job.label || jobLabel(job.id), reason, enqueuedAt: now() }, ...rejected.filter(item => item.id !== job.id)].slice(0, 8);
+                notify();
+            }
+            return false;
+        };
+        if (!job?.id || typeof job.run !== 'function') return reject('invalid-job');
+        if (running?.id === job.id || queued.some(item => item.id === job.id) || jobs.some(item => item.id === job.id)) return reject('duplicate');
         const pending = {
             id: job.id,
             label: job.label || jobLabel(job.id),
             run: job.run,
             retry: job.retry || job.run,
+            enqueuedAt: now(),
         };
+        rejected = rejected.filter(item => item.id !== job.id);
+        cancelled = cancelled.filter(item => item.id !== job.id);
         if (busy) queued = sortJobs([...queued, pending]);
         else {
             jobs.push(pending);
@@ -129,7 +156,7 @@ export function createFloorJobQueue(env = {}) {
     };
 
     const runOne = async (job) => {
-        running = job;
+        running = { ...job, startedAt: now() };
         notify();
         let result;
         try {
@@ -157,7 +184,15 @@ export function createFloorJobQueue(env = {}) {
         notify();
         while (queued.length) {
             if (token !== generation) break;
-            if (!identityOk()) break;
+            if (!identityOk()) {
+                rejected = [
+                    ...queued.map(job => ({ ...job, reason: 'identity-changed' })),
+                    ...rejected,
+                ].slice(0, 8);
+                queued = [];
+                notify();
+                break;
+            }
             const job = queued.shift();
             await runOne(job);
         }
@@ -191,7 +226,22 @@ export function createFloorJobQueue(env = {}) {
     const resetFailed = () => {
         failed = [];
         skipped = [];
+        rejected = [];
+        cancelled = [];
         notify();
+    };
+
+    const cancelPending = (id) => {
+        const jobId = String(id || '');
+        if (!jobId) return { status: 'rejected', reason: 'missing-id' };
+        if (running?.id === jobId) return { status: 'rejected', reason: 'already-running' };
+        const pending = queued.find(item => item.id === jobId) || jobs.find(item => item.id === jobId);
+        if (!pending) return { status: 'rejected', reason: 'not-pending' };
+        queued = queued.filter(item => item.id !== jobId);
+        jobs = jobs.filter(item => item.id !== jobId);
+        cancelled = [{ ...pending, reason: 'manual-cancel', startedAt: 0 }, ...cancelled.filter(item => item.id !== jobId)].slice(0, 8);
+        notify();
+        return { status: 'cancelled', id: jobId };
     };
 
     return {
@@ -200,10 +250,13 @@ export function createFloorJobQueue(env = {}) {
         drain,
         abort,
         retry,
+        cancelPending,
         resetFailed,
         snapshot,
         get busy() { return busy; },
         get failed() { return failed.map(publicJob); },
         get skipped() { return skipped.map(publicJob); },
+        get rejected() { return rejected.map(publicJob); },
+        get cancelled() { return cancelled.map(publicJob); },
     };
 }

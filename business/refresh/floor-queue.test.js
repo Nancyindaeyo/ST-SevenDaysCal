@@ -31,6 +31,8 @@ test('stale identity stops remaining jobs without burning them as failures', asy
     await queue.drain();
     assert.deepEqual(ran, ['align']);
     assert.equal(queue.snapshot().failed.length, 0);
+    assert.equal(queue.snapshot().rejected[0].id, 'advance');
+    assert.equal(queue.snapshot().rejected[0].reason, 'identity-changed');
 });
 
 test('a new idle floor drops leftover failures so the red glow can go out', async () => {
@@ -101,4 +103,28 @@ test('a same-floor job enqueued while draining is retained and runs once', async
     const result = await draining;
     assert.deepEqual(ran, ['align', 'advance']);
     assert.equal(result.busy, false);
+});
+
+test('pending jobs expose timestamps and can be cancelled before they run', async () => {
+    let tick = 100;
+    const queue = createFloorJobQueue({
+        identityCurrent: () => true,
+        now: () => tick++,
+    });
+    queue.beginFloor({ chatId: 'c', floorId: 4 });
+    queue.enqueue({ id: 'advance', run: async () => ({ status: 'updated' }) });
+    assert.equal(queue.snapshot().queued[0].enqueuedAt, 100);
+    assert.deepEqual(queue.cancelPending('advance'), { status: 'cancelled', id: 'advance' });
+    assert.equal(queue.snapshot().queued.length, 0);
+    assert.equal(queue.snapshot().cancelled[0].reason, 'manual-cancel');
+    await queue.drain();
+});
+
+test('duplicate enqueue records a visible rejection reason', () => {
+    const queue = createFloorJobQueue({ identityCurrent: () => true, now: () => 200 });
+    queue.beginFloor({ chatId: 'c', floorId: 4 });
+    queue.enqueue({ id: 'align', run: async () => ({ status: 'updated' }) });
+    assert.equal(queue.enqueue({ id: 'align', run: async () => ({ status: 'updated' }) }), false);
+    assert.equal(queue.snapshot().rejected[0].id, 'align');
+    assert.equal(queue.snapshot().rejected[0].reason, 'duplicate');
 });

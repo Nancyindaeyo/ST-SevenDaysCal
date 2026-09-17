@@ -4,7 +4,7 @@ import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorU
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
-import { activityOverlayHtml, activityClockLabel, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
+import { activityOverlayHtml, activityClockLabel, authorChangeSummary, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
 
 test('normalize activity entry keeps undo snapshot', () => {
     const entry = normalizeActivityEntry({
@@ -229,10 +229,59 @@ test('activity cards keep align notes and mark a restyled floor', () => {
 test('queue status shows idle, running, wait and retryable failures', () => {
     assert.match(renderQueueStatus(null), /这楼后台空闲/);
     assert.match(renderQueueStatus({ running: { id: 'align', label: '对齐' }, queued: [{ id: 'advance', label: '推进' }] }), /正在对齐/);
-    assert.match(renderQueueStatus({ running: { id: 'align', label: '对齐' }, queued: [{ id: 'advance', label: '推进' }] }), /接着 推进/);
+    assert.match(renderQueueStatus({ running: { id: 'align', label: '对齐' }, queued: [{ id: 'advance', label: '推进' }] }), /等待 推进/);
     const failed = renderQueueStatus({ failed: [{ id: 'dashed', label: '冷知识' }] });
     assert.match(failed, /data-queue-retry="dashed"/);
     assert.match(failed, /冷知识失败/);
+    const observable = renderQueueStatus({
+        queued: [{ id: 'advance', label: '推进', enqueuedAt: Date.now() }],
+        rejected: [{ id: 'align', label: '对齐', reason: 'duplicate' }],
+    });
+    assert.match(observable, /data-queue-cancel="advance"/);
+    assert.match(observable, /重复任务已合并/);
+});
+
+test('author change summary keeps completed changes and omits failed attempts', () => {
+    const text = authorChangeSummary([
+        normalizeActivityEntry({
+            source: 'advance',
+            outcome: 'patched',
+            note: '调查往前走了一拍',
+            items: [{ module: 'lines', title: '调查', action: 'advance' }],
+            ts: 1,
+        }),
+        normalizeActivityEntry({
+            source: 'outline',
+            outcome: 'failed',
+            error: '格式错误',
+            ts: 2,
+        }),
+    ], { clockLabel: '当前时间戳 5月1日' });
+    assert.match(text, /本轮变更摘要/);
+    assert.match(text, /当前时间戳 5月1日/);
+    assert.match(text, /调查往前走了一拍/);
+    assert.doesNotMatch(text, /格式错误/);
+});
+
+test('activity feature copies the author change summary', async () => {
+    const copied = [];
+    const toasts = [];
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        clockLabel: () => '当前时间戳 5月1日',
+        copyText: async text => { copied.push(text); return true; },
+        toast: message => toasts.push(message),
+    });
+    feature.record({
+        source: 'advance',
+        outcome: 'patched',
+        items: [{ module: 'lines', title: '调查', action: 'advance' }],
+    });
+    assert.equal((await feature.copySummary()).status, 'copied');
+    assert.match(copied[0], /调查/);
+    assert.deepEqual(toasts, ['本轮变更摘要已复制']);
 });
 
 test('advance cards jump to the line item and do not auto-write diary notes', () => {

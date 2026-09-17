@@ -76,6 +76,7 @@ import { bindTheaterSettings } from './business/theater/settings-bind.js';
 import { bindStoragePanel, migrationProgressCopy, paintStorageMode, paintStorageUsage, readStorageChatIdentity } from './runtime/storage-panel.js';
 import { runChatChanged } from './runtime/chat-changed.js';
 import { createPluginLifecycle } from './runtime/plugin-lifecycle.js';
+import { detectPromptContractConflicts } from './runtime/prompt-contracts.js';
 import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
@@ -1349,6 +1350,8 @@ const activityFeature = createActivityFeature({
     $,
     root: () => $in('.sp-root'),
     toast: (message, error) => showToast(message, null, error),
+    copyText: copyPlainText,
+    promptTextarea: options => customDialog.promptTextarea(options),
     closeSettings: () => { if (settingsOpen) toggleSettings(); },
     onToggle: () => syncMobileViewport?.(),
     readPoint: () => readStore(getCacheKey('user', ''))?.raw || '',
@@ -1433,6 +1436,7 @@ const activityFeature = createActivityFeature({
     },
     openItem: item => openActivityItem(item),
     queueSnapshot: () => floorQueue?.snapshot?.() || null,
+    cancelQueueJob: id => floorQueue?.cancelPending?.(id) || { status: 'rejected', reason: 'queue-unavailable' },
     retryQueueJob: id => retryFloorAutomation(id),
     retryBootstrap: () => retryBootstrapGeneration(),
     retryFill: () => pointController.fillHorizon(false),
@@ -2524,6 +2528,19 @@ const pluginLifecycle = createPluginLifecycle({
     chatRevision: () => pointTaskOwners.currentChatRevision(),
     boundaryEpoch: () => chatBoundary.epoch(),
     traceAbort: payload => traceDiagnosticEvent('abort-boundary', payload),
+    traceLifecycleFailure: failure => traceDiagnosticEvent('lifecycle-effect-failed', {
+        module: 'lifecycle',
+        status: 'failed',
+        phase: failure.port,
+        reasonCode: failure.level,
+        errorClass: failure.errorClass,
+        detail: failure.message,
+    }),
+    reportLifecycleFailures: failures => {
+        const critical = (failures || []).filter(item => item.critical);
+        console.error('[SP lifecycle] 插件切换副作用失败', failures);
+        if (critical.length) showToast(`插件切换有 ${critical.length} 项关键操作未完成，请到诊断管理导出 JSON`, null, true);
+    },
     memory,
     timeTravel,
     customDialog,
@@ -3286,6 +3303,7 @@ function injectModal() {
         diagnosticMessage,
         refreshStoryClock: refreshStoryClockInjection,
         defaultStoryClockPrompt: () => buildStoryClockPrompt({}),
+        promptConflicts: detectPromptContractConflicts,
         refreshStatus: refreshMemoryStatus,
         setProgressVisible: setMemoryProgressVisible,
         updateProgress: updateMemoryProgress,

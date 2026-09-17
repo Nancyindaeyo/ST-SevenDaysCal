@@ -68,6 +68,7 @@ test('panel markup keeps the shells settings bind to', () => {
     assert.match(html, /时间戳正常/);
     assert.match(html, /正文包裹/);
     assert.match(html, /只读标签内全文/);
+    assert.match(html, /id="sp-custom-prompt-contract-status"/);
     assert.match(html, /id="sp-diagnostics-error-list"/);
     assert.match(html, /导出 AI 诊断 JSON/);
     assert.equal((html.match(/id="sp-current-diagnostic-export"/g) || []).length, 1);

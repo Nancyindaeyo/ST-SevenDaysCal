@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     BACKGROUND_ABORT_PORTS,
+    LIFECYCLE_EFFECTS,
     PLUGIN_DISABLE_REASON,
     abortAllBackground,
     applyPluginEnabled,
@@ -128,4 +129,37 @@ test('createPluginLifecycle binds abort and enable onto one host', () => {
     assert.equal(h.calls[0][1].abortReason, 'hot-reload');
     life.applyPluginEnabled(true);
     assert.ok(h.calls.some(item => item === 'showFab'));
+});
+
+test('lifecycle classifies critical failures and reports them without skipping later cleanup', () => {
+    const reports = [];
+    const traces = [];
+    const h = host({
+        slip: { flush() { throw new Error('slip save failed'); } },
+        clearLinesInjection() { throw new Error('clear failed'); },
+        traceLifecycleFailure: failure => traces.push(failure),
+        reportLifecycleFailures: failures => reports.push(failures),
+    });
+    const result = applyPluginEnabled(h, false);
+    assert.equal(result.ok, false);
+    assert.deepEqual(result.failures.map(item => item.port), ['slip.flush', 'clearLinesInjection']);
+    assert.ok(result.failures.every(item => item.critical));
+    assert.equal(traces.length, 2);
+    assert.equal(reports.length, 1);
+    assert.ok(h.calls.includes('clearOutlineInjection'));
+    assert.equal(LIFECYCLE_EFFECTS.enable.find(item => item.port === 'showFab').level, 'best-effort');
+});
+
+test('async lifecycle rejection is reported after the synchronous switch returns', async () => {
+    const reports = [];
+    const h = host({
+        refreshOutlineInjection: async () => { throw new Error('async clear failed'); },
+        reportLifecycleFailures: failures => reports.push(failures),
+    });
+    const result = applyPluginEnabled(h, true);
+    assert.equal(result.ok, true);
+    await Promise.resolve();
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0][0].port, 'refreshOutlineInjection');
+    assert.equal(reports[0][0].critical, true);
 });

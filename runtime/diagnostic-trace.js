@@ -1,6 +1,7 @@
 // Lightweight, fail-open diagnostics for request cancellation/timeouts and chat boundaries.
-// Only the allow-listed metadata below is retained. Never pass prompts, bodies, URLs, keys,
-// model output, world-info text, memory text, or character descriptions into this module.
+// Only the allow-listed metadata below is retained. `detail` is reserved for short error
+// messages and is redacted; never pass prompts, bodies, model output, world-info text,
+// memory text, or character descriptions into this module.
 
 export const DIAGNOSTIC_TRACE_STORAGE_KEY = 'sp-diagnostic-trace-v1';
 export const DIAGNOSTIC_TRACE_LIMIT = 200;
@@ -10,7 +11,7 @@ const MOBILE_PRIVATE_FIELDS = new Set(['chatId', 'previousChatId', 'currentChatI
 
 const STRING_FIELDS = new Set([
     'event', 'module', 'requestId', 'chatId', 'previousChatId', 'currentChatId',
-    'owner', 'channel', 'status', 'errorClass', 'abortReason', 'phase', 'reasonCode',
+    'owner', 'channel', 'status', 'errorClass', 'abortReason', 'phase', 'reasonCode', 'detail',
 ]);
 const INTEGER_FIELDS = new Set([
     'chatRevision', 'previousChatRevision', 'boundaryEpoch', 'previousBoundaryEpoch',
@@ -69,6 +70,7 @@ export function sanitizeDiagnosticRecord(input = {}, now = () => Date.now()) {
     for (const key of STRING_FIELDS) {
         if (input[key] == null) continue;
         if (key === 'abortReason') record[key] = safeAbortReason(input[key]);
+        else if (key === 'detail') record[key] = redactText(input[key], 200);
         else if (key === 'requestId') {
             if (isDiagnosticRequestId(input[key])) record[key] = input[key];
         }

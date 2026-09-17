@@ -19,6 +19,11 @@ export function sanitizeTagList(raw) {
     return normalizeTagRules(raw).join(',');
 }
 
+export function promptContractStatusCopy(conflicts = []) {
+    if (!conflicts.length) return '本地合同检查：未发现明显冲突';
+    return `本地合同检查：${conflicts.map(item => item.label).join('；')}`;
+}
+
 export function bindMemorySettings(env = {}) {
     const $in = env.$in;
     const $ = env.$;
@@ -74,13 +79,22 @@ export function bindMemorySettings(env = {}) {
     };
     bindTagField('#sp-mem-keeptags', 'keepTags');
     bindTagField('#sp-mem-extratags', 'extraTags');
+    const paintPromptContract = value => {
+        const conflicts = env.promptConflicts?.(value) || [];
+        const $status = $in('#sp-custom-prompt-contract-status');
+        $status?.text?.(promptContractStatusCopy(conflicts));
+        $status?.toggleClass?.('has-conflict', conflicts.length > 0);
+    };
     $in('#sp-custom-prompt').on('input', function () {
         settings().customPrompt = this.value;
         save?.();
+        paintPromptContract(this.value);
     }).on('blur', function () {
         settings().customPrompt = this.value;
         saveNow?.();
+        paintPromptContract(this.value);
     });
+    paintPromptContract(settings()?.customPrompt || '');
     $in('#sp-space-persona').on('input', function () {
         settings().spacePersona = this.value;
         save?.();

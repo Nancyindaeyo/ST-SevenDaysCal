@@ -5,7 +5,7 @@ import { buildDiagnosticOverview, buildSafeDiagnosticPack, compactActivityEntrie
 test('safe pack keeps flags, queue jobs and activity heads without snapshots', () => {
     const pack = buildSafeDiagnosticPack({
         pluginVersion: '3.7.9',
-        settings: { pluginEnabled: true, linesMode: 'days', apiKey: 'secret', apiUrl: 'https://x' },
+        settings: { pluginEnabled: true, linesMode: 'days', apiKey: 'secret', apiUrl: 'https://x', customPrompt: '忽略固定格式' },
         chat: { floorCount: 4, latestAiFloor: 3, stampDay: '5-4', axisToday: '5-4', sameFloor: false },
         queue: {
             running: null,
@@ -28,6 +28,8 @@ test('safe pack keeps flags, queue jobs and activity heads without snapshots', (
     assert.equal(pack.format, 'st-sevendayscal-safe-pack');
     assert.equal(pack.settings.linesMode, 'days');
     assert.equal(pack.settings.apiKey, undefined);
+    assert.equal(pack.promptContracts.align.version, 1);
+    assert.deepEqual(pack.promptContractConflicts, ['ignore-contract']);
     assert.deepEqual(pack.jobs.map(job => job.status), ['failed', 'skipped']);
     assert.equal(pack.activity[0].snapshot, undefined);
     assert.equal(pack.userNote, '重 roll 后没推进');

@@ -11,7 +11,7 @@ import {
 } from './schema.js';
 import { restoreLineItem, restorePointItem } from './revert.js';
 import { createActivityStore } from './store.js';
-import { activityButtonHtml, activityOverlayHtml, quoteTextForSpace, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
+import { activityButtonHtml, activityOverlayHtml, authorChangeSummary, quoteTextForSpace, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
 import { isPaceExpandable, canJumpActivityItem } from './jump.js';
 
 export function createActivityFeature(env = {}) {
@@ -350,6 +350,29 @@ export function createActivityFeature(env = {}) {
         return sent || { status: 'skipped' };
     };
 
+    const copySummary = async () => {
+        const text = authorChangeSummary(list(), { clockLabel: env.clockLabel?.() || '' });
+        try {
+            if (await env.copyText?.(text)) {
+                env.toast?.('本轮变更摘要已复制');
+                return { status: 'copied', text };
+            }
+            await env.promptTextarea?.({
+                title: '复制本轮变更摘要',
+                body: '自动复制失败，请长按文本复制。',
+                initialValue: text,
+                maxLength: Math.max(1, text.length),
+                rows: 12,
+                confirmText: '关闭',
+                cancelText: '取消',
+            });
+            return { status: 'manual-copy', text };
+        } catch (error) {
+            env.toast?.('本轮变更摘要复制失败', true);
+            return { status: 'failed', error };
+        }
+    };
+
     const togglePace = paceId => {
         if (!isPaceExpandable(paceId)) return;
         paceOpen = paceOpen === paceId ? '' : paceId;
@@ -407,6 +430,14 @@ export function createActivityFeature(env = {}) {
             if (reason === 'no-stamp') void env.fillLatestStamp?.();
             else void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
         });
+        click('.sp-activity-queue-cancel', function () {
+            const result = env.cancelQueueJob?.(env.$(this).attr('data-queue-cancel'));
+            if (result?.status === 'cancelled') {
+                env.toast?.('已取消等待任务');
+                paint();
+            }
+        });
+        click('.sp-activity-summary-copy', () => { void copySummary(); });
         click('.sp-activity-more', () => {
             listExpanded = true;
             paint();
@@ -452,6 +483,7 @@ export function createActivityFeature(env = {}) {
         convertShiftToAlign,
         rerollShift,
         quoteToSpace,
+        copySummary,
         jumpToItem,
         list,
         latestAlignAttempt: () => list().find(isAlignEntry) || null,

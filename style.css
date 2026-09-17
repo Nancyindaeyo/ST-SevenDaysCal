@@ -504,9 +504,15 @@ q::after {
     font-size: var(--sp-fs-70);
     color: var(--sp-subtle);
 }
+.sp-activity-queue-floor {
+    color: var(--sp-subtle);
+    font-size: var(--sp-fs-64);
+}
 .sp-activity-queue-running,
 .sp-activity-queue-wait,
-.sp-activity-queue-fail {
+.sp-activity-queue-fail,
+.sp-activity-queue-rejected,
+.sp-activity-queue-cancelled {
     border-radius: 999px;
     padding: 4px 10px;
     font-size: var(--sp-fs-70);
@@ -518,8 +524,26 @@ q::after {
     background: color-mix(in oklab, var(--sp-primary) 12%, transparent);
 }
 .sp-activity-queue-wait {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
     border: 1px dashed var(--sp-divider);
     color: var(--sp-subtle);
+}
+.sp-activity-queue-cancel {
+    padding: 0;
+    border: 0;
+    color: var(--sp-primary);
+    background: transparent;
+    font: inherit;
+    cursor: pointer;
+}
+.sp-activity-queue-cancel:hover { text-decoration: underline; }
+.sp-activity-queue-rejected,
+.sp-activity-queue-cancelled {
+    border: 1px solid var(--sp-divider);
+    color: var(--sp-subtle);
+    background: color-mix(in oklab, var(--sp-on-surface) 3%, transparent);
 }
 .sp-activity-queue-fail {
     border: 1px solid color-mix(in oklab, var(--sp-danger, #c45) 50%, var(--sp-divider));
@@ -529,6 +553,27 @@ q::after {
 }
 .sp-activity-queue-fail:hover {
     background: color-mix(in oklab, var(--sp-danger, #c45) 18%, transparent);
+}
+.sp-activity-recent-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+.sp-activity-summary-copy {
+    padding: 3px 0;
+    border: 0;
+    color: var(--sp-subtle);
+    background: transparent;
+    font-size: var(--sp-fs-66);
+    cursor: pointer;
+}
+.sp-activity-summary-copy:hover { color: var(--sp-primary); }
+.sp-prompt-contract-status {
+    margin-top: 6px;
+}
+.sp-prompt-contract-status.has-conflict {
+    color: var(--sp-danger, #c45);
 }
 .sp-pace-chip.is-running {
     border-color: color-mix(in oklab, var(--sp-primary) 55%, var(--sp-divider));
@@ -3967,18 +4012,17 @@ select.sp-input { appearance: none; cursor: pointer; }
 
 /* ─── Diagnostics management ─────────────────────────────────────────────────── */
 .sp-diagnostics-shell {
-    gap: 14px;
-    padding-top: 12px;
+    gap: 16px;
+    padding-top: 10px;
 }
 .sp-diagnostics-hero {
     display              : grid;
     grid-template-columns: auto minmax(0, 1fr);
     gap                  : 10px 12px;
     align-items          : start;
-    padding              : 14px;
-    border               : 1px solid var(--sp-divider);
-    border-radius        : 10px;
-    background           : color-mix(in oklab, var(--sp-on-surface) 3%, transparent);
+    padding              : 2px 0 4px;
+    border               : 0;
+    background           : transparent;
 }
 .sp-diagnostics-hero-icon,
 .sp-diagnostics-export-icon {
@@ -4014,12 +4058,12 @@ select.sp-input { appearance: none; cursor: pointer; }
     text-wrap  : pretty;
 }
 .sp-diagnostics-status {
-    grid-column  : 1 / -1;
+    grid-column  : 2;
     display      : flex;
     align-items  : center;
     gap          : 7px;
     width        : fit-content;
-    padding      : 5px 9px;
+    padding      : 4px 8px;
     border-radius: 6px;
     color        : var(--sp-primary);
     background   : color-mix(in oklab, var(--sp-primary) 9%, transparent);
@@ -4044,6 +4088,7 @@ select.sp-input { appearance: none; cursor: pointer; }
     grid-template-columns: repeat(3, minmax(0, 1fr));
     border-top           : 1px solid var(--sp-divider);
     border-bottom        : 1px solid var(--sp-divider);
+    background           : color-mix(in oklab, var(--sp-on-surface) 2.5%, transparent);
 }
 .sp-diagnostics-metric {
     display       : flex;
@@ -4089,6 +4134,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     display       : flex;
     flex-direction: column;
     border-top    : 1px solid var(--sp-divider);
+    max-height    : 310px;
+    overflow-y    : auto;
+    scrollbar-width: thin;
 }
 .sp-diagnostics-error-item {
     display              : grid;
@@ -4111,14 +4159,14 @@ select.sp-input { appearance: none; cursor: pointer; }
 .sp-diagnostics-error-copy { min-width: 0; }
 .sp-diagnostics-error-title {
     color      : var(--sp-on-surface);
-    font-size  : var(--sp-fs-74);
+    font-size  : var(--sp-fs-70);
     font-weight: 600;
     line-height: 1.4;
 }
 .sp-diagnostics-error-detail {
     margin-top : 2px;
     color      : var(--sp-subtle);
-    font-size  : var(--sp-fs-68);
+    font-size  : var(--sp-fs-64);
     line-height: 1.45;
     word-break : break-word;
 }
@@ -4184,10 +4232,11 @@ select.sp-input { appearance: none; cursor: pointer; }
     grid-template-columns: auto minmax(0, 1fr);
     gap                  : 10px 12px;
     align-items          : start;
-    padding              : 13px;
-    border               : 1px solid color-mix(in oklab, var(--sp-primary) 30%, var(--sp-divider));
-    border-radius        : 10px;
-    background           : color-mix(in oklab, var(--sp-primary) 6%, transparent);
+    padding              : 13px 0 0;
+    border               : 0;
+    border-top           : 1px solid var(--sp-divider);
+    border-radius        : 0;
+    background           : transparent;
 }
 .sp-diagnostics-export-copy { min-width: 0; }
 .sp-diagnostics-export-btn {

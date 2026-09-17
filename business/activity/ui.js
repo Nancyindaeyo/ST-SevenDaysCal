@@ -27,6 +27,12 @@ function timeLabel(ts) {
     return `${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+function elapsedLabel(ts) {
+    const seconds = Math.max(0, Math.floor((Date.now() - Number(ts || 0)) / 1000));
+    if (seconds < 60) return `${seconds} 秒`;
+    return `${Math.floor(seconds / 60)} 分`;
+}
+
 export function activityClockLabel({ clock = null, today = null, calendar = null, monthName, weekdayFor } = {}) {
     const meta = [clock?.endMeta, clock?.startMeta].find(item => item && (item.month != null && item.day != null));
     const axis = today && Number.isInteger(Number(today.month)) && Number.isInteger(Number(today.day))
@@ -47,15 +53,21 @@ export function renderQueueStatus(queue = null) {
     const queuedJobs = queue?.queued || [];
     const running = queue?.running;
     const skippedJobs = queue?.skipped || [];
-    if (!running && !queuedJobs.length && !failedJobs.length && !skippedJobs.length) {
+    const rejectedJobs = queue?.rejected || [];
+    const cancelledJobs = queue?.cancelled || [];
+    if (!running && !queuedJobs.length && !failedJobs.length && !skippedJobs.length && !rejectedJobs.length && !cancelledJobs.length) {
         return `<div class="sp-activity-queue-live is-idle"><span class="sp-activity-queue-idle">这楼后台空闲</span></div>`;
     }
+    const floorId = Number(queue?.floor?.floorId);
+    const floorHtml = Number.isInteger(floorId)
+        ? `<span class="sp-activity-queue-floor">楼层 #${floorId}</span>`
+        : '';
     const runningHtml = running
-        ? `<span class="sp-activity-queue-running">正在${escape(running.label)}</span>`
+        ? `<span class="sp-activity-queue-running">正在${escape(running.label)}${running.startedAt ? ` · 已运行 ${escape(elapsedLabel(running.startedAt))}` : ''}</span>`
         : '';
-    const queuedHtml = queuedJobs.length
-        ? `<span class="sp-activity-queue-wait">接着 ${escape(queuedJobs.map(job => job.label).join(' · '))}</span>`
-        : '';
+    const queuedHtml = queuedJobs.map(job => (
+        `<span class="sp-activity-queue-wait"><span>等待 ${escape(job.label)} · 固定顺序${job.enqueuedAt ? ` · ${escape(elapsedLabel(job.enqueuedAt))}` : ''}</span><button type="button" class="sp-activity-queue-cancel" data-queue-cancel="${escape(job.id)}" title="取消尚未运行的${escape(job.label)}">取消</button></span>`
+    )).join('');
     const failedHtml = failedJobs.map(job => (
         `<button type="button" class="sp-activity-queue-fail" data-queue-retry="${escape(job.id)}" title="重试${escape(job.label)}">${escape(job.label)}失败 · 重试</button>`
     )).join('');
@@ -64,7 +76,15 @@ export function renderQueueStatus(queue = null) {
         const hint = reason === 'no-stamp' ? '缺戳' : reason === 'config-missing' || reason === 'no-api' ? '没配 API' : reason;
         return `<button type="button" class="sp-activity-queue-skip" data-queue-retry="${escape(job.id)}" data-skip-reason="${escape(reason)}" title="${escape(job.label)}跳过">${escape(job.label)}跳过 · ${escape(hint)}</button>`;
     }).join('');
-    return `<div class="sp-activity-queue-live${failedJobs.length ? ' has-failed' : ''}${skippedJobs.length ? ' has-skipped' : ''}">${runningHtml}${queuedHtml}${failedHtml}${skippedHtml}</div>`;
+    const rejectedHtml = rejectedJobs.map(job => {
+        const reason = job.reason === 'duplicate' ? '重复任务已合并'
+            : job.reason === 'invalid-job' ? '任务格式无效'
+                : job.reason === 'identity-changed' ? '聊天或楼层身份已变化'
+                    : job.reason || '已拒绝';
+        return `<span class="sp-activity-queue-rejected">${escape(job.label)} · ${escape(reason)}</span>`;
+    }).join('');
+    const cancelledHtml = cancelledJobs.map(job => `<span class="sp-activity-queue-cancelled">${escape(job.label)} · 已取消</span>`).join('');
+    return `<div class="sp-activity-queue-live${failedJobs.length ? ' has-failed' : ''}${skippedJobs.length ? ' has-skipped' : ''}">${floorHtml}${runningHtml}${queuedHtml}${failedHtml}${skippedHtml}${rejectedHtml}${cancelledHtml}</div>`;
 }
 
 export function activityOverlayHtml() {
@@ -101,7 +121,10 @@ export function activityOverlayHtml() {
         <div id="sp-activity-blocked" class="sp-activity-restyle" hidden>
             <p>这楼重 roll 后，这些项因为后来手改过没法自动撤回重跑：<span id="sp-activity-blocked-list"></span>。请在本页手改，或先撤回【改】里还能撤的卡片再重试。</p>
         </div>
-        <p class="sp-activity-section-kicker sp-activity-recent-kicker">最近</p>
+        <div class="sp-activity-recent-head">
+            <p class="sp-activity-section-kicker sp-activity-recent-kicker">最近</p>
+            <button type="button" class="sp-activity-summary-copy"><i class="fa-regular fa-copy"></i> 复制本轮摘要</button>
+        </div>
         <div class="sp-settings-body" id="sp-activity-body"></div>
     </div>`;
 }
@@ -126,6 +149,27 @@ export function quoteTextForSpace(entry) {
         lines.push(act ? `${who}（${act}）` : who);
     }
     return lines.filter(Boolean).join('\n');
+}
+
+export function authorChangeSummary(entries = [], { clockLabel = '' } = {}) {
+    const list = (Array.isArray(entries) ? entries : []).filter(entry => (
+        entry && !entry.undone && entry.outcome !== 'failed' && entry.outcome !== 'skipped'
+    ));
+    const lines = ['构画 · 本轮变更摘要'];
+    if (clockLabel) lines.push(String(clockLabel));
+    if (!list.length) {
+        lines.push('', '本轮还没有已完成的账本改动。');
+        return lines.join('\n');
+    }
+    for (const entry of list) {
+        const title = [sourceLabel(entry.source), timeLabel(entry.ts)].filter(Boolean).join(' · ');
+        lines.push('', `【${title}】${entry.note ? ` ${String(entry.note).trim()}` : ''}`);
+        for (const item of entry.items || []) {
+            lines.push(`- ${itemWho(item)}：${actionLabel(item.action, item.module)}`);
+        }
+        if (!(entry.items || []).length) lines.push(`- ${roundStatus(entry)}`);
+    }
+    return lines.join('\n');
 }
 
 function jumpButton(item) {

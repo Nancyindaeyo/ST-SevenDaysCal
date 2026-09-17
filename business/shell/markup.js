@@ -407,6 +407,7 @@ export function panelMarkup({
                                     <details class="sp-settings-subsection sp-prompt-global"><summary>创作链自定义提示词 / 写作规范</summary>
                                         <p class="sp-cfg-hint"><strong>已内置一版创作强化提示词</strong>（不显示）。此处内容<strong>只追加到构画的创作链</strong>，例如点 / 线 / 面 / 间 / 棱写作，适合放去八股、文风和叙事口吻等规范。日期判断、刻度、记忆压缩和排版等机械任务不使用它；全部链路仍自带如实处理虚构敏感内容的基础许可。支持 <code>{{char}}</code> / <code>{{user}}</code> 占位符。</p>
                                         <textarea id="sp-custom-prompt" class="sp-input sp-theater-cfg-textarea" placeholder="可留空（创作链只用内置强化词）。也可追加创作规范，如：去八股、控制文风、叙事口吻…"></textarea>
+                                        <p id="sp-custom-prompt-contract-status" class="sp-cfg-hint sp-prompt-contract-status">本地合同检查：未发现明显冲突</p>
                                     </details>
                                     <details class="sp-settings-subsection sp-prompt-tags"><summary>标签清洗</summary>
                                         <p class="sp-cfg-hint">读取 AI 楼层原文时的标签规则，<strong>对点 / 轴 / 线 / 面 / 间 / 记忆全部生效</strong>。多个用英文逗号分隔；XML 可写标签名或带尖括号（<code>content</code> / <code>&lt;content&gt;</code> 等效），双中括号请固定填写 <code>[[...]]</code>。可组合 <code>content,[[...]]</code>，支持中文、日文等 Unicode 标签名。</p>
