@@ -157,6 +157,55 @@ function optionalIndex(value) {
     return Number.isInteger(n) ? n : null;
 }
 
+const RETRY_KINDS = Object.freeze(['align', 'regen', 'fight']);
+const RETRY_MODULES = Object.freeze(['point', 'lines', 'ledger', 'almanac', 'dashed', 'outline']);
+const OUTLINE_MODES = Object.freeze(['current', 'all', 'continue']);
+
+function boundedText(value, max) {
+    return String(value || '').trim().slice(0, max);
+}
+
+function normalizeRetryIntent(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const modules = [...new Set((Array.isArray(raw.modules) ? raw.modules : []).filter(name => RETRY_MODULES.includes(name)))];
+    const items = (Array.isArray(raw.items) ? raw.items : []).slice(0, 40).map(item => ({
+        module: RETRY_MODULES.includes(item?.module) ? item.module : '',
+        title: boundedText(item?.title, 120),
+        change: boundedText(item?.change, 800),
+        ref: boundedText(item?.ref, 120),
+    })).filter(item => item.module && item.title);
+    const intent = {
+        kind: RETRY_KINDS.includes(raw.kind) ? raw.kind : 'fight',
+        modules,
+        items,
+        avoid: boundedText(raw.avoid, 1200),
+        reason: boundedText(raw.reason, 2400),
+        text: boundedText(raw.text, 4000),
+        source: boundedText(raw.source, 80),
+    };
+    return intent;
+}
+
+export function normalizeActivityRetry(raw) {
+    const value = raw?.retry && typeof raw.retry === 'object' ? raw.retry : raw;
+    if (!value || typeof value !== 'object') return null;
+    const kind = RETRY_KINDS.includes(value.kind) ? value.kind : '';
+    const selected = [...new Set((Array.isArray(value.selected) ? value.selected : []).filter(name => RETRY_MODULES.includes(name)))];
+    const outlineMode = OUTLINE_MODES.includes(value.outlineMode) ? value.outlineMode : '';
+    const intent = normalizeRetryIntent(value.intent);
+    const reason = boundedText(value.reason, 2400);
+    const feedback = boundedText(value.feedback, 1200);
+    if (!kind && !selected.length && !outlineMode && !intent && !reason && !feedback) return null;
+    return {
+        kind,
+        selected,
+        reason,
+        feedback,
+        ...(outlineMode ? { outlineMode } : {}),
+        ...(intent ? { intent } : {}),
+    };
+}
+
 export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.random } = {}) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const items = (Array.isArray(source.items) ? source.items : []).map(normalizeActivityItem).filter(item => item.module || item.title);
@@ -179,6 +228,7 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         floorId: optionalIndex(source.floorId),
         swipeId: optionalIndex(source.swipeId),
         signature: String(source.signature || ''),
+        retry: normalizeActivityRetry(source),
     };
 }
 

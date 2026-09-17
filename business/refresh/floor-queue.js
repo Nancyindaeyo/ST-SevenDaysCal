@@ -86,16 +86,19 @@ export function createFloorJobQueue(env = {}) {
 
     const enqueue = (job = {}) => {
         if (!job?.id || typeof job.run !== 'function') return false;
-        if (busy) return false;
-        if (jobs.some(item => item.id === job.id)) return false;
-        jobs.push({
+        if (running?.id === job.id || queued.some(item => item.id === job.id) || jobs.some(item => item.id === job.id)) return false;
+        const pending = {
             id: job.id,
             label: job.label || jobLabel(job.id),
             run: job.run,
             retry: job.retry || job.run,
-        });
-        jobs = sortJobs(jobs);
-        queued = jobs.slice();
+        };
+        if (busy) queued = sortJobs([...queued, pending]);
+        else {
+            jobs.push(pending);
+            jobs = sortJobs(jobs);
+            queued = jobs.slice();
+        }
         notify();
         return true;
     };

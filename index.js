@@ -312,7 +312,6 @@ function syncLatestAlmanacBlock(expectedChatId = null) { return inlineHost.syncL
 const syncLatestScheduleBlock = syncLatestAlmanacBlock;
 function syncLatestInlineBlock(expectedChatId = null) { return inlineHost.syncLines(expectedChatId); }
 async function backfillLinesInlineBlocks() { return inlineHost.backfill(); }
-function initChatObserver() { return inlineHost.initObserver(); }
 import {
     bindLedgerRender,
     batchReset, resetLedgerRenderState,
@@ -1342,6 +1341,10 @@ const activityFeature = createActivityFeature({
         chatId: () => getContext().chatId,
     }),
     keyForChat: () => 'activity-user',
+    onPersistenceError: failure => {
+        console.error('[SP activity] 改动记录未持久化', failure);
+        showToast('改动已执行，但“最近更改”未能保存；刷新页面后记录可能消失', null, true);
+    },
     query: $in,
     $,
     root: () => $in('.sp-root'),
@@ -1500,24 +1503,26 @@ async function retryBootstrapGeneration() {
     return bootstrapFeature.start();
 }
 async function retryRefreshModule(entry) {
-    const kind = String(entry?.kind || (entry?.source === 'fight' ? 'fight' : 'regen'));
-    if (kind === 'fight') return refreshController.fight({ intent: entry.intent || { text: entry.reason, items: entry.items }, cause: 'retry' });
+    const retry = entry?.retry || entry || {};
+    const kind = String(retry.kind || (entry?.source === 'fight' ? 'fight' : 'regen'));
+    if (kind === 'fight') return refreshController.fight({ intent: retry.intent || { text: retry.reason, items: entry.items }, cause: 'retry' });
     if (kind === 'align') {
         return refreshController.align({
-            selected: ['point', 'lines'],
-            reason: String(entry.reason || ''),
+            selected: Array.isArray(retry.selected) && retry.selected.length ? retry.selected : ['point', 'lines'],
+            reason: String(retry.reason || ''),
+            feedback: String(retry.feedback || ''),
             cause: 'retry',
         });
     }
     const module = String(entry?.items?.[0]?.module || '');
     const selected = module && (module === 'point' || module === 'lines' || module === 'dashed' || module === 'outline')
         ? [module]
-        : (Array.isArray(entry?.selected) ? entry.selected : ['point', 'lines']);
+        : (Array.isArray(retry.selected) && retry.selected.length ? retry.selected : ['point', 'lines']);
     return refreshController.regenerate({
         selected,
-        reason: String(entry.reason || '【改】重试这次失败的刷新'),
-        feedback: String(entry.feedback || ''),
-        outlineMode: entry.outlineMode || (selected.includes('outline') ? 'current' : undefined),
+        reason: String(retry.reason || '【改】重试这次失败的刷新'),
+        feedback: String(retry.feedback || ''),
+        outlineMode: retry.outlineMode || (selected.includes('outline') ? 'current' : undefined),
     });
 }
 function syncFabFailed() {
@@ -2243,7 +2248,6 @@ jQuery(async () => {
     coordinateRuntime.feature.refreshSavedKeys();
     chatBoundary.markReady();
     setTimeout(() => coordinateRuntime.feature.scanButtons(), 900);
-    initChatObserver();
     // 首屏补挂：backfill 内部 refreshLinesInjection()（潜伏注入）+ refreshInlineWindow(true)
     // 统一挂线/历/点三段。历/点无独立首屏副作用，全汇流到同一防抖窗口刷新，一次即可。
     scheduleForChatBoundary(backfillLinesInlineBlocks, 800);
@@ -2263,6 +2267,10 @@ jQuery(async () => {
             recordChatBoundary({ previousChatId, currentChatId: boundary.chatId, previousBoundaryEpoch: boundary.previousEpoch, boundaryEpoch: boundary.epoch, previousChatRevision, chatRevision });
             traceDiagnosticEvent('abort-boundary', { module: 'runtime', chatId: boundary.chatId, chatRevision, boundaryEpoch: boundary.epoch, abortReason: 'chat-boundary', status: 'dispatch' });
         },
+        clearLinesInjection: () => linesFeature.injection?.clear?.(),
+        clearOutlineInjection: () => outlineFeature.injection.clear(),
+        clearLedgerInjection: () => ledgerInjectionController.clear(),
+        clearLawInjection: () => lawFeature.clearInjection(),
         pointTasks: pointTaskOwners,
         pointController,
         lines: linesFeature,
@@ -2353,6 +2361,10 @@ jQuery(async () => {
             scheduleForChatBoundary(() => coordinateRuntime?.feature?.scanButtons(), 300);
             scheduleForChatBoundary(checkMemoryMigrationNotice, 500);
             if (mig.status === 'conflict') scheduleForChatBoundary(() => showStoreConflictDialog(mig), 700);
+            if (mig.status === 'failed' || mig.status === 'commit-unknown' || mig.status?.endsWith?.('cleanup-failed')) {
+                console.error('[SP store] 旧版数据迁移未完成', mig);
+                scheduleForChatBoundary(() => showToast('旧版数据迁移未完成，本机旧数据已保留，请稍后重试', null, true), 700);
+            }
             const calendarBoundary = captureChatBoundary();
             maybeApplyBoundCalendarTemplate().catch(error => {
                 if (!isCurrentChatBoundary(calendarBoundary)) return;
@@ -2368,10 +2380,15 @@ jQuery(async () => {
     });
     eventSource.on(event_types.CHAT_CHANGED, _stListeners.chat);
     // 首屏补迁移：扩展初始化时当前 chat 往往已 ready（CHAT_CHANGED 早已错过），
-    // 否则老用户要手动切一次 chat 才触发迁移。同步搬数据，冲突延后弹窗。
+    // 否则老用户要手动切一次 chat 才触发迁移。确认落盘后再删旧副本，冲突延后弹窗。
     try {
-        const _mig0 = store.migrateChatFromLocalStorage(getContext().chatId);
-        if (_mig0.status === 'conflict') scheduleForChatBoundary(() => showStoreConflictDialog(_mig0), 900);
+        store.migrateChatFromLocalStorage(getContext().chatId).then(_mig0 => {
+            if (_mig0.status === 'conflict') scheduleForChatBoundary(() => showStoreConflictDialog(_mig0), 900);
+            else if (_mig0.status === 'failed' || _mig0.status === 'commit-unknown' || _mig0.status?.endsWith?.('cleanup-failed')) {
+                console.error('[SP store] 首屏旧版数据迁移未完成', _mig0);
+                scheduleForChatBoundary(() => showToast('旧版数据迁移未完成，本机旧数据已保留，请稍后重试', null, true), 900);
+            }
+        }).catch(error => console.error('[SP store] 首屏旧版数据迁移失败', safeDiagnosticLog('storage', 'save', error)));
         migrateCanonicalBookIds({
             chatId: () => getContext().chatId,
             read: key => readStore(key),
@@ -3482,8 +3499,12 @@ async function showStoreConflictDialog(mig) {
     });
     if (choice === 'cloud') store.discardLegacy(mig.legacy);
     else if (choice === 'local') {
-        store.applyLegacyOverCloud(mig.legacy);
-        reloadAfterConflict();
+        const result = await store.applyLegacyOverCloud(mig.legacy);
+        if (result?.ok) reloadAfterConflict();
+        else {
+            console.error('[SP store] 本机副本覆盖失败', result);
+            showToast('本机副本没有确认保存，旧数据仍保留；请稍后重试', null, true);
+        }
     }
 }
 

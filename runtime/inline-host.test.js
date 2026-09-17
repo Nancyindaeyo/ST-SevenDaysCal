@@ -111,3 +111,29 @@ test('replaceFeature 先销毁旧实例', () => {
     host.init();
     assert.ok(calls.includes('init-next'));
 });
+
+test('fallback 观察器只创建一次，destroy 会断开并取消待执行刷新', async () => {
+    let trigger;
+    let disconnects = 0;
+    let creates = 0;
+    class FakeObserver {
+        constructor(cb) { trigger = cb; creates += 1; }
+        observe() {}
+        disconnect() { disconnects += 1; }
+    }
+    const calls = [];
+    const host = createInlineHost({
+        feature: null,
+        documentRef: { querySelector: () => ({ id: 'chat' }) },
+        MutationObserver: FakeObserver,
+        onChatDomChanged: () => calls.push('dom-changed'),
+    });
+    host.initObserver();
+    host.initObserver();
+    assert.equal(creates, 1);
+    trigger();
+    host.destroy();
+    await new Promise(resolve => setTimeout(resolve, 450));
+    assert.equal(disconnects, 1);
+    assert.deepEqual(calls, []);
+});

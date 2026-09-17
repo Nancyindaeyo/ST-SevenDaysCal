@@ -298,7 +298,12 @@ test('regenerate records each module as patched unchanged or failed', async () =
         regenOutline: async () => ({ status: 'failed', error: new Error('面挂了') }),
         onActivity: entry => activities.push(entry),
     });
-    const result = await createRefreshController(host).regenerate({ selected: ['point', 'lines', 'outline'], reason: '重做' });
+    const result = await createRefreshController(host).regenerate({
+        selected: ['point', 'lines', 'outline'],
+        reason: '重做',
+        feedback: '保留锁定项',
+        outlineMode: 'continue',
+    });
     assert.equal(result.status, 'updated');
     assert.deepEqual(result.blocks.map(block => [block.name, block.outcome]), [
         ['point', 'patched'],
@@ -310,6 +315,13 @@ test('regenerate records each module as patched unchanged or failed', async () =
     assert.equal(activities[1].outcome, 'unchanged');
     assert.equal(activities[2].outcome, 'failed');
     assert.match(activities[2].note, /面 失败/);
+    assert.deepEqual(activities[2].retry, {
+        kind: 'regen',
+        selected: ['outline'],
+        reason: '重做',
+        feedback: '保留锁定项',
+        outlineMode: 'continue',
+    });
     const failed = refreshBlockActivity('point', { status: 'failed', error: new Error('boom') });
     assert.equal(failed.reasonCode, 'refresh-point-failed');
 });

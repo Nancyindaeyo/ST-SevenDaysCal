@@ -18,6 +18,7 @@ export function createActivityFeature(env = {}) {
     const store = env.store || createActivityStore({
         storage: env.storage,
         keyForChat: env.keyForChat,
+        onPersistenceError: env.onPersistenceError,
     });
     let open = false;
     let unread = 0;

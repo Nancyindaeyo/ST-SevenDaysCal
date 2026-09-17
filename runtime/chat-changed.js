@@ -4,6 +4,11 @@ export async function runChatChanged(h) {
     const previousChatId = h.activeChatId?.() ?? null;
     const lastSeen = (h.chatLength?.() ?? 0) - 1;
     h.beginBoundary?.({ previousChatId, lastSeen });
+    // 新聊天数据尚未加载时先撤掉旧聊天提示词，避免用户立即生成时串入上一聊天内容。
+    h.clearLinesInjection?.();
+    h.clearOutlineInjection?.();
+    h.clearLedgerInjection?.();
+    h.clearLawInjection?.();
     h.pointTasks?.invalidateAll?.(REASON);
     h.pointController?.reset?.(REASON);
     h.lines?.onChatChanged?.({ lastSeen });
@@ -56,7 +61,7 @@ export async function runChatChanged(h) {
     const loadingChatId = String(h.chatId?.() || '');
     await h.loadExternalChat?.({ force: true });
     if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded' };
-    const mig = h.migrateChat?.() || { status: 'none' };
+    const mig = await h.migrateChat?.() || { status: 'none' };
     if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded' };
     const idMig = await h.migrateBookIds?.() || { status: 'none' };
     if (String(h.chatId?.() || '') !== loadingChatId) return { status: 'superseded', mig, idMig };

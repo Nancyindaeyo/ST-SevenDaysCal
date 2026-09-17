@@ -110,6 +110,8 @@ export function getSettings() {
     // 老用户的设置段可能缺后加字段（如 customPrompt）：逐一补默认值，只补缺失、不覆盖已有值。
     for (const k in DEFAULT_SETTINGS) if (!(k in s)) s[k] = DEFAULT_SETTINGS[k];
     // 展开默认对象时数组仍会共享引用；设置层必须持有自己的容器。
+    if (s.apiPresets === DEFAULT_SETTINGS.apiPresets) s.apiPresets = [];
+    if (!Array.isArray(s.apiPresets)) s.apiPresets = [];
     if (s.calendarTemplates === DEFAULT_SETTINGS.calendarTemplates) s.calendarTemplates = [];
     if (s.calendarTemplateBindings === DEFAULT_SETTINGS.calendarTemplateBindings) s.calendarTemplateBindings = {};
     if (s.theaterPoolBooks === DEFAULT_SETTINGS.theaterPoolBooks) s.theaterPoolBooks = [];

@@ -2,6 +2,9 @@
 // 渲染本身在 business/inline/feature.js；这里只做 chatId 闸和注入重设。
 export function createInlineHost(env = {}) {
     let feature = env.feature || null;
+    let fallbackObserver = null;
+    let fallbackTimer = null;
+    let retryTimer = null;
 
     function refresh(immediate = false) {
         return feature?.refresh?.(immediate);
@@ -25,11 +28,23 @@ export function createInlineHost(env = {}) {
 
     function destroy() {
         feature?.destroy?.();
+        fallbackObserver?.disconnect?.();
+        fallbackObserver = null;
+        clearTimeout(fallbackTimer);
+        clearTimeout(retryTimer);
+        fallbackTimer = null;
+        retryTimer = null;
         feature = null;
     }
 
     function replaceFeature(next) {
         feature?.destroy?.();
+        fallbackObserver?.disconnect?.();
+        fallbackObserver = null;
+        clearTimeout(fallbackTimer);
+        clearTimeout(retryTimer);
+        fallbackTimer = null;
+        retryTimer = null;
         feature = next || null;
         return feature;
     }
@@ -65,19 +80,26 @@ export function createInlineHost(env = {}) {
         const doc = env.documentRef || globalThis.document;
         const chat = doc?.querySelector?.('#chat');
         if (!chat) {
-            env.scheduleRetry?.(() => initObserver(), 600);
+            if (retryTimer == null) {
+                const schedule = env.scheduleRetry || ((fn, ms) => setTimeout(fn, ms));
+                retryTimer = schedule(() => {
+                    retryTimer = null;
+                    initObserver();
+                }, 600);
+            }
             return;
         }
         const Observer = env.MutationObserver || globalThis.MutationObserver;
-        if (typeof Observer !== 'function') return;
-        let timer = null;
-        new Observer(() => {
-            clearTimeout(timer);
-            timer = setTimeout(() => {
+        if (typeof Observer !== 'function' || fallbackObserver) return;
+        fallbackObserver = new Observer(() => {
+            clearTimeout(fallbackTimer);
+            fallbackTimer = setTimeout(() => {
+                fallbackTimer = null;
                 env.onChatDomChanged?.();
                 if (!env.isStreaming?.()) refresh();
             }, 400);
-        }).observe(chat, { childList: true, subtree: true });
+        });
+        fallbackObserver.observe(chat, { childList: true, subtree: true });
     }
 
     return {

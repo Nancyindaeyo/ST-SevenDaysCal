@@ -71,3 +71,34 @@ test('retry runs only the failed job', async () => {
     assert.equal(queue.snapshot().failed.length, 0);
     assert.equal(alignTries, 2);
 });
+
+test('a same-floor job enqueued while draining is retained and runs once', async () => {
+    let releaseAlign;
+    const gate = new Promise(resolve => { releaseAlign = resolve; });
+    const ran = [];
+    const queue = createFloorJobQueue({ identityCurrent: () => true });
+    queue.beginFloor({ chatId: 'c', floorId: 2 });
+    queue.enqueue({
+        id: 'align',
+        run: async () => {
+            ran.push('align');
+            await gate;
+            return { status: 'updated' };
+        },
+    });
+    const draining = queue.drain();
+    await Promise.resolve();
+    assert.equal(queue.enqueue({
+        id: 'advance',
+        run: async () => { ran.push('advance'); return { status: 'updated' }; },
+    }), true);
+    assert.equal(queue.enqueue({
+        id: 'advance',
+        run: async () => { ran.push('duplicate'); return { status: 'updated' }; },
+    }), false);
+    assert.deepEqual(queue.snapshot().queued.map(job => job.id), ['advance']);
+    releaseAlign();
+    const result = await draining;
+    assert.deepEqual(ran, ['align', 'advance']);
+    assert.equal(result.busy, false);
+});

@@ -124,6 +124,12 @@ export function createRefreshController(env = {}) {
                 env.onActivity?.({
                     source: alignSourceOf(options),
                     cause: options.cause || (options.auto ? 'auto' : 'manual'),
+                    retry: {
+                        kind: 'align',
+                        selected: selectedOf(options).filter(name => name === 'point' || name === 'lines'),
+                        reason: String(options.reason || ''),
+                        feedback: String(options.feedback || ''),
+                    },
                     floorId: latest?.index,
                     swipeId: env.context?.()?.chat?.[latest?.index]?.swipe_id,
                     signature: env.floorSignature?.(latest?.index),
@@ -210,8 +216,12 @@ export function createRefreshController(env = {}) {
             const patched = point.changed || lines.changed;
             env.onActivity?.({
                 ...activityBase(),
-                kind: 'align',
-                reason: String(options.reason || ''),
+                retry: {
+                    kind: 'align',
+                    selected,
+                    reason: String(options.reason || ''),
+                    feedback: String(options.feedback || ''),
+                },
                 outcome: patched ? 'patched' : 'unchanged',
                 items,
                 snapshot: patched ? before : null,
@@ -255,10 +265,13 @@ export function createRefreshController(env = {}) {
                 const after = snapshotSelected([name]);
                 const entry = {
                     ...refreshBlockActivity(name, result, before, after),
-                    kind: 'regen',
-                    reason,
-                    feedback: String(options.feedback || ''),
-                    outlineMode: options.outlineMode || 'current',
+                    retry: {
+                        kind: 'regen',
+                        selected: [name],
+                        reason,
+                        feedback: String(options.feedback || ''),
+                        outlineMode: options.outlineMode || 'current',
+                    },
                 };
                 blocks.push({ name, label: refreshModuleLabel(name), outcome: entry.outcome, error: entry.error || '', note: entry.note });
                 env.onActivity?.(entry);
@@ -281,10 +294,12 @@ export function createRefreshController(env = {}) {
                 const latest = latestAiFloor(env.context?.()?.chat);
                 env.onActivity?.({
                     source: 'fight',
-                    kind: 'fight',
                     cause: options.cause || 'manual',
-                    intent: options.intent || null,
-                    reason: String(options.intent?.text || options.reason || ''),
+                    retry: {
+                        kind: 'fight',
+                        intent: options.intent || null,
+                        reason: String(options.intent?.text || options.reason || ''),
+                    },
                     floorId: latest?.index,
                     outcome: 'failed',
                     error: diagnosticMessage(error),
@@ -300,10 +315,12 @@ export function createRefreshController(env = {}) {
             const cfg = env.loadConfig?.() || {};
             const activityBase = () => ({
                 source: 'fight',
-                kind: 'fight',
                 cause: options.cause || 'manual',
-                intent: options.intent || null,
-                reason: String(options.intent?.text || options.reason || ''),
+                retry: {
+                    kind: 'fight',
+                    intent: options.intent || null,
+                    reason: String(options.intent?.text || options.reason || ''),
+                },
                 floorId: latest?.index,
                 swipeId: ctx.chat?.[latest?.index]?.swipe_id,
                 signature: env.floorSignature?.(latest?.index),

@@ -25,6 +25,10 @@ function host(overrides = {}) {
         chatMetadata: () => ({ id: chatId }),
         pluginEnabled: () => true,
         beginBoundary: () => calls.push('begin'),
+        clearLinesInjection: () => calls.push('clearLines'),
+        clearOutlineInjection: () => calls.push('clearOutline'),
+        clearLedgerInjection: () => calls.push('clearLedger'),
+        clearLawInjection: () => calls.push('clearLaw'),
         pointTasks: track(calls, 'pointTasks'),
         pointController: track(calls, 'pointController'),
         lines: track(calls, 'lines'),
@@ -83,6 +87,9 @@ test('chat change aborts before migrate and rebinds after reload', async () => {
     assert.equal(result.status, 'ready');
     const names = h.calls;
     assert.ok(names.indexOf('begin') < names.indexOf('load'));
+    for (const name of ['clearLines', 'clearOutline', 'clearLedger', 'clearLaw']) {
+        assert.ok(names.indexOf(name) < names.indexOf('load'));
+    }
     assert.ok(names.indexOf('space.onChatChanged') < names.indexOf('migrate'));
     assert.ok(names.includes('slip.onChatChanged'));
     assert.ok(names.includes('law.onChatChanged'));
@@ -120,4 +127,28 @@ test('plugin off still clears, but skips reload', async () => {
     assert.ok(h.calls.includes('coordinate.close'));
     assert.ok(!h.calls.includes('hydrate'));
     assert.ok(!h.calls.includes('reloadPanel'));
+});
+
+test('a superseded middle chat cannot restore injections into the newest chat', async () => {
+    let releaseMiddle;
+    const middleLoad = new Promise(resolve => { releaseMiddle = resolve; });
+    const h = host({
+        async loadExternalChat() {
+            h.calls.push(`load:${h.chatId()}`);
+            if (h.chatId() === 'b') await middleLoad;
+        },
+    });
+    h.setChatId('b');
+    const middle = runChatChanged(h);
+    await Promise.resolve();
+    h.setChatId('c');
+    const newest = runChatChanged(h);
+    releaseMiddle();
+    const [middleResult, newestResult] = await Promise.all([middle, newest]);
+    assert.equal(middleResult.status, 'superseded');
+    assert.equal(newestResult.status, 'ready');
+    assert.equal(h.calls.filter(name => name === 'injLines').length, 1);
+    assert.equal(h.calls.filter(name => name === 'injOutline').length, 1);
+    assert.equal(h.calls.filter(name => name === 'injLedger').length, 1);
+    assert.equal(h.calls.filter(name => name === 'injLaw').length, 1);
 });

@@ -30,6 +30,7 @@
 
 import { getContext } from '../../../extensions.js';
 import { deleteChatRoot, externalOwnKeyBytes, getChatRoot, isExternalMode, persistExternalRoots, registerExternalStorageContext, restoreDeletedChatRoot } from './runtime/external-chat-storage.js';
+import { commitLegacyMigration } from './runtime/legacy-migration.js';
 
 registerExternalStorageContext(getContext);
 
@@ -731,32 +732,62 @@ function summarizeLegacy(legacy) {
     return summarizeData(map);
 }
 
-// 主迁移。**同步**，返回：
+function removeLegacyKeys(legacy) {
+    const failedKeys = [];
+    for (const item of legacy) {
+        try { localStorage.removeItem(item.key); }
+        catch { failedKeys.push(item.key); }
+    }
+    return failedKeys;
+}
+
+function confirmedMigrationEntries(legacy, removeKeys = []) {
+    return [
+        ...removeKeys.map(key => ({ kind: key, view: 'user', charName: '', value: null })),
+        ...legacy.map(item => {
+            const kind = kindOfSubKey(item.subKey);
+            const scope = item.subKey.slice(kind.length + 1);
+            const charName = scope.startsWith('char-') ? decodeURIComponent(scope.slice(5)) : '';
+            return { kind, view: charName ? 'char' : 'user', charName, value: item.value };
+        }),
+    ];
+}
+
+// 主迁移。确认目标持久化后才删除浏览器里的唯一旧副本，返回：
 //   { status:'none' }                            localStorage 无本 chat 数据
 //   { status:'migrated', count }                 云端空 → 搬入 + 清 localStorage
 //   { status:'equal', count }                    两边一致 → 静默清 localStorage
 //   { status:'conflict', legacy, cloud, local }  两边都有且不同 → **不动数据**，交 index.js 弹窗
-export function migrateChatFromLocalStorage(chatId) {
+export async function migrateChatFromLocalStorage(chatId) {
     if (!chatId) return { status: 'none' };
     const legacy = scanLegacy(chatId);
     if (!legacy.length) return { status: 'none' };
-    // External current records require confirmed CAS before browser copies may
-    // be deleted. The legacy upgrader is deliberately synchronous, so retain
-    // localStorage and defer rather than pretending an enqueued PUT succeeded.
-    if (isExternalMode()) return { status: 'external-deferred', count: legacy.length };
 
     const s = store(true);
     if (!s) return { status: 'none' };
 
     const cloudHasData = Object.keys(s.data).some(kindOfSubKey);
     if (!cloudHasData) {
-        for (const it of legacy) s.data[it.subKey] = it.value;
-        persist();
-        legacy.forEach(it => localStorage.removeItem(it.key));
+        const result = await commitLegacyMigration({
+            entries: confirmedMigrationEntries(legacy),
+            legacy,
+            writeConfirmed: entries => writeBatchConfirmed(entries, {
+                ownerGuard: () => String(getContext?.()?.chatId || '') === String(chatId),
+            }),
+            removeItem: key => localStorage.removeItem(key),
+        });
+        if (!result.ok) {
+            return {
+                status: result.unknown ? 'commit-unknown' : result.committed ? 'migrated-cleanup-failed' : 'failed',
+                count: legacy.length,
+                ...result,
+            };
+        }
         return { status: 'migrated', count: legacy.length };
     }
     if (legacyEqualsCloud(legacy, s.data)) {
-        legacy.forEach(it => localStorage.removeItem(it.key));
+        const failedKeys = removeLegacyKeys(legacy);
+        if (failedKeys.length) return { status: 'equal-cleanup-failed', count: legacy.length, failedKeys };
         return { status: 'equal', count: legacy.length };
     }
     return {
@@ -768,15 +799,16 @@ export function migrateChatFromLocalStorage(chatId) {
 }
 
 // 冲突决策：用户选「保留本机」→ 清掉云端构画子键、写入 legacy、删 localStorage。
-export function applyLegacyOverCloud(legacy) {
-    if (isExternalMode()) return false;
+export async function applyLegacyOverCloud(legacy) {
     const s = store(true);
-    if (!s || !Array.isArray(legacy)) return false;
-    for (const sk of Object.keys(s.data)) if (kindOfSubKey(sk)) delete s.data[sk];
-    for (const it of legacy) s.data[it.subKey] = it.value;
-    persist();
-    legacy.forEach(it => localStorage.removeItem(it.key));
-    return true;
+    if (!s || !Array.isArray(legacy) || !legacy.length) return { ok: false, reason: 'invalid-legacy' };
+    const removeKeys = Object.keys(s.data).filter(kindOfSubKey);
+    return commitLegacyMigration({
+        entries: confirmedMigrationEntries(legacy, removeKeys),
+        legacy,
+        writeConfirmed: entries => writeBatchConfirmed(entries),
+        removeItem: key => localStorage.removeItem(key),
+    });
 }
 
 // 冲突决策：用户选「保留云端」→ 云端不动，只丢掉 localStorage 副本。

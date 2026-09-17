@@ -23,6 +23,45 @@ test('normalize activity entry keeps undo snapshot', () => {
     assert.equal(entryTouchesLines({ source: 'advance', items: [] }), true);
 });
 
+test('activity normalization preserves a bounded retry payload', () => {
+    const regen = normalizeActivityEntry({
+        source: 'refresh',
+        outcome: 'failed',
+        retry: {
+            kind: 'regen',
+            selected: ['outline', 'unknown'],
+            reason: '按原要求重做',
+            feedback: '不要改锁定项',
+            outlineMode: 'continue',
+        },
+    });
+    assert.deepEqual(regen.retry, {
+        kind: 'regen',
+        selected: ['outline'],
+        reason: '按原要求重做',
+        feedback: '不要改锁定项',
+        outlineMode: 'continue',
+    });
+    const fight = normalizeActivityEntry({
+        source: 'fight',
+        outcome: 'failed',
+        retry: {
+            kind: 'fight',
+            intent: {
+                kind: 'fight',
+                modules: ['point'],
+                items: [{ module: 'point', title: '赴约', change: '改到晚上', ref: 'POINT-1' }],
+                avoid: '不要动线',
+                reason: '时间冲突',
+                text: '修正赴约',
+            },
+        },
+    });
+    assert.equal(fight.retry.intent.items[0].change, '改到晚上');
+    assert.equal(fight.retry.intent.reason, '时间冲突');
+    assert.deepEqual(normalizeActivityEntry(fight).retry, fight.retry);
+});
+
 test('store prepends per chat and caps', () => {
     const memory = new Map();
     const store = createActivityStore({
@@ -307,6 +346,55 @@ test('chat storage migrates legacy localStorage once then reads chat entries', (
     assert.equal(browser.has('sp-activity:c1'), false);
     storage.setItem('k', JSON.stringify([{ id: '2', source: 'align', items: [] }]));
     assert.equal(JSON.parse(storage.getItem())[0].id, '2');
+});
+
+test('activity persistence failures are reported and legacy data is retained', () => {
+    const failures = [];
+    const store = createActivityStore({
+        keyForChat: id => `k:${id}`,
+        storage: { setItem() { throw new Error('quota'); } },
+        onPersistenceError: failure => failures.push(failure),
+    });
+    store.prepend('c1', { id: 'volatile', source: 'advance', items: [] });
+    assert.equal(failures.length, 1);
+    assert.equal(failures[0].ok, false);
+    assert.equal(failures[0].memoryOnly, true);
+    assert.equal(failures[0].reason, 'storage-write-failed');
+
+    const falseWrites = [];
+    createActivityStore({
+        keyForChat: id => `k:${id}`,
+        storage: { setItem: () => false },
+        onPersistenceError: failure => falseWrites.push(failure.reason),
+    }).prepend('c1', { id: 'false-write', source: 'advance', items: [] });
+    assert.deepEqual(falseWrites, ['storage-write-failed']);
+    const unavailable = [];
+    createActivityStore({
+        keyForChat: id => `k:${id}`,
+        onPersistenceError: failure => unavailable.push(failure.reason),
+    }).prepend('c1', { id: 'missing-storage', source: 'advance', items: [] });
+    assert.deepEqual(unavailable, ['storage-unavailable']);
+
+    const browser = new Map([['sp-activity:c1', JSON.stringify([{ id: 'legacy', source: 'advance' }])]]);
+    const storage = createActivityChatStorage({
+        read: () => null,
+        write: () => false,
+        browserStorage: {
+            getItem: key => browser.get(key) || null,
+            removeItem: key => browser.delete(key),
+        },
+        chatId: () => 'c1',
+    });
+    assert.throws(() => storage.getItem(), /activity-write-failed/);
+    assert.equal(browser.has('sp-activity:c1'), true);
+    const migrationFailures = [];
+    const migratedStore = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage,
+        onPersistenceError: failure => migrationFailures.push(failure.reason),
+    });
+    assert.deepEqual(migratedStore.list('c1'), []);
+    assert.deepEqual(migrationFailures, ['storage-read-failed']);
 });
 
 test('unchanged and failed aligns are recorded without undo snapshots', () => {
