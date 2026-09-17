@@ -70,8 +70,8 @@ export const LIFECYCLE_EFFECTS = Object.freeze({
         Object.freeze({ port: 'applyBoundCalendar', level: 'best-effort' }),
     ]),
     disableBeforeAbort: Object.freeze([
-        Object.freeze({ port: 'slip.flush', level: 'critical' }),
-        Object.freeze({ port: 'law.flush', level: 'critical' }),
+        Object.freeze({ port: 'slip.flush', level: 'critical', falseIsFailure: true }),
+        Object.freeze({ port: 'law.flush', level: 'critical', falseIsFailure: true }),
         Object.freeze({ port: 'coordinate.close', level: 'best-effort' }),
         Object.freeze({ port: 'hideFab', level: 'best-effort' }),
         Object.freeze({ port: 'clearInline', level: 'best-effort' }),
@@ -116,6 +116,10 @@ function invokeLifecycleEffect(h, spec, failures) {
     const owner = ownerPath ? readPath(h, ownerPath) : h;
     try {
         const result = fn.apply(owner, spec.args || []);
+        if (spec.falseIsFailure && result === false) {
+            reportLifecycleFailure(h, lifecycleFailure(spec, new Error(`${spec.port} returned false`)), failures);
+            return;
+        }
         if (result && typeof result.then === 'function') {
             result.catch(error => reportLifecycleFailure(h, lifecycleFailure(spec, error), failures, true));
         }

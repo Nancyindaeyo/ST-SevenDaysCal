@@ -351,7 +351,11 @@ export function createActivityFeature(env = {}) {
     };
 
     const copySummary = async () => {
-        const text = authorChangeSummary(list(), { clockLabel: env.clockLabel?.() || '' });
+        const queue = env.queueSnapshot?.();
+        const text = authorChangeSummary(list(), {
+            clockLabel: env.clockLabel?.() || '',
+            floorId: queue?.floor?.floorId,
+        });
         try {
             if (await env.copyText?.(text)) {
                 env.toast?.('本轮变更摘要已复制');

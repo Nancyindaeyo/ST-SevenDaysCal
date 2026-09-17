@@ -51,7 +51,9 @@ test('helpers keep day keys and compact entries', () => {
     assert.equal(dayKey({ month: 5, day: 4, year: 2027 }), '2027-5-4');
     assert.equal(settingsSnapshot({ linesMode: 'manual', apiKey: 'x' }).apiKey, undefined);
     assert.equal(compactActivityEntries([{ source: 'a' }, { source: 'b' }, { source: 'c' }], 2).length, 2);
-    assert.deepEqual(jobsFromQueue({ running: { id: 'align', label: '对齐' } })[0], { id: 'align', label: '对齐', status: 'running', reason: '' });
+    assert.deepEqual(jobsFromQueue({ running: { id: 'align', label: '对齐' } })[0], {
+        id: 'align', label: '对齐', status: 'running', reason: '', enqueuedAt: 0, startedAt: 0,
+    });
 });
 
 test('diagnostic overview merges queue, activity and trace failures', () => {

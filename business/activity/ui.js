@@ -79,6 +79,7 @@ export function renderQueueStatus(queue = null) {
     const rejectedHtml = rejectedJobs.map(job => {
         const reason = job.reason === 'duplicate' ? '重复任务已合并'
             : job.reason === 'invalid-job' ? '任务格式无效'
+                : job.reason === 'automation-disabled' ? '自动化开关或账本条件未满足'
                 : job.reason === 'identity-changed' ? '聊天或楼层身份已变化'
                     : job.reason || '已拒绝';
         return `<span class="sp-activity-queue-rejected">${escape(job.label)} · ${escape(reason)}</span>`;
@@ -151,11 +152,14 @@ export function quoteTextForSpace(entry) {
     return lines.filter(Boolean).join('\n');
 }
 
-export function authorChangeSummary(entries = [], { clockLabel = '' } = {}) {
+export function authorChangeSummary(entries = [], { clockLabel = '', floorId = null } = {}) {
+    const scopedFloor = floorId == null ? Number.NaN : Number(floorId);
     const list = (Array.isArray(entries) ? entries : []).filter(entry => (
         entry && !entry.undone && entry.outcome !== 'failed' && entry.outcome !== 'skipped'
+        && (!Number.isInteger(scopedFloor) || Number(entry.floorId) === scopedFloor)
     ));
     const lines = ['构画 · 本轮变更摘要'];
+    if (Number.isInteger(scopedFloor)) lines.push(`楼层 #${scopedFloor}`);
     if (clockLabel) lines.push(String(clockLabel));
     if (!list.length) {
         lines.push('', '本轮还没有已完成的账本改动。');

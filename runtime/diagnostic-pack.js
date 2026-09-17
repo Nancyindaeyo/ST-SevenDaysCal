@@ -47,6 +47,8 @@ export function jobsFromQueue(queue = null) {
             label: item.label || item.id,
             status,
             reason: String(item.reason || item.error || ''),
+            enqueuedAt: Number(item.enqueuedAt) || 0,
+            startedAt: Number(item.startedAt) || 0,
         });
     };
     if (queue?.running) push(queue.running, 'running');

@@ -239,6 +239,9 @@ test('queue status shows idle, running, wait and retryable failures', () => {
     });
     assert.match(observable, /data-queue-cancel="advance"/);
     assert.match(observable, /重复任务已合并/);
+    assert.match(renderQueueStatus({
+        rejected: [{ id: 'outline', label: '面判定', reason: 'automation-disabled' }],
+    }), /自动化开关或账本条件未满足/);
 });
 
 test('author change summary keeps completed changes and omits failed attempts', () => {
@@ -248,7 +251,16 @@ test('author change summary keeps completed changes and omits failed attempts', 
             outcome: 'patched',
             note: '调查往前走了一拍',
             items: [{ module: 'lines', title: '调查', action: 'advance' }],
+            floorId: 8,
             ts: 1,
+        }),
+        normalizeActivityEntry({
+            source: 'advance',
+            outcome: 'patched',
+            note: '上一楼的变更',
+            items: [{ module: 'point', title: '旧安排', action: 'add' }],
+            floorId: 7,
+            ts: 0,
         }),
         normalizeActivityEntry({
             source: 'outline',
@@ -256,11 +268,12 @@ test('author change summary keeps completed changes and omits failed attempts', 
             error: '格式错误',
             ts: 2,
         }),
-    ], { clockLabel: '当前时间戳 5月1日' });
+    ], { clockLabel: '当前时间戳 5月1日', floorId: 8 });
     assert.match(text, /本轮变更摘要/);
     assert.match(text, /当前时间戳 5月1日/);
     assert.match(text, /调查往前走了一拍/);
     assert.doesNotMatch(text, /格式错误/);
+    assert.doesNotMatch(text, /上一楼的变更/);
 });
 
 test('activity feature copies the author change summary', async () => {

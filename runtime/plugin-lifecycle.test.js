@@ -163,3 +163,16 @@ test('async lifecycle rejection is reported after the synchronous switch returns
     assert.equal(reports[0][0].port, 'refreshOutlineInjection');
     assert.equal(reports[0][0].critical, true);
 });
+
+test('critical draft flush returning false is treated as a lifecycle failure', () => {
+    const reports = [];
+    const h = host({
+        slip: { flush: () => false },
+        reportLifecycleFailures: failures => reports.push(failures),
+    });
+    const result = applyPluginEnabled(h, false);
+    assert.equal(result.ok, false);
+    assert.equal(result.failures[0].port, 'slip.flush');
+    assert.match(result.failures[0].message, /returned false/);
+    assert.equal(reports.length, 1);
+});

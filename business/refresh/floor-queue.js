@@ -101,14 +101,20 @@ export function createFloorJobQueue(env = {}) {
         return snapshot();
     };
 
+    const recordRejected = (job = {}, reason = job.reason || 'rejected') => {
+        if (!job?.id) return false;
+        rejected = [{
+            id: job.id,
+            label: job.label || jobLabel(job.id),
+            reason: String(reason || 'rejected'),
+            enqueuedAt: now(),
+        }, ...rejected.filter(item => item.id !== job.id)].slice(0, 8);
+        notify();
+        return false;
+    };
+
     const enqueue = (job = {}) => {
-        const reject = reason => {
-            if (job?.id) {
-                rejected = [{ id: job.id, label: job.label || jobLabel(job.id), reason, enqueuedAt: now() }, ...rejected.filter(item => item.id !== job.id)].slice(0, 8);
-                notify();
-            }
-            return false;
-        };
+        const reject = reason => recordRejected(job, reason);
         if (!job?.id || typeof job.run !== 'function') return reject('invalid-job');
         if (running?.id === job.id || queued.some(item => item.id === job.id) || jobs.some(item => item.id === job.id)) return reject('duplicate');
         const pending = {
@@ -251,6 +257,7 @@ export function createFloorJobQueue(env = {}) {
         abort,
         retry,
         cancelPending,
+        recordRejected,
         resetFailed,
         snapshot,
         get busy() { return busy; },

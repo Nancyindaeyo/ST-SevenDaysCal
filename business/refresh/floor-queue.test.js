@@ -128,3 +128,17 @@ test('duplicate enqueue records a visible rejection reason', () => {
     assert.equal(queue.snapshot().rejected[0].id, 'align');
     assert.equal(queue.snapshot().rejected[0].reason, 'duplicate');
 });
+
+test('external automation gates can record a typed rejection', () => {
+    const queue = createFloorJobQueue({ identityCurrent: () => true, now: () => 300 });
+    queue.beginFloor({ chatId: 'c', floorId: 5 });
+    assert.equal(queue.recordRejected({ id: 'outline' }, 'automation-disabled'), false);
+    assert.deepEqual(queue.snapshot().rejected[0], {
+        id: 'outline',
+        label: '面判定',
+        error: '',
+        reason: 'automation-disabled',
+        enqueuedAt: 300,
+        startedAt: 0,
+    });
+});

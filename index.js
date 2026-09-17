@@ -1471,7 +1471,10 @@ function scheduleFloorDrain() {
     }, 0);
 }
 function enqueueFloorJob(job) {
-    if (!automationAllowed(job?.id, readBooksFlags())) return false;
+    if (!automationAllowed(job?.id, readBooksFlags())) {
+        floorQueue.recordRejected?.(job, 'automation-disabled');
+        return false;
+    }
     const ok = floorQueue.enqueue(job);
     if (ok) scheduleFloorDrain();
     return ok;
