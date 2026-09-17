@@ -12,7 +12,7 @@ test('backup host wires coordinate json and world-info through injected getConte
         getRequestHeaders: () => ({ Authorization: 'yes' }),
     };
     const controller = createGouhuaBackupController({
-        pluginVersion: '3.12.13',
+        pluginVersion: '3.12.14',
         getContext: () => ctx,
         getSettings: () => ({ fabShow: true }),
         saveSettings: () => calls.push('save-settings'),
@@ -29,7 +29,7 @@ test('backup host wires coordinate json and world-info through injected getConte
         readJson: (ports, name) => { calls.push(['read', ports.id, name]); return { missing: true }; },
         uploadJson: (ports, name, value) => { calls.push(['upload', ports.id, name, value]); return '/p'; },
         createController: wired => {
-            assert.equal(wired.pluginVersion, '3.12.13');
+            assert.equal(wired.pluginVersion, '3.12.14');
             assert.equal(wired.getContext(), ctx);
             assert.deepEqual(wired.getSettings(), { fabShow: true });
             assert.deepEqual(wired.headers(), { Authorization: 'yes' });
