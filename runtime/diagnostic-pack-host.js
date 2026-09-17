@@ -1,5 +1,5 @@
 import { PLUGIN_VERSION } from '../version.js';
-import { buildSafeDiagnosticPack, dayKey, mergeAssistantDiagnosticPackage } from './diagnostic-pack.js';
+import { buildDiagnosticOverview, buildSafeDiagnosticPack, dayKey, mergeAssistantDiagnosticPackage } from './diagnostic-pack.js';
 
 export function storyClockDayValue(clock) {
     return (clock?.endMeta?.valid ? clock.endMeta.date || clock.endMeta : null)
@@ -52,6 +52,14 @@ export function createDiagnosticPackHost(env = {}) {
             activity: env.compactActivity?.(8) || [],
             safeLogs: env.readTrace?.() || [],
             userNote,
+        });
+    }
+
+    function overview() {
+        return buildDiagnosticOverview({
+            queue: env.queueSnapshot?.() || null,
+            activity: env.compactActivity?.(24) || [],
+            safeLogs: env.readTrace?.() || [],
         });
     }
 
@@ -128,9 +136,28 @@ export function createDiagnosticPackHost(env = {}) {
         }
     }
 
+    async function exportDiagnostic() {
+        try {
+            const safeTrace = env.readTrace?.() || [];
+            const base = await env.buildCurrentChat?.({ includeNarrative: false, safeTrace });
+            const data = mergeAssistantDiagnosticPackage(base, {
+                pluginVersion: pluginVersion(),
+                runtime: collect(),
+            });
+            const text = (env.downloadJson || downloadDiagnosticPackage)(data);
+            env.toast?.('AI 诊断 JSON 已导出');
+            return { status: 'exported', text };
+        } catch (error) {
+            env.toast?.(`诊断 JSON 导出失败：${error?.message || '未知错误'}`, null, true);
+            return { status: 'failed', error };
+        }
+    }
+
     return {
         collect,
+        overview,
         exportSafe,
         exportAssistant,
+        exportDiagnostic,
     };
 }

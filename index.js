@@ -1570,9 +1570,7 @@ const diagnosticPack = createDiagnosticPackHost({
     choose: options => customDialog.choose(options),
     toast: showToast,
 });
-function collectDiagnosticRuntime(note) { return diagnosticPack.collect(note); }
-function exportSafeDiagnosticPack() { return diagnosticPack.exportSafe(); }
-function exportCurrentChatDiagnosticPackage() { return diagnosticPack.exportAssistant(); }
+function exportDiagnosticJson() { return diagnosticPack.exportDiagnostic(); }
 const STAGE_COLORS = {
     起线: '#7de9d9', 延展: '#58e8b3', 成形: '#d6b85a', 收束: '#2a8a5d', 淡出: '#888888',
 };
@@ -2902,9 +2900,8 @@ const panelHost = createPanelHost({
         bindDiagnostics({
             $in, inEl,
             refreshPreview: () => debugPayload.refreshPreview(),
-            copyPayload: (...args) => debugPayload.copy(...args),
-            exportTrace: () => exportSafeDiagnosticPack(),
-            exportCurrent: exportCurrentChatDiagnosticPackage,
+            overview: () => diagnosticPack.overview(),
+            exportCurrent: exportDiagnosticJson,
         });
     },
 });

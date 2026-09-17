@@ -615,29 +615,75 @@ export function panelMarkup({
                                     </details>
                                     <details class="sp-settings-section" id="sp-diagnostics-section">
                                         <summary class="sp-settings-section-title">诊断管理</summary>
-                                        <div class="sp-settings-section-body">
-                                            <div class="sp-diagnostics-block">
-                                                <label class="sp-cfg-group">AI 输入</label>
-                                                <p class="sp-cfg-hint"><strong>仅供本人排查。</strong>这里是最近一次实际发给 AI 的完整输入，可能包含最近聊天、上下文、世界书和提示词等敏感内容，不建议公开分享。</p>
-                                                <details class="sp-diagnostics-preview sp-diagnostics-preview-empty" id="sp-diagnostics-ai-input-preview">
-                                                    <summary class="sp-diagnostics-preview-title">查看最近 AI 输入</summary>
-                                                    <pre class="sp-diagnostics-pre" id="sp-diagnostics-ai-input-pre" aria-live="polite">（尚未发送请求）</pre>
-                                                    <div class="sp-diagnostics-actions" id="sp-diagnostics-ai-input-actions" hidden>
-                                                        <button class="sp-diagnostics-copy-btn" id="sp-diagnostics-ai-input-copy" type="button" disabled><i class="fa-regular fa-copy"></i> 复制 AI 输入</button>
+                                        <div class="sp-settings-section-body sp-diagnostics-shell">
+                                            <header class="sp-diagnostics-hero">
+                                                <div class="sp-diagnostics-hero-icon" aria-hidden="true"><i class="fa-solid fa-wave-square"></i></div>
+                                                <div class="sp-diagnostics-hero-copy">
+                                                    <div class="sp-diagnostics-eyebrow">运行诊断</div>
+                                                    <div class="sp-diagnostics-heading">先看错误，再决定是否导出</div>
+                                                    <p>这里只记录构画的运行状态，不会自动重试或修改账本。</p>
+                                                </div>
+                                                <div class="sp-diagnostics-status" id="sp-diagnostics-status" data-tone="ok">
+                                                    <span class="sp-diagnostics-status-dot" aria-hidden="true"></span>
+                                                    <span class="sp-diagnostics-status-text">正在读取状态</span>
+                                                </div>
+                                            </header>
+
+                                            <div class="sp-diagnostics-metrics" aria-label="诊断摘要">
+                                                <div class="sp-diagnostics-metric">
+                                                    <strong id="sp-diagnostics-error-count">0</strong>
+                                                    <span>最近错误</span>
+                                                </div>
+                                                <div class="sp-diagnostics-metric">
+                                                    <strong id="sp-diagnostics-queue-count">0</strong>
+                                                    <span>队列任务</span>
+                                                </div>
+                                                <div class="sp-diagnostics-metric">
+                                                    <strong id="sp-diagnostics-log-count">0</strong>
+                                                    <span>安全日志</span>
+                                                </div>
+                                            </div>
+
+                                            <section class="sp-diagnostics-region" aria-labelledby="sp-diagnostics-errors-title">
+                                                <div class="sp-diagnostics-region-head">
+                                                    <div>
+                                                        <div class="sp-diagnostics-eyebrow">错误记录</div>
+                                                        <h4 id="sp-diagnostics-errors-title">最近发生了什么</h4>
                                                     </div>
+                                                    <span>最多显示 12 条</span>
+                                                </div>
+                                                <div class="sp-diagnostics-error-list" id="sp-diagnostics-error-list" aria-live="polite">
+                                                    <div class="sp-diagnostics-empty"><i class="fa-regular fa-circle-check"></i><span>最近没有记录到错误</span></div>
+                                                </div>
+                                            </section>
+
+                                            <section class="sp-diagnostics-region" aria-labelledby="sp-diagnostics-input-title">
+                                                <div class="sp-diagnostics-region-head">
+                                                    <div>
+                                                        <div class="sp-diagnostics-eyebrow">请求取证</div>
+                                                        <h4 id="sp-diagnostics-input-title">最近一次 AI 输入</h4>
+                                                    </div>
+                                                    <span class="sp-diagnostics-private"><i class="fa-solid fa-lock"></i> 敏感内容</span>
+                                                </div>
+                                                <p class="sp-cfg-hint">可能包含聊天、世界书和提示词，仅用于本人排查。无需单独复制，导出的诊断 JSON 会收录各模块最近的请求记录。</p>
+                                                <details class="sp-diagnostics-preview sp-diagnostics-preview-empty" id="sp-diagnostics-ai-input-preview">
+                                                    <summary class="sp-diagnostics-preview-title">展开查看完整输入</summary>
+                                                    <pre class="sp-diagnostics-pre" id="sp-diagnostics-ai-input-pre" aria-live="polite">（尚未发送请求）</pre>
                                                 </details>
-                                            </div>
-                                            <hr class="sp-mem-divider">
-                                            <div class="sp-diagnostics-block">
-                                                <label class="sp-cfg-group">安全诊断包</label>
-                                                <p class="sp-cfg-hint"><strong>可以公开。</strong>版本、开关、本楼队列、【改】卡片头、最近 30 条安全日志。无正文、无提示词、无 Key / URL。</p>
-                                                <button id="sp-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-regular fa-copy"></i> 复制安全诊断包</button>
-                                            </div>
-                                            <div class="sp-diagnostics-block">
-                                                <div class="sp-diagnostics-label">导出给助手</div>
-                                                <p class="sp-cfg-hint"><strong>只发给改这个插件的人。</strong>上面那一层，加上本聊天账本和最近两楼各模块最新一次完整输入 / 原始回复。默认不附正文。不含 Key、地址或请求头。</p>
-                                                <button id="sp-current-diagnostic-export" class="sp-save-btn" type="button"><i class="fa-solid fa-file-export"></i> 导出给助手</button>
-                                            </div>
+                                            </section>
+
+                                            <section class="sp-diagnostics-export">
+                                                <div class="sp-diagnostics-export-icon" aria-hidden="true"><i class="fa-solid fa-file-code"></i></div>
+                                                <div class="sp-diagnostics-export-copy">
+                                                    <div class="sp-diagnostics-eyebrow">一份文件</div>
+                                                    <h4>导出 AI 诊断 JSON</h4>
+                                                    <p>包含版本、开关、当前账本、队列、【改】记录头、安全日志及各模块最近的完整输入和原始回复；不含 API Key、地址、请求头和聊天正文。</p>
+                                                </div>
+                                                <button id="sp-current-diagnostic-export" class="sp-diagnostics-export-btn" type="button">
+                                                    <i class="fa-solid fa-arrow-down-to-bracket"></i>
+                                                    <span>导出 JSON</span>
+                                                </button>
+                                            </section>
                                         </div>
                                     </details>
                                 </div>

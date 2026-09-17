@@ -1,3 +1,5 @@
+import { diagnosticOverviewHtml } from './diagnostic-panel.js';
+
 export function parseApiTimeoutSec(raw) {
     const text = String(raw ?? '').trim();
     const n = Number(text);
@@ -17,14 +19,36 @@ export function filterModelList(models, filter = '') {
 
 export function bindDiagnostics(env = {}) {
     const $in = env.$in;
-    for (const id of ['#sp-diagnostics-section', '#sp-diagnostics-ai-input-preview']) {
-        env.inEl?.(id)?.addEventListener('toggle', function () {
-            if (this.open) env.refreshPreview?.();
-        });
-    }
-    $in('#sp-diagnostics-ai-input-copy').on('click', () => { void env.copyPayload?.(); });
-    $in('#sp-diagnostic-export').on('click', () => { void env.exportTrace?.(); });
-    $in('#sp-current-diagnostic-export').on('click', () => { void env.exportCurrent?.(); });
+    const refreshOverview = () => {
+        const overview = env.overview?.() || {};
+        $in('#sp-diagnostics-status')
+            .attr('data-tone', overview.tone || 'ok')
+            .find('.sp-diagnostics-status-text').text(overview.label || '当前运行正常');
+        $in('#sp-diagnostics-error-count').text(String(Number(overview.errorCount) || 0));
+        $in('#sp-diagnostics-queue-count').text(String(Number(overview.queueCount) || 0));
+        $in('#sp-diagnostics-log-count').text(String(Number(overview.logCount) || 0));
+        $in('#sp-diagnostics-error-list').html(diagnosticOverviewHtml(overview));
+        return overview;
+    };
+    env.inEl?.('#sp-diagnostics-section')?.addEventListener('toggle', function () {
+        if (!this.open) return;
+        env.refreshPreview?.();
+        refreshOverview();
+    });
+    env.inEl?.('#sp-diagnostics-ai-input-preview')?.addEventListener('toggle', function () {
+        if (this.open) env.refreshPreview?.();
+    });
+    $in('#sp-current-diagnostic-export').on('click', async function () {
+        const $button = $in('#sp-current-diagnostic-export');
+        if ($button.prop('disabled')) return;
+        $button.prop('disabled', true).addClass('is-busy').find('span').text('正在整理…');
+        try { await env.exportCurrent?.(); }
+        finally {
+            $button.prop('disabled', false).removeClass('is-busy').find('span').text('导出 JSON');
+            refreshOverview();
+        }
+    });
+    return { refreshOverview };
 }
 
 export function bindApiFields(env = {}) {

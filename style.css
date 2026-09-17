@@ -3965,23 +3965,192 @@ select.sp-input { appearance: none; cursor: pointer; }
     background: rgba(128, 128, 128, 0.15);
 }
 
-/* ─── Diagnostics settings preview ───────────────────────────────────────────── */
-.sp-diagnostics-block {
+/* ─── Diagnostics management ─────────────────────────────────────────────────── */
+.sp-diagnostics-shell {
+    gap: 14px;
+    padding-top: 12px;
+}
+.sp-diagnostics-hero {
+    display              : grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap                  : 10px 12px;
+    align-items          : start;
+    padding              : 14px;
+    border               : 1px solid var(--sp-divider);
+    border-radius        : 10px;
+    background           : color-mix(in oklab, var(--sp-on-surface) 3%, transparent);
+}
+.sp-diagnostics-hero-icon,
+.sp-diagnostics-export-icon {
+    display        : grid;
+    place-items    : center;
+    width          : 34px;
+    height         : 34px;
+    border-radius  : 8px;
+    color          : var(--sp-primary);
+    background     : color-mix(in oklab, var(--sp-primary) 12%, transparent);
+    border         : 1px solid color-mix(in oklab, var(--sp-primary) 24%, transparent);
+}
+.sp-diagnostics-hero-copy { min-width: 0; }
+.sp-diagnostics-eyebrow {
+    color         : var(--sp-subtle);
+    font-size     : var(--sp-fs-60);
+    font-weight   : 600;
+    letter-spacing: 0.08em;
+}
+.sp-diagnostics-heading {
+    margin-top    : 2px;
+    color         : var(--sp-on-surface);
+    font-size     : var(--sp-fs-88);
+    font-weight   : 650;
+    letter-spacing: -0.01em;
+}
+.sp-diagnostics-hero-copy p,
+.sp-diagnostics-export-copy p {
+    margin     : 4px 0 0;
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-72);
+    line-height: 1.55;
+    text-wrap  : pretty;
+}
+.sp-diagnostics-status {
+    grid-column  : 1 / -1;
+    display      : flex;
+    align-items  : center;
+    gap          : 7px;
+    width        : fit-content;
+    padding      : 5px 9px;
+    border-radius: 6px;
+    color        : var(--sp-primary);
+    background   : color-mix(in oklab, var(--sp-primary) 9%, transparent);
+    font-size    : var(--sp-fs-68);
+    font-weight  : 550;
+}
+.sp-diagnostics-status-dot {
+    width        : 7px;
+    height       : 7px;
+    border-radius: 50%;
+    background   : currentColor;
+    box-shadow   : 0 0 0 3px color-mix(in oklab, currentColor 14%, transparent);
+}
+.sp-diagnostics-status[data-tone="error"] {
+    color     : var(--sp-danger, #c45);
+    background: color-mix(in oklab, var(--sp-danger, #c45) 10%, transparent);
+}
+.sp-diagnostics-status[data-tone="warning"] { color: #c59445; background: color-mix(in oklab, #c59445 10%, transparent); }
+.sp-diagnostics-status[data-tone="busy"] { color: var(--sp-primary); }
+.sp-diagnostics-metrics {
+    display              : grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    border-top           : 1px solid var(--sp-divider);
+    border-bottom        : 1px solid var(--sp-divider);
+}
+.sp-diagnostics-metric {
     display       : flex;
     flex-direction: column;
-    gap           : 6px;
+    gap           : 2px;
+    padding       : 10px 12px;
 }
+.sp-diagnostics-metric + .sp-diagnostics-metric { border-left: 1px solid var(--sp-divider); }
+.sp-diagnostics-metric strong {
+    color               : var(--sp-on-surface);
+    font-family         : var(--sp-font-mono);
+    font-size           : var(--sp-fs-105);
+    font-variant-numeric: tabular-nums;
+    line-height         : 1;
+}
+.sp-diagnostics-metric span { color: var(--sp-subtle); font-size: var(--sp-fs-62); }
+.sp-diagnostics-region {
+    display       : flex;
+    flex-direction: column;
+    gap           : 8px;
+}
+.sp-diagnostics-region-head {
+    display        : flex;
+    align-items    : end;
+    justify-content: space-between;
+    gap            : 12px;
+}
+.sp-diagnostics-region-head h4,
+.sp-diagnostics-export-copy h4 {
+    margin        : 2px 0 0;
+    color         : var(--sp-on-surface);
+    font-size     : var(--sp-fs-84);
+    font-weight   : 650;
+    letter-spacing: -0.01em;
+}
+.sp-diagnostics-region-head > span {
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-60);
+    white-space: nowrap;
+}
+.sp-diagnostics-private { display: inline-flex; align-items: center; gap: 5px; }
+.sp-diagnostics-error-list {
+    display       : flex;
+    flex-direction: column;
+    border-top    : 1px solid var(--sp-divider);
+}
+.sp-diagnostics-error-item {
+    display              : grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap                  : 10px;
+    padding              : 10px 2px;
+    border-bottom        : 1px solid var(--sp-divider);
+}
+.sp-diagnostics-error-mark {
+    display        : grid;
+    place-items    : center;
+    width          : 24px;
+    height         : 24px;
+    margin-top     : 1px;
+    border-radius  : 6px;
+    color          : var(--sp-danger, #c45);
+    background     : color-mix(in oklab, var(--sp-danger, #c45) 10%, transparent);
+    font-size      : var(--sp-fs-58);
+}
+.sp-diagnostics-error-copy { min-width: 0; }
+.sp-diagnostics-error-title {
+    color      : var(--sp-on-surface);
+    font-size  : var(--sp-fs-74);
+    font-weight: 600;
+    line-height: 1.4;
+}
+.sp-diagnostics-error-detail {
+    margin-top : 2px;
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-68);
+    line-height: 1.45;
+    word-break : break-word;
+}
+.sp-diagnostics-error-meta {
+    margin-top          : 5px;
+    color               : var(--sp-subtle);
+    font-family         : var(--sp-font-mono);
+    font-size           : var(--sp-fs-56);
+    font-variant-numeric: tabular-nums;
+    opacity             : 0.82;
+}
+.sp-diagnostics-empty {
+    display    : flex;
+    align-items: center;
+    gap        : 8px;
+    padding    : 12px 2px;
+    color      : var(--sp-subtle);
+    font-size  : var(--sp-fs-70);
+}
+.sp-diagnostics-empty i { color: var(--sp-primary); }
 .sp-diagnostics-preview {
     border        : 1px solid var(--sp-divider);
-    border-radius : 8px;
+    border-radius : 7px;
     overflow      : hidden;
+    background    : color-mix(in oklab, var(--sp-on-surface) 2%, transparent);
 }
 .sp-diagnostics-preview-title {
     display        : flex;
     align-items    : center;
     gap            : 6px;
-    padding        : 7px 10px;
-    font-size      : var(--sp-fs-75);
+    padding        : 9px 10px;
+    font-size      : var(--sp-fs-70);
     color          : var(--sp-subtle);
     cursor         : pointer;
     user-select    : none;
@@ -4010,27 +4179,38 @@ select.sp-input { appearance: none; cursor: pointer; }
     white-space    : pre-wrap;
     word-break     : break-all;
 }
-.sp-diagnostics-actions {
-    display        : flex;
-    justify-content: flex-start;
-    padding        : 6px 10px 8px;
-    background     : rgba(0,0,0,0.25);
+.sp-diagnostics-export {
+    display              : grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap                  : 10px 12px;
+    align-items          : start;
+    padding              : 13px;
+    border               : 1px solid color-mix(in oklab, var(--sp-primary) 30%, var(--sp-divider));
+    border-radius        : 10px;
+    background           : color-mix(in oklab, var(--sp-primary) 6%, transparent);
 }
-.sp-diagnostics-preview-empty .sp-diagnostics-actions,
-.sp-diagnostics-preview .sp-diagnostics-actions[hidden] { display: none; }
-.sp-diagnostics-copy-btn {
-    padding        : 2px 8px;
-    min-width      : 0;
-    border         : 1px solid var(--sp-divider);
-    border-radius  : 4px;
-    background     : transparent;
-    color          : var(--sp-subtle);
-    font-size      : var(--sp-fs-70);
+.sp-diagnostics-export-copy { min-width: 0; }
+.sp-diagnostics-export-btn {
+    grid-column    : 1 / -1;
+    display        : inline-flex;
+    align-items    : center;
+    justify-content: center;
+    gap            : 8px;
+    width          : 100%;
+    padding        : 9px 14px;
+    border         : 1px solid var(--sp-primary);
+    border-radius  : 7px;
+    color          : var(--sp-on-primary);
+    background     : var(--sp-primary);
+    font-size      : var(--sp-fs-74);
+    font-weight    : 650;
     cursor         : pointer;
-    transition     : color 0.15s, border-color 0.15s;
+    transition     : transform 0.18s ease, opacity 0.18s ease;
 }
-.sp-diagnostics-copy-btn:hover:not(:disabled) { color: var(--sp-on-surface); border-color: var(--sp-surface-high); }
-.sp-diagnostics-copy-btn:disabled { cursor: default; opacity: 0.45; }
+.sp-diagnostics-export-btn:hover { opacity: 0.88; transform: translateY(-1px); }
+.sp-diagnostics-export-btn:active { transform: translateY(1px); }
+.sp-diagnostics-export-btn:focus-visible { outline: 2px solid color-mix(in oklab, var(--sp-primary) 65%, transparent); outline-offset: 2px; }
+.sp-diagnostics-export-btn:disabled { cursor: wait; opacity: 0.58; transform: none; }
 
 /* ─── cfg-hint (shared) ──────────────────────────────────────────────────────── */
 .sp-cfg-hint { font-size: var(--sp-fs-75); color: var(--sp-subtle); margin: 0 0 2px; }

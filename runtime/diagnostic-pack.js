@@ -55,6 +55,59 @@ export function jobsFromQueue(queue = null) {
     return jobs;
 }
 
+function errorItem(source, title, detail, metadata = {}) {
+    return {
+        source,
+        title: String(title || '未知错误').slice(0, 120),
+        detail: String(detail || '').slice(0, 240),
+        module: String(metadata.module || '').slice(0, 80),
+        floorId: Number.isInteger(Number(metadata.floorId)) ? Number(metadata.floorId) : null,
+        ts: Number(metadata.ts) || 0,
+    };
+}
+
+export function buildDiagnosticOverview({ queue = null, activity = [], safeLogs = [] } = {}) {
+    const errors = [];
+    for (const item of queue?.failed || []) {
+        errors.push(errorItem('queue', `${item.label || item.id || '后台任务'}失败`, item.reason || item.error, {
+            module: item.id,
+        }));
+    }
+    for (const item of Array.isArray(activity) ? activity : []) {
+        if (item?.outcome !== 'failed') continue;
+        errors.push(errorItem('activity', item.note || `${item.source || '改动'}失败`, item.error || item.reasonCode, {
+            module: item.source,
+            floorId: item.floorId,
+            ts: item.ts,
+        }));
+    }
+    for (const item of Array.isArray(safeLogs) ? safeLogs : []) {
+        if (item?.status !== 'failed' && item?.status !== 'rejected') continue;
+        errors.push(errorItem('trace', `${item.module || '运行时'} · ${item.phase || item.event || '失败'}`, item.reasonCode || item.errorClass, {
+            module: item.module,
+            floorId: item.floor,
+            ts: item.ts,
+        }));
+    }
+    errors.sort((left, right) => right.ts - left.ts);
+    const queueJobs = jobsFromQueue(queue);
+    const running = queueJobs.filter(item => item.status === 'running' || item.status === 'queued').length;
+    const skipped = queueJobs.filter(item => item.status === 'skipped').length;
+    const tone = errors.length ? 'error' : running ? 'busy' : skipped ? 'warning' : 'ok';
+    const label = errors.length ? `发现 ${errors.length} 条错误`
+        : running ? `${running} 个后台任务处理中`
+            : skipped ? `${skipped} 个任务等待处理`
+                : '当前运行正常';
+    return {
+        tone,
+        label,
+        errorCount: errors.length,
+        queueCount: queueJobs.length,
+        logCount: Array.isArray(safeLogs) ? safeLogs.length : 0,
+        errors: errors.slice(0, 12),
+    };
+}
+
 export function dayKey(value) {
     if (!value || typeof value !== 'object') return '';
     const month = Number(value.month);

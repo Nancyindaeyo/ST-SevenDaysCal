@@ -95,6 +95,8 @@ test('collect keeps runtime flags and drops secrets', () => {
     assert.equal(pack.settings.apiKey, undefined);
     assert.equal(pack.userNote, '解析挂了');
     assert.equal(pack.activity[0].snapshot, undefined);
+    assert.equal(host.overview().tone, 'error');
+    assert.equal(host.overview().errorCount, 1);
 });
 
 test('exportSafe copies when clipboard works and falls back to a dialog', async () => {
@@ -119,4 +121,16 @@ test('exportAssistant merges runtime and skips cancel', async () => {
     assert.equal(exported.downloads[0].runtime.userNote, '看原文');
     assert.equal(exported.downloads[0].format, 'st-sevendayscal-diagnostic-package');
     assert.equal(exported.toasts[0][0], '给助手的诊断包已导出');
+});
+
+test('single diagnostic export downloads json without a choice dialog', async () => {
+    const exported = makeHost();
+    const result = await exported.host.exportDiagnostic();
+    assert.equal(result.status, 'exported');
+    assert.equal(exported.downloads.length, 1);
+    assert.equal(exported.downloads[0].includeNarrative, false);
+    assert.equal(exported.downloads[0].runtime.settings.apiKey, undefined);
+    assert.equal(exported.downloads[0].format, 'st-sevendayscal-diagnostic-package');
+    assert.deepEqual(exported.prompts, []);
+    assert.equal(exported.toasts[0][0], 'AI 诊断 JSON 已导出');
 });
