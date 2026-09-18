@@ -21,6 +21,9 @@ test('lamp flags stay vs outing, due vs outing, and disjoint 柏宝书 fields', 
     });
     assert.deepEqual(conflicts.map(item => item.id), ['stay-outing', 'due-outing', 'bbb-place', 'bbb-condition', 'bbb-plan']);
     assert.equal(conflicts.find(item => item.id === 'bbb-place').quote, '新京驿馆');
+    assert.equal(conflicts.find(item => item.id === 'stay-outing').againstTitle, '在家养伤');
+    assert.match(conflicts.find(item => item.id === 'stay-outing').detail, /在家养伤/);
+    assert.match(conflicts.find(item => item.id === 'stay-outing').pairId, /今夜赴约/);
     assert.equal(textsRelated('城南旧宅', '旧宅'), true);
     assert.equal(textsRelated('旧宅', '新京'), false);
 });
@@ -54,7 +57,10 @@ test('lamp html never injects and jumps to the 构画 side', () => {
     assert.match(html, /冲突/);
     assert.match(html, /搜索/);
     assert.match(html, /sp-lamp-actions/);
-    assert.doesNotMatch(html, /sp-refresh-bar-actions/);
+    assert.doesNotMatch(html, /没有看出打架的账/);
+    assert.match(html, /对照最新楼/);
+    assert.match(html, /先看再写/);
+    assert.match(html, /追从上次对齐到现在/);
     assert.doesNotMatch(html, /setExtensionPrompt|【作者合同】/);
 });
 
@@ -104,7 +110,9 @@ test('改这条 keeps the list scroll and nearest-scrolls that row', () => {
     const feature = createLampFeature({
         collect: () => ({
             hasBaiBai: false,
+            hasBaiBai: false,
             conflicts: [{ module: 'point', title: '合宿闭幕式与物资清退', ref: '', detail: '清退清单' }],
+            age: { copy: '冲突只比对账本' },
         }),
         $in: sel => {
             if (sel === '#sp-lamp-main') return {

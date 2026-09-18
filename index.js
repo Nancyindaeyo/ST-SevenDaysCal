@@ -1915,6 +1915,12 @@ const lampHost = createLampHost({
     resetModes: () => { outlineMode = false; linesMode = false; spaceMode = false; theaterMode = false; axisState.almanacMode = false; },
     showLamp: () => showPanelView($in, 'lamp'),
     toast: message => showToast(message),
+    readLamp: () => readStore(keyDesc('lamp', 'user', '')) || {},
+    writeLamp: value => writeStore(keyDesc('lamp', 'user', ''), value),
+    latestFloor: () => latestAiFloor(getContext()?.chat)?.index ?? -1,
+    readLatestStory: () => readFloorStory(latestAiFloor(getContext()?.chat)?.text || ''),
+    readChat: () => getContext()?.chat || [],
+    readFloorStory,
 });
 const lampFeature = createLampFeature({
     collect: () => lampHost.collect(),
@@ -1931,6 +1937,10 @@ const lampFeature = createLampFeature({
         return refreshController.fight({ intent, cause: 'manual' });
     },
     saveItem: payload => lampHost.applyHandEdit(payload),
+    checkStory: () => lampHost.checkStory(),
+    dismiss: payload => lampHost.dismiss(payload),
+    previewAlign: opts => refreshController.align({ selected: ['point', 'lines'], cause: 'manual', preview: true, ...opts }),
+    applyAlign: opts => refreshController.align({ selected: ['point', 'lines'], cause: 'manual', ...opts }),
 });
 let theaterMode          = false;
 let beatFeature          = null;
@@ -1997,7 +2007,11 @@ const refreshController = createRefreshController({
         linesFeature.refreshPanel?.();
         syncLatestScheduleBlock();
         refreshInlineWindow(true);
+        lampFeature.refresh?.();
     },
+    onAligned: ({ floorId } = {}) => lampHost.markAligned(floorId),
+    alignWindow: () => lampHost.alignWindow(),
+    lastAlignFloor: () => lampHost.lastAlignFloor(),
     toastAlways: (msg, isError) => {
         if (isError) { showToast(msg, null, true); return; }
         showToast(`${msg} · 点此查看本轮拍`, () => revealBeatAndGenerate());
@@ -2485,6 +2499,7 @@ jQuery(async () => {
             runLedgerJudgeStep,
             refreshLedgerInjection,
             refreshInlineWindow,
+            lamp: lampFeature,
             refreshStoryClockInjection,
             outline: outlineFeature,
             timeTravelDeleted: createLedgerDeletedHandler({

@@ -27,6 +27,8 @@ test('align toast covers empty and failed', () => {
     assert.deepEqual(refreshAlignToast({ status: 'failed', errorMessage: '超时' }), { message: '对齐失败：超时', error: true });
     assert.deepEqual(refreshAlignToast({ status: 'updated', unchanged: true }), { message: 'API 跑过了，点和线都不用改' });
     assert.deepEqual(refreshAlignToast({ status: 'updated', summary: '点已按正文对齐' }), { message: '点已按正文对齐' });
+    assert.deepEqual(refreshAlignToast({ status: 'preview', unchanged: true }), { message: '对照过了，点和线都不用改' });
+    assert.deepEqual(refreshAlignToast({ status: 'preview', summary: '拟改 2 条' }), { message: '拟改 2 条' });
     assert.equal(refreshAlignToast({ status: 'ok' }), null);
 });
 

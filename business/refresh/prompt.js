@@ -15,14 +15,15 @@ export function buildRefreshAddon({ reason = '', feedback = '', align = false, t
     return parts.join('\n\n');
 }
 
-export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '', promptAddon = '', todayGap = 0, todayDayNumber = 1 } = {}) {
+export function buildReconcilePrompt({ userName, charName, latestStory, pointRaw, linesRaw, reason = '', feedback = '', promptAddon = '', todayGap = 0, todayDayNumber = 1, storyHeading = '最新 AI 楼正文' } = {}) {
     const extra = String(promptAddon || '').trim();
-    return `请暂停角色扮演，作为账本校对助手，根据【最新 AI 楼正文】给点（日程）和线（平行事件）打纠偏补丁。
+    const heading = String(storyHeading || '').trim() || '最新 AI 楼正文';
+    return `请暂停角色扮演，作为账本校对助手，根据【${heading}】给点（日程）和线（平行事件）打纠偏补丁。
 不要重写整张表。锁定条目（pin=true / 锁定）默认不动，除非用户反馈点名。
 
 【人物】${userName} / ${charName}
 
-【最新 AI 楼正文】
+【${heading}】
 ${String(latestStory || '').trim() || '（没有正文）'}
 
 【当前点】

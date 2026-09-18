@@ -6,6 +6,10 @@ import { detectLampConflicts, readLampBaiBai } from './detect.js';
 import { parseLampIntent } from './intent.js';
 import { enterLampSidebar } from './feature.js';
 import { spaceMessagePlainText } from '../space/schema.js';
+import { lampAgeOf } from './age.js';
+import { dismissLampPair, filterDismissedConflicts, markLampAligned, readLampState } from './state.js';
+import { checkLatestStory } from './story-check.js';
+import { buildAlignStoryWindow, listAiStoryFloors } from './story-window.js';
 
 function titleHit(name, title) {
     const text = String(name || '');
@@ -34,6 +38,10 @@ function commitOutline(env, raw) {
 
 // 灯宿主：读六本账、打架 extras、手改、间↔灯。fight() 仍由 refresh controller 跑；这里不接引导 commit。
 export function createLampHost(env = {}) {
+    const lampState = () => readLampState(env.readLamp?.() || {});
+    const persistLamp = next => env.writeLamp?.({ ...next, ts: Date.now() });
+    const readStory = text => env.readFloorStory?.(text) || String(text || '');
+
     function collect() {
         const cal = env.calendar?.();
         let days = [];
@@ -59,9 +67,15 @@ export function createLampHost(env = {}) {
         } catch {
             hasBaiBai = true;
         }
+        const state = lampState();
+        const latestFloor = env.latestFloor?.() ?? -1;
         return {
             hasBaiBai,
-            conflicts: detectLampConflicts({ days, ledger: ledgerEntries, lines, bbb }),
+            conflicts: filterDismissedConflicts(
+                detectLampConflicts({ days, ledger: ledgerEntries, lines, bbb }),
+                state.dismissed,
+            ),
+            age: lampAgeOf({ latestFloor, lastAlignFloor: state.lastAlignFloor }),
             books: {
                 days,
                 lines,
@@ -71,6 +85,36 @@ export function createLampHost(env = {}) {
                 dashed: env.lines?.()?.dashed?.read?.() || [],
             },
         };
+    }
+
+    function checkStory() {
+        const books = collect().books || {};
+        return checkLatestStory({
+            days: books.days,
+            lines: books.lines,
+            story: env.readLatestStory?.() || '',
+        });
+    }
+
+    function alignWindow() {
+        const floors = listAiStoryFloors(env.readChat?.() || [], readStory);
+        return buildAlignStoryWindow(floors, { afterFloor: lampState().lastAlignFloor });
+    }
+
+    function dismiss(pairId) {
+        const id = typeof pairId === 'object' && pairId ? pairId.pairId : pairId;
+        persistLamp(dismissLampPair(lampState(), id));
+        env.lamp?.()?.refresh?.();
+        return { status: 'dismissed' };
+    }
+
+    function markAligned(floorId) {
+        persistLamp(markLampAligned(lampState(), floorId));
+        return lampState().lastAlignFloor;
+    }
+
+    function lastAlignFloor() {
+        return lampState().lastAlignFloor;
     }
 
     function applyFightExtras(patches = []) {
@@ -227,6 +271,11 @@ export function createLampHost(env = {}) {
 
     return {
         collect,
+        checkStory,
+        alignWindow,
+        dismiss,
+        markAligned,
+        lastAlignFloor,
         applyFightExtras,
         applyHandEdit,
         sendBasketToSpace,

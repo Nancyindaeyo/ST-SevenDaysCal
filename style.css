@@ -6173,8 +6173,31 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     flex-direction: column;
     gap: 14px;
 }
-.sp-lamp-hint {
+.sp-lamp-age {
     margin: 0;
+    opacity: 0.78;
+}
+.sp-lamp-chase {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+.sp-lamp-chase .sp-btn {
+    width: 100%;
+    min-height: 2.4em;
+}
+.sp-lamp-chase #sp-lamp-preview-window {
+    grid-column: 1 / -1;
+}
+.sp-lamp-pair {
+    font-size: var(--sp-fs-68);
+    opacity: 0.7;
+}
+.sp-lamp-row.is-stale {
+    border-left-color: color-mix(in oklab, var(--sp-primary) 55%, var(--sp-divider));
+}
+.sp-lamp-row.is-preview {
+    border-left-color: color-mix(in oklab, var(--sp-ok, #3c9) 70%, var(--sp-divider));
 }
 .sp-lamp-section {
     display: flex;

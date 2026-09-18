@@ -15,6 +15,8 @@ export function refreshAlignToast(result) {
     if (result?.status === 'skipped' && result.reason === 'empty') return { message: '还没有点或线可以对齐', error: true };
     if (result?.status === 'cancelled') return { message: '这次对齐已取消', error: true };
     if (result?.status === 'failed') return { message: `对齐失败：${result.errorMessage || ''}`, error: true };
+    if (result?.status === 'preview' && result.unchanged) return { message: '对照过了，点和线都不用改' };
+    if (result?.status === 'preview') return { message: result.summary || '拟改已放进待改篮，确认后再写入' };
     if (result?.status === 'updated' && result.unchanged) return { message: 'API 跑过了，点和线都不用改' };
     if (result?.status === 'updated') return { message: result.summary || '已按正文对齐' };
     return null;

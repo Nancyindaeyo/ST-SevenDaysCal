@@ -71,6 +71,7 @@ test('collect reads six books and flags 柏宝书 place against 旧宅', () => {
     const { host } = makeHost();
     const snap = host.collect();
     assert.equal(snap.hasBaiBai, true);
+    assert.ok(snap.age.copy.includes('冲突只比对账本'));
     assert.ok(snap.conflicts.some(item => item.id === 'bbb-place' || item.id === 'stay-outing'));
     assert.equal(snap.books.days[0].events[0].title, '在家养伤');
     assert.equal(snap.books.outline[0].title, '晚饭');
@@ -126,4 +127,44 @@ test('basket goes to 间 with quote; clarify asks for a clearer intent; guide ha
     host.receiveSpaceMessage({ content: '跑法: 打架\n要动: 点\n- 点「在家养伤」：改成静养' });
     assert.equal(intents.at(-1)[0].kind, 'fight');
     assert.equal(intents.at(-1)[1].from, 'space');
+});
+
+test('dismiss hides a fight pair and markAligned remembers the floor', () => {
+    let lamp = {};
+    const { host } = makeHost({
+        readLamp: () => lamp,
+        writeLamp: value => { lamp = value; },
+        latestFloor: () => 10,
+        readLatestStory: () => '已经出城了。次日才回。',
+    });
+    const before = host.collect();
+    const stay = before.conflicts.find(item => item.id === 'stay-outing');
+    assert.ok(stay);
+    host.dismiss(stay.pairId);
+    assert.equal(host.collect().conflicts.some(item => item.id === 'stay-outing'), false);
+    assert.equal(host.markAligned(8), 8);
+    assert.equal(host.lastAlignFloor(), 8);
+    assert.match(host.collect().age.copy, /#8/);
+    const stale = host.checkStory();
+    assert.ok(stale.some(item => item.module === 'point' || item.module === 'lines'));
+});
+
+test('dismissed fights drop out of collect and last align floor is remembered', () => {
+    let stored = {};
+    const { host, calls } = makeHost({
+        readLamp: () => stored,
+        writeLamp: value => { stored = value; },
+        latestFloor: () => 10,
+        readLatestStory: () => '已经出城。次日才回。',
+    });
+    const stay = host.collect().conflicts.find(item => item.id === 'stay-outing');
+    assert.ok(stay.pairId);
+    host.dismiss(stay.pairId);
+    assert.equal(host.collect().conflicts.some(item => item.id === 'stay-outing'), false);
+    assert.ok(calls.includes('refreshLamp'));
+    host.markAligned(7);
+    assert.equal(host.lastAlignFloor(), 7);
+    assert.match(host.collect().age.copy, /#7/);
+    const stale = host.checkStory();
+    assert.ok(stale.some(item => item.module === 'point' || item.module === 'lines'));
 });

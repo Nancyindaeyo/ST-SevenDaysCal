@@ -42,9 +42,10 @@ export const OWN_KEYS = ['sp-store', 'sp-memory', 'sp-theater', 'sp-ledger'];
 
 // sp-store 收纳用户可清理数据与 internal 数据；theater-draft 是设备相关草稿，留 localStorage。
 // dashed（虚线·冷知识）、almanac（历）、slip（笺）都不分视角，运行时固定走 user scope。
+// lamp 是对账灯本聊天状态（忽略的打架对、上次对齐楼），internal，不进存储面板清理清单。
 // 顺序无所谓，但注意没有任何一个是另一个的前缀——子键解析(usageByKind/clearKind)依赖这点。
-export const KINDS = ['schedule', 'outline', 'lines', 'creative-chat', 'space-chat', 'dashed', 'almanac', 'caldesc', 'caldesc-fallback', 'date-anchor', 'beat', 'activity', 'pace', 'slip', 'law'];
-export const INTERNAL_KINDS = Object.freeze(['caldesc', 'caldesc-fallback', 'date-anchor', 'beat', 'activity', 'pace']);
+export const KINDS = ['schedule', 'outline', 'lines', 'creative-chat', 'space-chat', 'dashed', 'almanac', 'caldesc', 'caldesc-fallback', 'date-anchor', 'beat', 'activity', 'pace', 'slip', 'law', 'lamp'];
+export const INTERNAL_KINDS = Object.freeze(['caldesc', 'caldesc-fallback', 'date-anchor', 'beat', 'activity', 'pace', 'lamp']);
 export const USER_CLEAR_KINDS = Object.freeze(KINDS.filter(kind => !INTERNAL_KINDS.includes(kind)));
 const isInternalKind = kind => INTERNAL_KINDS.includes(String(kind || ''));
 

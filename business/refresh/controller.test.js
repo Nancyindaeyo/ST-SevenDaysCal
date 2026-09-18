@@ -325,3 +325,61 @@ test('regenerate records each module as patched unchanged or failed', async () =
     const failed = refreshBlockActivity('point', { status: 'failed', error: new Error('boom') });
     assert.equal(failed.reasonCode, 'refresh-point-failed');
 });
+
+test('align preview returns patches without writing', async () => {
+    const host = env();
+    const result = await createRefreshController(host).align({ selected: ['point'], preview: true });
+    assert.equal(result.status, 'preview');
+    assert.ok(result.patches.length);
+    assert.equal(host.writes.length, 0);
+});
+
+test('align applyPatches writes without a second request', async () => {
+    let calls = 0;
+    const aligned = [];
+    const host = env({
+        callApi: async () => {
+            calls += 1;
+            return 'note: 体检已发生\npoint: complete|体检';
+        },
+        onAligned: payload => aligned.push(payload.floorId),
+    });
+    const controller = createRefreshController(host);
+    const preview = await controller.align({ selected: ['point'], preview: true });
+    assert.equal(calls, 1);
+    assert.equal(aligned.length, 0);
+    const written = await controller.align({ selected: ['point'], applyPatches: preview.patches, note: preview.note });
+    assert.equal(calls, 1);
+    assert.equal(written.status, 'updated');
+    assert.equal(host.writes.length, 1);
+    assert.deepEqual(aligned, [0]);
+});
+
+test('since-align window feeds later floors and drops extra history', async () => {
+    let prompt = '';
+    let historyLimit = null;
+    const host = env({
+        lastAlignFloor: () => 0,
+        context: () => ({
+            chatId: 'a',
+            name1: '甲',
+            name2: '乙',
+            chat: [
+                { is_user: false, mes: '第一楼出门了。' },
+                { is_user: false, mes: '第二楼已经办完体检。' },
+                { is_user: false, mes: '今天去体检了。' },
+            ],
+        }),
+        callApi: async (_ctx, text, _cfg, _u, _c, _signal, limit) => {
+            prompt = text;
+            historyLimit = limit;
+            return 'note: 已对齐';
+        },
+    });
+    const result = await createRefreshController(host).align({ selected: ['point'], storyWindow: 'since-align', preview: true });
+    assert.equal(result.status, 'preview');
+    assert.match(prompt, /自上次对齐以来的正文/);
+    assert.match(prompt, /第二楼已经办完体检/);
+    assert.doesNotMatch(prompt, /第一楼出门了/);
+    assert.equal(historyLimit, 0);
+});

@@ -56,6 +56,7 @@ export function createChatFloorHandlers(h) {
             h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
             await h.lines?.onCharacterRendered?.({ messageId: mid, type, autoSuppressed: h.isAutomationSuppressed?.(mid, modules.LINES) });
             h.rememberPace?.();
+            h.lamp?.refresh?.();
         },
         timeTravel: async messageId => {
             if (!h.pluginEnabled?.()) return;

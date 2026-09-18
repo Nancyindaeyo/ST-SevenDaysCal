@@ -1,6 +1,7 @@
 import { renderLampHtml } from './ui.js';
 import { searchLampBooks } from './search.js';
 import { defaultKindForHandoff, intentFromBasket } from './intent.js';
+import { itemsFromAlignPreview } from './preview.js';
 
 function keyOf(item = {}) {
     return `${item.module || ''}|${item.ref || ''}|${item.title || ''}`;
@@ -27,6 +28,10 @@ export function createLampFeature(env = {}) {
     let kind = '';
     let intent = null;
     let editing = null;
+    let busy = false;
+    let storyChecked = false;
+    let stale = [];
+    let preview = null;
     const checked = new Set();
     const basketMap = new Map();
 
@@ -53,18 +58,23 @@ export function createLampFeature(env = {}) {
         const $main = main();
         const prev = hostNode()?.querySelector?.('.sp-lamp-body');
         const scrollTop = Number(prev?.scrollTop) || 0;
-        const { conflicts, hits, basket } = snapshot();
+        const { collected, conflicts, hits, basket } = snapshot();
         const html = renderLampHtml({
             page,
             conflicts,
             hits,
+            stale,
             query,
             checked,
             basket,
             intent,
             kind,
             editing,
-            hasBaiBai: env.collect?.()?.hasBaiBai === true,
+            hasBaiBai: collected.hasBaiBai === true,
+            age: collected.age || null,
+            preview,
+            busy,
+            storyChecked,
         });
         if ($main?.length) $main.html(html);
         else wrap()?.html?.(`<div class="sp-lamp-main" id="sp-lamp-main">${html}</div>`);
@@ -78,7 +88,7 @@ export function createLampFeature(env = {}) {
 
     const listedItems = () => {
         const { conflicts, hits } = snapshot();
-        return page === 'search' ? hits : conflicts;
+        return page === 'search' ? hits : [...conflicts, ...stale];
     };
 
     const addCheckedToBasket = () => {
@@ -91,7 +101,7 @@ export function createLampFeature(env = {}) {
 
     const currentKind = ({ from = page } = {}) => {
         if (kind) return kind;
-        const hasConflict = [...basketMap.values()].some(item => item.id);
+        const hasConflict = [...basketMap.values()].some(item => item.id && !String(item.id).startsWith('preview:') && item.source !== 'story');
         return defaultKindForHandoff({ from, hasConflict }) || kind;
     };
 
@@ -101,12 +111,75 @@ export function createLampFeature(env = {}) {
         env.onOpen?.();
     };
 
+    const setBusy = value => {
+        busy = value === true;
+        paint();
+    };
+
+    async function runPreview({ storyWindow = 'latest' } = {}) {
+        if (busy) {
+            env.toast?.('正在对齐，请稍后再点', true);
+            return;
+        }
+        setBusy(true);
+        try {
+            const result = await env.previewAlign?.({
+                selected: ['point', 'lines'],
+                storyWindow,
+                cause: 'manual',
+                reason: storyWindow === 'since-align' ? '灯上追从上次对齐到现在' : '灯上先看再写',
+            });
+            if (result?.status === 'preview') {
+                preview = {
+                    note: result.note || result.summary || '',
+                    items: itemsFromAlignPreview(result),
+                    patches: result.patches || [],
+                    selected: result.selected || ['point', 'lines'],
+                    storyWindow,
+                    reason: storyWindow === 'since-align' ? '灯上追从上次对齐到现在' : '灯上先看再写',
+                    window: result.window || null,
+                };
+                kind = 'align';
+                for (const item of preview.items) basketMap.set(keyOf(item), item);
+                if (result.unchanged || !preview.items.length) {
+                    env.toast?.(result.summary || '对照过了，点和线都不用改');
+                } else {
+                    env.toast?.(result.summary || '拟改已放进待改篮，确认后再写入');
+                }
+            } else if (result?.status === 'failed') {
+                env.toast?.(String(result.errorMessage || result.error?.message || '对齐预览失败'), true);
+            } else if (result?.status === 'skipped' && result.reason === 'busy') {
+                env.toast?.('正在对齐或刷新，请稍后再点', true);
+            } else if (result?.status === 'cancelled') {
+                env.toast?.('这次对齐已取消', true);
+            }
+        } catch (error) {
+            env.toast?.(error?.message || '对齐预览失败', true);
+        } finally {
+            busy = false;
+            paint();
+        }
+    }
+
     return Object.freeze({
         isOpen: () => open,
         open: openPage,
         close: () => { open = false; },
         refresh: paint,
-        onChatChanged: () => { open = false; checked.clear(); basketMap.clear(); intent = null; editing = null; query = ''; page = 'fight'; kind = ''; },
+        onChatChanged: () => {
+            open = false;
+            checked.clear();
+            basketMap.clear();
+            intent = null;
+            editing = null;
+            query = '';
+            page = 'fight';
+            kind = '';
+            busy = false;
+            storyChecked = false;
+            stale = [];
+            preview = null;
+        },
         setIntent(next, options = {}) {
             intent = next || null;
             if (next?.kind) kind = next.kind;
@@ -188,6 +261,71 @@ export function createLampFeature(env = {}) {
             });
             $root.on('click.spLamp', '#sp-lamp-clarify', () => {
                 env.clarifyIntent?.(intent || intentFromBasket([...basketMap.values()], { kind: currentKind() }));
+            });
+            $root.on('click.spLamp', '.sp-lamp-dismiss', function (event) {
+                event.preventDefault();
+                event.stopPropagation?.();
+                const row = this.closest?.('.sp-lamp-row');
+                env.dismiss?.({
+                    pairId: row?.getAttribute?.('data-pair-id') || '',
+                    ...itemFromEl(row),
+                });
+            });
+            $root.on('click.spLamp', '#sp-lamp-check-story', () => {
+                stale = env.checkStory?.() || [];
+                storyChecked = true;
+                kind = kind || 'align';
+                for (const item of stale) {
+                    checked.add(keyOf(item));
+                    basketMap.set(keyOf(item), item);
+                }
+                if (!stale.length) env.toast?.('最新楼没有看出点/线过期');
+                else env.toast?.(`对照最新楼：${stale.length} 条可能过期，已进待改篮`);
+                paint({ keepScroll: false });
+            });
+            $root.on('click.spLamp', '#sp-lamp-preview-align', () => {
+                void runPreview({ storyWindow: 'latest' });
+            });
+            $root.on('click.spLamp', '#sp-lamp-preview-window', () => {
+                void runPreview({ storyWindow: 'since-align' });
+            });
+            $root.on('click.spLamp', '#sp-lamp-apply-preview', () => {
+                if (busy) return;
+                if (!preview?.patches?.length) {
+                    env.toast?.('没有拟改可写');
+                    return;
+                }
+                const payload = preview;
+                void (async () => {
+                    setBusy(true);
+                    try {
+                        const result = await env.applyAlign?.({
+                            applyPatches: payload.patches,
+                            selected: payload.selected,
+                            reason: payload.reason,
+                            note: payload.note,
+                            cause: 'manual',
+                        });
+                        if (result?.status === 'updated') {
+                            preview = null;
+                            if (result.unchanged) env.toast?.('API 跑过了，点和线都不用改');
+                            else env.toast?.(result.summary || '已按正文对齐');
+                        } else if (result?.status === 'failed') {
+                            env.toast?.(String(result.errorMessage || result.error?.message || '写入失败'), true);
+                        } else if (result?.status === 'cancelled') {
+                            env.toast?.('这次对齐已取消', true);
+                        }
+                    } catch (error) {
+                        env.toast?.(error?.message || '写入失败', true);
+                    } finally {
+                        busy = false;
+                        paint();
+                    }
+                })();
+            });
+            $root.on('click.spLamp', '#sp-lamp-drop-preview', () => {
+                preview = null;
+                paint();
             });
             $root.on('click.spLamp', '#sp-lamp-fight', () => {
                 addCheckedToBasket();

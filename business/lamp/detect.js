@@ -61,14 +61,24 @@ function dueAppointments(entries = []) {
     return pickDueLedger(entries).filter(entry => entry?.类型 === '约定待办' || entry?.type === '约定待办');
 }
 
-function conflict({ id, title, detail, quote = '', module, ref = '' }) {
+function pairId(kind, left = {}, right = {}) {
+    return [kind, left.module || '', left.title || '', right.module || '', right.title || ''].join('|');
+}
+
+function conflict({ id, title, detail, quote = '', module, ref = '', against = null }) {
+    const againstTitle = String(against?.title || '').trim();
+    const againstModule = against?.module || '';
     return Object.freeze({
         id,
+        pairId: pairId(id, { module, title }, { module: againstModule, title: againstTitle }),
         title: String(title || '').trim(),
         detail: String(detail || '').trim(),
         quote: String(quote || '').trim(),
         module,
         ref: String(ref || '').trim(),
+        againstModule,
+        againstTitle,
+        againstRef: String(against?.ref || '').trim(),
     });
 }
 
@@ -84,17 +94,21 @@ export function detectLampConflicts({ days = [], ledger = [], lines = [], bbb = 
         found.push(conflict({
             id: 'stay-outing',
             title: outs[0].name,
-            detail: `点还在写「${stays[0].title}」，线却是近日要出门`,
+            detail: `点「${stays[0].title}」还在写留在家里，线「${outs[0].name}」却是近日要出门`,
             module: 'lines',
+            ref: outs[0].id,
+            against: { module: 'point', title: stays[0].title, ref: stays[0].id },
         }));
     }
     if (dues.length && outs.length) {
+        const dueTitle = dues[0].事由 || dues[0].title;
         found.push(conflict({
             id: 'due-outing',
-            title: dues[0].事由 || dues[0].title,
-            detail: `刻度「${dues[0].事由 || dues[0].title}」已到期或过期，线还写近日`,
+            title: dueTitle,
+            detail: `刻度「${dueTitle}」已到期或过期，线「${outs[0].name}」还写近日`,
             module: 'ledger',
             ref: dues[0].id,
+            against: { module: 'lines', title: outs[0].name, ref: outs[0].id },
         }));
     }
 
@@ -108,19 +122,22 @@ export function detectLampConflicts({ days = [], ledger = [], lines = [], bbb = 
             detail: `点还在「${locations[0]}」，柏宝书地点已经是「${bbbLocation}」`,
             quote: bbbLocation,
             module: 'point',
+            against: { module: 'point', title: bbbLocation },
         }));
     }
 
     const injuries = injuryLedger(ledger);
     const condition = String(bbb?.condition || '').trim();
     if (injuries.length && condition && injuries.every(entry => !textsRelated(ledgerBlob(entry), condition))) {
+        const injuryTitle = injuries[0].事由 || injuries[0].title;
         found.push(conflict({
             id: 'bbb-condition',
-            title: injuries[0].事由 || injuries[0].title,
-            detail: `刻度还写着「${injuries[0].事由 || injuries[0].title}」，柏宝书现状是「${condition}」`,
+            title: injuryTitle,
+            detail: `刻度还写着「${injuryTitle}」，柏宝书现状是「${condition}」`,
             quote: condition,
             module: 'ledger',
             ref: injuries[0].id,
+            against: { module: 'ledger', title: condition },
         }));
     }
 
@@ -132,13 +149,15 @@ export function detectLampConflicts({ days = [], ledger = [], lines = [], bbb = 
             detail: `点还在写「${stays[0].title}」，柏宝书仍有未核销的出门计划`,
             quote: plans[0].content,
             module: 'point',
+            against: { module: 'point', title: plans[0].content },
         }));
     }
 
     const seen = new Set();
     return Object.freeze(found.filter(item => {
-        if (!item.title || seen.has(item.id)) return false;
-        seen.add(item.id);
+        const key = item.pairId || item.id;
+        if (!item.title || seen.has(key)) return false;
+        seen.add(key);
         return true;
     }).slice(0, 12));
 }

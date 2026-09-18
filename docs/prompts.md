@@ -12,7 +12,7 @@
 
 | kind | 谁点 | 函数 | 动什么 |
 |---|---|---|---|
-| `align` | 冲突页「按正文对齐」 | `business/refresh/prompt.js` `buildReconcilePrompt` | 未锁点/线，跟最新正文 |
+| `align` | 冲突页「按正文对齐」；灯上「先看再写 / 追从上次对齐到现在」 | `business/refresh/prompt.js` `buildReconcilePrompt` | 未锁点/线，跟最新正文或上次对齐以来的窗口；预览不落盘 |
 | `fight` | 冲突页「按打架一起改」 | `business/lamp/fight-prompt.js` `buildFightPrompt` | 只动待改篮点名的条目 |
 | `regen` | 冲突页「重新生成勾选项」 | 各本生成 prompt + `buildRefreshAddon` | 勾中模块整段重做 |
 | `retry` | 【改】重试 | 失败那次的 kind | 与失败那次相同 |

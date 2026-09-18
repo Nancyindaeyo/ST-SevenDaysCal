@@ -6,6 +6,7 @@ import { pointTodayDayIndex } from '../point/shift.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeFight, summarizeReconcile } from './patch.js';
 import { buildFightPrompt } from '../lamp/fight-prompt.js';
+import { buildAlignStoryWindow, listAiStoryFloors } from '../lamp/story-window.js';
 import { normalizeRefreshSelection } from './bar.js';
 import { createStaggerGate } from './stagger.js';
 
@@ -146,7 +147,23 @@ export function createRefreshController(env = {}) {
         const ctx = env.context?.() || {};
         const ownerChatId = String(ctx.chatId ?? '');
         const latest = latestAiFloor(ctx.chat);
-        const latestStory = env.readFloorStory?.(latest?.text || '') || env.cleanText?.(latest?.text || '') || String(latest?.text || '');
+        const readStory = text => env.readFloorStory?.(text) || env.cleanText?.(text) || String(text || '');
+        let storyHeading = '最新 AI 楼正文';
+        let historyLimit = 5;
+        let windowInfo = null;
+        let latestStory = readStory(latest?.text || '');
+        if (options.storyWindow === 'since-align') {
+            windowInfo = typeof env.alignWindow === 'function'
+                ? env.alignWindow()
+                : buildAlignStoryWindow(listAiStoryFloors(ctx.chat, readStory), {
+                    afterFloor: env.lastAlignFloor?.() ?? -1,
+                });
+            latestStory = windowInfo?.text || latestStory;
+            if ((windowInfo?.count || 0) > 1) {
+                storyHeading = '自上次对齐以来的正文';
+                historyLimit = 0;
+            }
+        }
         const cfg = env.loadConfig?.() || {};
         const activityBase = () => ({
             source: alignSourceOf(options),
@@ -160,12 +177,12 @@ export function createRefreshController(env = {}) {
             else options.signal.addEventListener('abort', () => token.controller.abort(options.signal.reason ?? 'external-abort'), { once: true });
         }
         diagnostic = createGenerationDiagnosticScope('ledger-reconcile', { background: options.auto === true || options.cause === 'reroll' || options.cause === 'retry' });
-        if (!String(latestStory).trim()) {
+        if (!options.applyPatches && !String(latestStory).trim()) {
             const error = new Error('没有可读的最新 AI 楼正文');
             recordFailed(error);
             return { status: 'failed', error };
         }
-        if (!cfg.url || !cfg.key) {
+        if (!options.applyPatches && (!cfg.url || !cfg.key)) {
             const error = makeDiagnosticError('config-missing');
             recordFailed(error);
             return { status: 'failed', error };
@@ -176,23 +193,49 @@ export function createRefreshController(env = {}) {
             const before = snapshotSelected(selected);
             const todayDayIndex = pointRaw ? pointTodayDayIndex(pointRaw, env.today?.(), env.calendar?.()) : null;
             const todayDayNumber = todayDayIndex == null ? 1 : todayDayIndex + 1;
-            const prompt = buildReconcilePrompt({
-                userName: ctx.name1 || '用户',
-                charName: ctx.name2 || '角色',
-                latestStory,
-                pointRaw,
-                linesRaw,
-                reason: options.reason,
-                feedback: options.feedback,
-                promptAddon: options.promptAddon,
-                todayGap: pointRaw && todayDayIndex != null ? pointDayEventGap(pointRaw, todayDayIndex, env.calendar?.()) : 0,
-                todayDayNumber,
-            });
-            const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'ledger-reconcile', diagnosticSink: diagnostic.sink, fullMemory: false });
-            if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: 'chat-changed' };
-            const parsed = parseReconcilePatches(raw);
-            const point = selected.includes('point') && pointRaw ? applyPointPatches(pointRaw, parsed.patches, { feedback: options.feedback, calendar: env.calendar?.() }) : { changed: false, raw: pointRaw, skippedLocks: [] };
-            const lines = selected.includes('lines') && linesRaw ? applyLinePatches(linesRaw, parsed.patches, { feedback: options.feedback }) : { changed: false, raw: linesRaw, skippedLocks: [] };
+            const windowAddon = options.storyWindow === 'since-align' && windowInfo?.count > 1
+                ? `【这次对照的是自上次对齐以来的正文窗口（第 ${windowInfo.from}–${windowInfo.to} 楼），不是只看最新一楼】`
+                : '';
+            let parsed;
+            if (Array.isArray(options.applyPatches)) {
+                parsed = { note: String(options.note || ''), patches: options.applyPatches, unchanged: !options.applyPatches.length };
+            } else {
+                const prompt = buildReconcilePrompt({
+                    userName: ctx.name1 || '用户',
+                    charName: ctx.name2 || '角色',
+                    latestStory,
+                    pointRaw,
+                    linesRaw,
+                    reason: options.reason,
+                    feedback: options.feedback,
+                    promptAddon: [options.promptAddon, windowAddon].filter(Boolean).join('\n\n'),
+                    todayGap: pointRaw && todayDayIndex != null ? pointDayEventGap(pointRaw, todayDayIndex, env.calendar?.()) : 0,
+                    todayDayNumber,
+                    storyHeading,
+                });
+                const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, historyLimit, { promptMode: 'mechanical', diagnosticModule: 'ledger-reconcile', diagnosticSink: diagnostic.sink, fullMemory: false });
+                if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled', reason: 'chat-changed' };
+                parsed = parseReconcilePatches(raw);
+            }
+            const point = selected.includes('point') && pointRaw ? applyPointPatches(pointRaw, parsed.patches, { feedback: options.feedback, calendar: env.calendar?.() }) : { changed: false, raw: pointRaw, skippedLocks: [], applied: [] };
+            const lines = selected.includes('lines') && linesRaw ? applyLinePatches(linesRaw, parsed.patches, { feedback: options.feedback }) : { changed: false, raw: linesRaw, skippedLocks: [], applied: [] };
+            const summary = summarizeReconcile({ point, lines, note: parsed.note });
+            const items = itemsFromPatches(point, lines);
+            const patched = point.changed || lines.changed;
+            if (options.preview === true) {
+                diagnostic.accepted({ phase: 'validation', reasonCode: parsed.unchanged ? 'reconcile-preview-unchanged' : 'reconcile-preview' });
+                return {
+                    status: 'preview',
+                    patches: parsed.patches,
+                    items,
+                    note: parsed.note,
+                    summary,
+                    unchanged: !patched,
+                    skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])],
+                    selected,
+                    window: windowInfo,
+                };
+            }
             const ownerGuard = () => ownerStillHere(token, ownerChatId);
             if (point.changed && lines.changed) {
                 if (typeof env.writeBatchRaw !== 'function') return { status: 'cancelled', reason: 'atomic-write-unavailable' };
@@ -209,11 +252,9 @@ export function createRefreshController(env = {}) {
                 }
             }
             diagnostic.accepted({ phase: 'validation', reasonCode: parsed.unchanged ? 'reconcile-unchanged' : 'reconcile-patched' });
-            const summary = summarizeReconcile({ point, lines, note: parsed.note });
             env.onPatched?.({ point: point.changed, lines: lines.changed });
+            env.onAligned?.({ floorId: latest?.index });
             const after = snapshotSelected(selected);
-            const items = itemsFromPatches(point, lines);
-            const patched = point.changed || lines.changed;
             env.onActivity?.({
                 ...activityBase(),
                 retry: {
