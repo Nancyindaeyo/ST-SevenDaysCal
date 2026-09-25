@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { classifySpaceIntent, expectedKindFromHistory } from './context.js';
+import { classifySpaceIntent, createSpaceContext, expectedKindFromHistory } from './context.js';
 import { spaceWidgetHandoff } from './schema.js';
 import { createSpaceRenderer } from './render.js';
 
@@ -72,4 +72,17 @@ test('untagged replies keep the text and do not offer lamp', () => {
     assert.equal(parts.widgetCards, '');
     assert.equal(parts.canHandoff, false);
     assert.doesNotMatch(parts.actions, /交给灯/);
+});
+
+test('间讨论 system 带剧情摘要', async () => {
+    const host = createSpaceContext({
+        context: () => ({ name1: '我', name2: '她' }),
+        readMemory: async () => '合宿第一夜定下值日表',
+        readBaiBaiGarnish: () => '【柏宝书当前账】合宿基地',
+    });
+    const messages = await host.buildMessages({ target: 'latest', userMsg: '接下来怎么走', historySnapshot: [] });
+    assert.match(messages[0].content, /【剧情摘要】/);
+    assert.match(messages[0].content, /柏宝书摘要/);
+    assert.match(messages[0].content, /合宿第一夜定下值日表/);
+    assert.match(messages[0].content, /合宿基地/);
 });

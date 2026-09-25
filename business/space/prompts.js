@@ -125,7 +125,7 @@ export function buildSpaceChatSystemPrompt({ userName, charName, personaDesc = '
         authorNote  ? `\n【作者注释（当前聊天）】\n${authorNote}` : '',
         outlineRaw ? `\n【当前大纲】\n${outlineRaw}` : '',
         wiContext,
-        memText ? `\n【故事记忆】\n${memText}` : '',
+        memText ? `\n【剧情摘要】以下是已发生剧情的压缩记录（开柏宝书时来自柏宝书摘要，否则来自构画记忆库）。讨论走向时优先以此为准。\n${memText}` : '',
         garnish,
         recentCtx,
         pointList ? `\n【当前的点·按序号（可改）】\n${pointList}` : '',

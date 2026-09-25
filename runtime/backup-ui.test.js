@@ -8,7 +8,7 @@ test('backup ui rehearsal confirms preview and never writes', async () => {
     const pack = {
         kind: BACKUP_KIND,
         version: 1,
-        pluginVersion: '3.15.8',
+        pluginVersion: '3.15.9',
         currentChat: { is_group: false, chatId: 'now', avatar_url: 'liu.png', char_name: '柳', roots: { 'sp-store': { data: { a: 1 } } } },
         chats: [],
         settings: {},

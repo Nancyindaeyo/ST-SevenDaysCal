@@ -1878,7 +1878,7 @@ const spaceFeature = createSpaceFeature({
             } catch { return ''; }
         },
         readWorldInfo: ctx => buildWorldInfoContext(ctx),
-        readMemory: () => getMemText(),
+        readMemory: () => getMemText({ full: true }),
         readRecent: ctx => buildRecentChatContext(ctx, 6, Infinity),
         readCardExtras,
         readAlmanacText: () => getAlmanacInjectText(),

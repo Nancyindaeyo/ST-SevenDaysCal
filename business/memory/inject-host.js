@@ -62,10 +62,10 @@ export function createMemoryInjectHost(env = {}) {
                 return '';
             }
             try {
-                // opts.full：通读全故事的分析任务（如「历」编排全年纪念日）要完整时间线——
+                // opts.full：通读全故事的分析任务（历编排全年纪念日、面/间讨论剧情）要完整时间线——
                 // 用 getHistory（柏宝书「全部压缩历史」，含滑动窗口楼层）；而非 getInjectedHistory
                 // （后者是按当前剧情向量召回、跳过滑动窗口的注入版，会漏掉与"此刻"无关的旧里程碑）。
-                // 点/线/面贴当前剧情，保持 getInjectedHistory（聚焦近景、省额度）。
+                // 点/线/面生成贴当前剧情，保持 getInjectedHistory（聚焦近景、省额度）。
                 return readHistory(api, { full: !!opts.full });
             } catch (err) {
                 env.warnReadError?.(err);

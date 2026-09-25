@@ -134,6 +134,8 @@ export function createGenerationMessagesHost(env = {}) {
             authorNote,
             outlineRaw: env.readOutline?.(target) || '',
             wiContext: await env.buildWorldInfoContext?.(ctx) || '',
+            // 面讨论要通读已发生剧情：开柏宝书时走 getHistory（全部压缩摘要），不要只用召回近景。
+            memText: await env.getMemText?.({ full: true }) || '',
             recentCtx: await env.buildRecentChatContext?.(ctx) || '',
             almanacText: env.getAlmanacInjectText?.() || '',
             calDescText: env.getCalDescInjectText?.() || '',

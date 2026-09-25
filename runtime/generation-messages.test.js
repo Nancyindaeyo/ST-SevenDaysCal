@@ -12,6 +12,7 @@ import {
     observerSystemPrompt,
     readCardExtras,
 } from './generation-messages.js';
+import { buildCreativeChatSystemPrompt } from '../state.js';
 
 test('memory library block tags the point view only when asked', () => {
     assert.equal(memoryLibraryBlock(''), '');
@@ -74,7 +75,7 @@ function makeHost(overrides = {}) {
         getContext: () => ({ name1: '我', name2: '她' }),
         readOutline: target => { calls.push(['outline', target]); return '大纲原文'; },
         buildRecentChatContext: async () => '【最近对话】近文',
-        buildCreativeChatSystemPrompt: args => `creative|${args.userName}|${args.charName}|${args.outlineRaw}|${args.almanacText}|${args.garnish || 'nog'}`,
+        buildCreativeChatSystemPrompt: args => `creative|${args.userName}|${args.charName}|${args.outlineRaw}|${args.almanacText}|${args.garnish || 'nog'}|${args.memText || 'nomem'}`,
         ...overrides,
     });
     return { host, calls };
@@ -137,7 +138,21 @@ test('composeCreativeChat 不去重快照里的 user turn，再追加本轮 user
     });
     const snapshot = [{ role: 'user', content: '上一句' }, { role: 'assistant', content: '回' }];
     const messages = await host.composeCreativeChat({ target: 'latest', userMsg: '再改一节', historySnapshot: snapshot });
-    assert.equal(messages[0].content, 'creative|我|她|大纲原文|春节|配料');
+    assert.equal(messages[0].content, 'creative|我|她|大纲原文|春节|配料|记忆摘要');
     assert.deepEqual(messages.slice(1), [...snapshot, { role: 'user', content: '再改一节' }]);
     assert.deepEqual(calls[0], ['outline', 'latest']);
+    assert.ok(calls.some(call => call[0] === 'mem' && call[1] === true));
+});
+
+test('面讨论 system 带剧情摘要，空摘要不加块', () => {
+    const withMem = buildCreativeChatSystemPrompt({
+        userName: '我',
+        charName: '她',
+        memText: '合宿第一夜两人定下值日表',
+    });
+    assert.match(withMem, /【剧情摘要】/);
+    assert.match(withMem, /柏宝书摘要/);
+    assert.match(withMem, /合宿第一夜两人定下值日表/);
+    const empty = buildCreativeChatSystemPrompt({ userName: '我', charName: '她' });
+    assert.doesNotMatch(empty, /【剧情摘要】/);
 });
