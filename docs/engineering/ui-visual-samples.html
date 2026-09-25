@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <title>构画视觉回归样例</title>
+    <link rel="stylesheet" href="../../style.css">
+    <style>
+        body { margin: 0; font-family: sans-serif; }
+        .board { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; padding: 16px; }
+        .frame { min-height: 220px; border: 1px solid #8883; border-radius: 12px; overflow: hidden; }
+        .frame h2 { margin: 0; padding: 8px 12px; font-size: 14px; }
+        .desktop { min-height: 280px; }
+        .mobile { max-width: 360px; }
+        .note { padding: 0 16px 16px; color: #666; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <p class="note">日/夜、桌面/窄屏、Shadow 与 light DOM 共用同一份 style.css。打开本页对照令牌、焦点环和结果语义，不替代宿主真机。</p>
+    <div class="board">
+        <section class="frame desktop sp-day">
+            <h2>日间 · 桌面</h2>
+            <div class="sp-root sp-day" style="position:static;width:auto;height:auto">
+                <button class="sp-icon-btn" type="button" aria-label="示例">日</button>
+                <span class="sp-outcome-success">success</span>
+                <span class="sp-outcome-unchanged">unchanged</span>
+                <span class="sp-outcome-skipped">skipped</span>
+                <span class="sp-outcome-failed">failed</span>
+                <span class="sp-outcome-unknown">unknown</span>
+                <button class="sp-btn" type="button">焦点样例</button>
+            </div>
+        </section>
+        <section class="frame desktop sp-night">
+            <h2>夜间 · 桌面</h2>
+            <div class="sp-root sp-night" style="position:static;width:auto;height:auto">
+                <button class="sp-icon-btn" type="button" aria-label="示例">夜</button>
+                <span class="sp-outcome-success">success</span>
+                <span class="sp-outcome-unchanged">unchanged</span>
+                <span class="sp-outcome-skipped">skipped</span>
+                <span class="sp-outcome-failed">failed</span>
+                <span class="sp-outcome-unknown">unknown</span>
+            </div>
+        </section>
+        <section class="frame mobile sp-day">
+            <h2>日间 · 窄屏</h2>
+            <div class="sp-root sp-day" style="position:static;width:auto;height:auto">
+                <div class="sp-settings-nav"><strong>当前位置</strong> 通用设置</div>
+                <button class="sp-side-tab" type="button">设置</button>
+            </div>
+        </section>
+        <section class="frame mobile">
+            <h2>light DOM 楼内框</h2>
+            <div class="sp-inline-box">
+                <button class="sp-inline-region-collapse" type="button">收起</button>
+                <span class="sp-outcome-failed">楼内失败色</span>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

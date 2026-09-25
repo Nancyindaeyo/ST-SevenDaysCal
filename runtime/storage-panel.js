@@ -280,11 +280,18 @@ export function bindStoragePanel(env = {}) {
 
     $in('#sp-storage-refresh').on('click', () => env.renderUsage?.());
     $in('#sp-backup-export').on('click', () => { void env.exportBackup?.(); });
-    $in('#sp-backup-import').on('click', () => $in('#sp-backup-import-file').trigger('click'));
+    $in('#sp-backup-import').on('click', () => {
+        $in('#sp-backup-import-file').data('rehearse', false).trigger('click');
+    });
+    $in('#sp-backup-rehearse').on('click', () => {
+        $in('#sp-backup-import-file').data('rehearse', true).trigger('click');
+    });
     $in('#sp-backup-import-file').on('change', function () {
         const file = this.files?.[0];
+        const rehearse = $in('#sp-backup-import-file').data('rehearse') === true;
         this.value = '';
-        if (file) void env.importBackup?.(file);
+        $in('#sp-backup-import-file').data('rehearse', false);
+        if (file) void env.importBackup?.(file, { rehearse });
     });
     $in('#sp-storage-migrate').on('click', () => { void env.migrate?.(); });
     $in('#sp-storage-retry').on('click', async () => {

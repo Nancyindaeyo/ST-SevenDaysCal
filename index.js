@@ -43,6 +43,7 @@ import { createLampFeature, enterLampSidebar } from './business/lamp/feature.js'
 import { createLampHost } from './business/lamp/host.js';
 import { intentFromGuide } from './business/lamp/intent.js';
 import { paintScheduleHome, showPanelView, tabNavigationTarget } from './business/shell/panel.js';
+import { bindSettingsNav } from './runtime/settings-nav.js';
 import { panelMarkup } from './business/shell/markup.js';
 import { FAB_ID, MODAL_ID } from './business/shell/ids.js';
 import { createFab } from './business/shell/fab.js';
@@ -81,7 +82,7 @@ import { createApiPresetUi } from './runtime/api-presets-ui.js';
 import { bindChatFloorListeners } from './runtime/st-listeners.js';
 import { captureSnapshotElement } from './business/coordinate/capture.js';
 import * as store from './store.js';
-import { bindStoreViewFallback, keyDesc, readStore, writeStore, writeStoreConfirmed, writeStoreBatchConfirmed, removeStore } from './store.js';
+import { bindStoreViewFallback, keyDesc, lastConfirmedWriteSnapshot, readStore, writeStore, writeStoreConfirmed, writeStoreBatchConfirmed, removeStore } from './store.js';
 import * as ledger from './business/ledger/repository.js';
 import { createBestEffortMetadataSaver, createTargetMetadataSaver, dispatchTargetMetadataWithRefresh } from './runtime/target-metadata-save.js';
 import * as theaterDeviceCache from './runtime/theater-device-cache.js';
@@ -134,7 +135,7 @@ import { isManagedChatSurface, markTauriMobileSurface, registerChatSurfacePartic
 import { createChatSurfaceParticipantHooks } from './runtime/chat-surface-participant.js';
 import { migrateCanonicalBookIds } from './runtime/book-id-migrate.js';
 import { createInlineHost } from './runtime/inline-host.js';
-import { backupExportWarnings, parseBackupText, summarizeBackup } from './runtime/backup.js';
+import { createBackupUiActions } from './runtime/backup-ui.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
 import { LINE_DIRECTION_VALUES, LINE_DIRECTION_LABELS, lineDirectionForCharacter, normalizeLineDirection } from './business/lines/direction.js';
 import { axisState } from './business/axis/state.js';
@@ -1632,6 +1633,7 @@ const diagnosticPack = createDiagnosticPackHost({
     linesMode: getLinesMode,
     queueSnapshot: () => floorQueue?.snapshot?.() || null,
     compactActivity: limit => activityFeature.compactEntries(limit),
+    lastConfirmedWrite: lastConfirmedWriteSnapshot,
     readTrace: readDiagnosticTrace,
     buildCurrentChat: opts => buildCurrentChatDiagnosticPackage(opts),
     copyText: copyPlainText,
@@ -3404,6 +3406,10 @@ function injectModal() {
         resetLedgerJudgeCounter: () => paceBook.ledgerJudge.resetCounter(),
         scanAnchorButtons: () => coordinateRuntime?.feature?.scanButtons(),
     });
+    const settingsNav = bindSettingsNav({
+        $in,
+        root: () => $in('#sp-settings-overlay')[0],
+    });
 
     panelWindow.bindDrag(inEl('.sp-content-head'));
     panelWindow.bindResize($in('#sp-resize-handle'), inEl('#sp-resize-handle'));
@@ -3425,6 +3431,9 @@ function injectModal() {
         setProgressVisible: setMemoryProgressVisible,
         updateProgress: updateMemoryProgress,
         confirm: options => spConfirm(options),
+        settingsOpen: () => settingsOpen,
+        toggleSettings,
+        openTagSettings: () => settingsNav?.openTagSettings?.(),
     });
     bindTheaterSettings({
         $, $in,
@@ -4030,53 +4039,16 @@ function mountBackupOverlay(title) {
     return createBackupOverlay({ document, title, escapeHtml });
 }
 
-async function exportGouhuaBackup() {
-    const confirmed = await customDialog.confirm({
-        title: '导出构画迁移包',
-        body: '会打包设置（可能含 API Key）、能读到的聊天账本、本机草稿、坐标收藏、构画自己的世界书。不含聊天正文、也不含别的插件数据。',
-        note: '卸本体再装自己这份时，把这份 JSON 再导入即可。请自行保管，不要发给别人。',
-        confirmText: '导出', cancelText: '取消',
-    });
-    if (!confirmed) return;
-    const overlay = mountBackupOverlay('正在导出构画迁移包');
-    try {
-        const controller = createGouhuaBackupController(info => overlay.progress(info));
-        const pack = await controller.exportPack();
-        controller.download(pack);
-        overlay.close();
-        const warnings = backupExportWarnings(pack);
-        if (warnings.length) showToast(`迁移包已导出，但不完整：${warnings.join('；')}。请勿把它当作完整备份。`, null, true);
-        else showToast('构画迁移包已完整导出');
-    } catch (error) {
-        overlay.close();
-        showToast(`导出失败：${error?.message || '未知错误'}`, null, true);
-    }
-}
-
-async function importGouhuaBackup(file) {
-    let pack;
-    try { pack = parseBackupText(await file.text()); }
-    catch (error) { showToast(`无法读取迁移包：${error?.message || '未知错误'}`, null, true); return; }
-    const confirmed = await customDialog.confirm({
-        title: '导入构画迁移包',
-        body: summarizeBackup(pack),
-        note: '只会写入构画自己的数据。同名设置、账本、草稿、坐标和构画世界书会被包里的内容覆盖。导入后会刷新页面。',
-        confirmText: '导入并刷新', cancelText: '取消',
-    });
-    if (!confirmed) return;
-    const overlay = mountBackupOverlay('正在导入构画迁移包');
-    try {
-        const controller = createGouhuaBackupController(info => overlay.progress(info));
-        const result = await controller.importPack(pack);
-        overlay.close();
-        const skipped = (result.chatsSkipped || 0) + (result.chatsExternal || 0);
-        showToast(skipped ? `已导入。有 ${skipped} 份聊天未能写入（可能已迁出或聊天不在本机）` : '构画数据已导入，即将刷新');
-        window.location.reload();
-    } catch (error) {
-        overlay.close();
-        showToast(`导入失败：${error?.message || '未知错误'}`, null, true);
-    }
-}
+const backupUi = createBackupUiActions({
+    confirm: options => customDialog.confirm(options),
+    toast: showToast,
+    getContext,
+    createController: createGouhuaBackupController,
+    mountOverlay: mountBackupOverlay,
+    reload: () => window.location.reload(),
+});
+function exportGouhuaBackup() { return backupUi.exportPack(); }
+function importGouhuaBackup(file, options) { return backupUi.importPack(file, options); }
 
 // 渲染三层用量到 #sp-storage-body。异步（坐标要读服务器索引）。
 async function renderStorageUsage() {
@@ -4359,7 +4331,7 @@ function refreshMemoryStatus() {
     ];
     if (r.strippedEmpty > 0) rows.splice(5, 0,
         `<div class="sp-mem-stat"><span class="sp-mem-stat-k">标签致空</span><span class="sp-mem-stat-v sp-mem-warn">${r.strippedEmpty}</span></div>`);
-    if (r.strippedEmpty > 0) rows.push(`<div class="sp-mem-alert">⚠ 有 ${r.strippedEmpty} 组净化后正文几乎为空，请重查「保留标签」设置（非模型问题，无需换模型）。</div>`);
+    if (r.strippedEmpty > 0) rows.push(`<div class="sp-mem-alert">⚠ 有 ${r.strippedEmpty} 组净化后正文几乎为空（非模型问题）。<button type="button" class="sp-mem-open-tags">去改标签设置</button></div>`);
     if (r.paused) rows.push(`<div class="sp-mem-alert">⚠ 记忆系统已暂停：${escapeHtml(r.lastError || '连续失败')}。点补齐或重构以恢复。</div>`);
     if (r.busy)   rows.push(`<div class="sp-mem-alert sp-mem-alert-info">🔄 记忆系统正在后台工作</div>`);
     $in('#sp-mem-status').html(rows.join(''));

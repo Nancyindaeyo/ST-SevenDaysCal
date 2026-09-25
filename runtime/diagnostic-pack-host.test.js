@@ -56,7 +56,9 @@ function makeHost(overrides = {}) {
     const host = createDiagnosticPackHost({
         pluginVersion: '3.12.5',
         getContext: () => ({ chat: [{}, {}, { is_user: false }] }),
-        settings: () => ({ pluginEnabled: true, linesMode: 'days', apiKey: 'secret' }),
+        settings: () => ({ pluginEnabled: true, linesMode: 'days', apiKey: 'secret', authorDraftRecovery: [{ kind: 'slip', chatId: 'c1', text: '私笺正文', ts: 2 }] }),
+        lastConfirmedWrite: () => ({ at: 42, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed' }),
+        resolveUtilityRoute: () => ({ status: 'follow-main', reason: 'no-utility-preset', presetId: '', presetName: '' }),
         latestStoryClock: () => ({ endMeta: { valid: true, date: { month: 5, day: 4 } } }),
         todayAnchor: () => ({ month: 5, day: 4 }),
         latestAiFloor: () => ({ index: 2 }),
@@ -94,6 +96,11 @@ test('collect keeps runtime flags and drops secrets', () => {
     assert.equal(pack.chat.linesMode, 'days');
     assert.equal(pack.settings.apiKey, undefined);
     assert.equal(pack.userNote, '解析挂了');
+    assert.equal(pack.lastConfirmedWrite.at, 42);
+    assert.equal(pack.settings.utilityRoute.status, 'follow-main');
+    assert.equal(pack.settings.authorDrafts[0].kind, 'slip');
+    assert.equal(JSON.stringify(pack).includes('私笺正文'), false);
+    assert.equal(host.overview().authorDrafts[0].kind, 'slip');
     assert.equal(pack.activity[0].snapshot, undefined);
     assert.equal(host.overview().tone, 'error');
     assert.equal(host.overview().errorCount, 1);

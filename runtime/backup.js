@@ -152,6 +152,130 @@ export function parseBackupText(text) {
     return data;
 }
 
+export function countOwnRootEntries(roots = {}) {
+    const counts = {};
+    let total = 0;
+    for (const key of OWN_KEYS) {
+        const n = countRootEntries(key, roots?.[key]);
+        counts[key] = n;
+        total += n;
+    }
+    return { ...counts, total };
+}
+
+function countRootEntries(key, root) {
+    if (!root || typeof root !== 'object') return 0;
+    if (key === 'sp-store') return Object.keys(root.data && typeof root.data === 'object' ? root.data : {}).length;
+    if (key === 'sp-memory') {
+        const l0 = root.L0 && typeof root.L0 === 'object' ? Object.keys(root.L0).length : 0;
+        const l1 = Array.isArray(root.L1) ? root.L1.length : 0;
+        return l0 + l1;
+    }
+    if (key === 'sp-ledger') {
+        if (Array.isArray(root.items)) return root.items.length;
+        if (root.data && typeof root.data === 'object') return Object.keys(root.data).length;
+    }
+    if (Array.isArray(root.pieces)) return root.pieces.length;
+    if (root.data && typeof root.data === 'object') return Object.keys(root.data).length;
+    return Object.keys(root).length;
+}
+
+export function rootFingerprint(root) {
+    try { return JSON.stringify(root ?? null); }
+    catch { return ''; }
+}
+
+export function verifyRestoredRoots(expected, actual) {
+    const mismatches = [];
+    for (const key of OWN_KEYS) {
+        if (expected?.[key] == null) continue;
+        if (rootFingerprint(expected[key]) !== rootFingerprint(actual?.[key])) mismatches.push(key);
+    }
+    return { ok: mismatches.length === 0, mismatches };
+}
+
+function describeChatIdentity(target = {}) {
+    if (!target || typeof target !== 'object') return null;
+    return {
+        is_group: !!target.is_group,
+        chatId: stripJsonl(target.chatId || target.file_name || ''),
+        avatar_url: String(target.avatar_url || ''),
+        char_name: String(target.char_name || target.charName || ''),
+        groupId: String(target.groupId || ''),
+        storageMode: String(target.storageMode || ''),
+    };
+}
+
+export function previewRestore(pack, currentIdentity = null) {
+    if (!isGouhuaBackup(pack)) {
+        return { ok: false, reason: 'not-backup', message: '不是构画迁移包。' };
+    }
+    const current = pack.currentChat && hasOwnRoots(pack.currentChat.roots) ? pack.currentChat : null;
+    const chats = Array.isArray(pack.chats) ? pack.chats.filter(item => hasOwnRoots(item?.roots)) : [];
+    const currentRoots = countOwnRootEntries(current?.roots);
+    const otherRoots = chats.reduce((sum, item) => sum + countOwnRootEntries(item.roots).total, 0);
+    return {
+        ok: true,
+        kind: pack.kind,
+        schemaVersion: Number(pack.version) || 0,
+        pluginVersion: String(pack.pluginVersion || ''),
+        exportedAt: String(pack.exportedAt || ''),
+        hasSecrets: settingsHasSecrets(pack.settings),
+        settingsKeys: pack.settings && typeof pack.settings === 'object'
+            ? Object.keys(pack.settings).filter(key => key !== 'kind' && key !== 'version').length
+            : 0,
+        localKeys: pack.localStorage && typeof pack.localStorage === 'object' ? Object.keys(pack.localStorage).length : 0,
+        currentChat: current ? {
+            ...describeChatIdentity(current),
+            sameChat: !!(currentIdentity && isSameChatTarget(currentIdentity, current)),
+            roots: currentRoots,
+            coverRoots: OWN_KEYS.filter(key => current.roots?.[key] != null),
+        } : null,
+        otherChats: chats.length,
+        otherEntries: otherRoots,
+        coordinates: Array.isArray(pack.coordinates?.items) ? pack.coordinates.items.length : 0,
+        excerpts: Array.isArray(pack.excerpts?.items) ? pack.excerpts.items.length : 0,
+        worldbooks: Array.isArray(pack.worldbooks) ? pack.worldbooks.length : 0,
+        skipped: pack.skipped && typeof pack.skipped === 'object' ? { ...pack.skipped } : {},
+        coverage: {
+            roots: current ? OWN_KEYS.filter(key => current.roots?.[key] != null) : [],
+            entryCount: currentRoots.total + otherRoots,
+            chatCount: (current ? 1 : 0) + chats.length,
+        },
+    };
+}
+
+export function formatRestorePreview(preview) {
+    if (!preview?.ok) return preview?.message || '不是构画迁移包。';
+    const current = preview.currentChat;
+    const lines = [
+        `格式：${preview.kind} / schema ${preview.schemaVersion}`,
+        `插件版本：${preview.pluginVersion || '未知'}`,
+        `导出时间：${preview.exportedAt || '未知'}`,
+        preview.hasSecrets ? '设置：有（含 API 配置，请自己保管）' : `设置：${preview.settingsKeys ? '有' : '无'}`,
+        `本机草稿/位置：${preview.localKeys} 项`,
+        current
+            ? `当前聊天身份：${current.is_group ? `群 ${current.chatId}` : `${current.char_name || '角色'} / ${current.chatId}`}${current.sameChat ? '（与现在打开的聊天相同）' : '（不是当前打开的聊天，会写入原聊天文件）'}`
+            : '当前聊天账本：无',
+        current ? `将覆盖根：${current.coverRoots.join('、') || '无'}；条目 ${current.roots.total}` : '将覆盖根：无',
+        `其它聊天账本：${preview.otherChats} 份 / ${preview.otherEntries} 条`,
+        `坐标收藏：${preview.coordinates} 条；摘抄：${preview.excerpts} 条；构画世界书：${preview.worldbooks} 本`,
+        `合计将触及 ${preview.coverage.chatCount} 份聊天、${preview.coverage.entryCount} 个账本条目`,
+    ];
+    if (preview.skipped?.chatsFailed) lines.push(`包内标记读取失败的聊天：${preview.skipped.chatsFailed}`);
+    if (preview.skipped?.externalChats) lines.push(`已迁出白鳥、未写入聊天文件的账本：${preview.skipped.externalChats}`);
+    return lines.join('\n');
+}
+
+export function rehearseBackup(text, currentIdentity = null) {
+    const pack = parseBackupText(text);
+    return { pack, preview: previewRestore(pack, currentIdentity) };
+}
+
+export function chatIdentityFromContext(ctx) {
+    return currentChatIdentity(ctx);
+}
+
 export function downloadJsonFile(filename, data) {
     const text = typeof data === 'string' ? data : `${JSON.stringify(data, null, 2)}\n`;
     const blob = new Blob([text], { type: 'application/json;charset=utf-8' });
@@ -463,7 +587,10 @@ export function createBackupController(ports = {}) {
 
         async importPack(pack, { overwrite = true } = {}) {
             if (!isGouhuaBackup(pack)) throw new Error('不是构画迁移包');
-            const result = { settings: 0, local: 0, currentChat: false, chats: 0, chatsSkipped: 0, chatsExternal: 0, coordinates: 0, excerpts: 0, worldbooks: 0 };
+            const result = {
+                settings: 0, local: 0, currentChat: false, chats: 0, chatsSkipped: 0, chatsExternal: 0,
+                coordinates: 0, excerpts: 0, worldbooks: 0, verified: true, mismatches: [], stopped: '',
+            };
 
             result.local = applyLocalStorage(ports.localStorage || globalThis.localStorage, pack.localStorage, { draftsOnly: true });
             result.settings = applySettingsPatch(ports.getSettings?.(), pack.settings);
@@ -481,9 +608,8 @@ export function createBackupController(ports = {}) {
             const chats = Array.isArray(pack.chats) ? [...pack.chats] : [];
             if (pack.currentChat && hasOwnRoots(pack.currentChat.roots)) {
                 if (current && isSameChatTarget(current, pack.currentChat)) {
-                    applyCurrentChatRoots(ports, ctx, pack.currentChat.roots, overwrite);
-                    await persistCurrent(ports);
-                    result.currentChat = true;
+                    const written = await writeAndVerifyCurrent(ports, ctx, pack.currentChat.roots, overwrite, result);
+                    if (!written) return result;
                 } else {
                     chats.unshift(pack.currentChat);
                 }
@@ -494,9 +620,8 @@ export function createBackupController(ports = {}) {
                 done += 1;
                 progress(ports, { phase: 'chats', done, total: chats.length, message: `正在写入聊天 ${done}/${chats.length}` });
                 if (current && isSameChatTarget(current, chat)) {
-                    applyCurrentChatRoots(ports, ctx, chat.roots, overwrite);
-                    await persistCurrent(ports);
-                    result.currentChat = true;
+                    const written = await writeAndVerifyCurrent(ports, ctx, chat.roots, overwrite, result);
+                    if (!written) return result;
                     continue;
                 }
                 try {
@@ -509,6 +634,14 @@ export function createBackupController(ports = {}) {
                     applyOwnRoots(metadata, chat.roots, { overwrite });
                     payload[0].chat_metadata = metadata;
                     await writeChatFile(ports, chat, payload);
+                    const reread = await readChatFile(ports, chat);
+                    const check = verifyRestoredRoots(chat.roots, pickOwnRoots(reread[0]?.chat_metadata || {}));
+                    if (!check.ok) {
+                        result.verified = false;
+                        result.mismatches.push(...check.mismatches);
+                        result.chatsSkipped += 1;
+                        continue;
+                    }
                     result.chats += 1;
                 } catch {
                     result.chatsSkipped += 1;
@@ -521,6 +654,27 @@ export function createBackupController(ports = {}) {
             return downloadJsonFile(filename || stampFilename(), pack);
         },
     };
+}
+
+async function writeAndVerifyCurrent(ports, ctx, roots, overwrite, result) {
+    applyCurrentChatRoots(ports, ctx, roots, overwrite);
+    const saved = await persistCurrent(ports);
+    if (saved?.commitState === 'unknown') {
+        result.stopped = 'unknown';
+        result.verified = false;
+        result.currentChat = false;
+        return false;
+    }
+    const liveCtx = ports.getContext?.() || ctx;
+    const check = verifyRestoredRoots(roots, dumpCurrentRoots(ports, liveCtx));
+    if (!check.ok) {
+        result.verified = false;
+        result.mismatches.push(...check.mismatches);
+        result.currentChat = false;
+        return true;
+    }
+    result.currentChat = true;
+    return true;
 }
 
 function applyCurrentChatRoots(ports, ctx, roots, overwrite) {

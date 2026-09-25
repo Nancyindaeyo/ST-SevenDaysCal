@@ -37,12 +37,14 @@ export function createDiagnosticPackHost(env = {}) {
         const chat = ctx.chat || [];
         const clock = env.latestStoryClock?.();
         const today = env.todayAnchor?.();
+        const settings = env.settings?.() || {};
         return buildSafeDiagnosticPack({
             pluginVersion: pluginVersion(),
             settings: {
-                ...(env.settings?.() || {}),
+                ...settings,
                 utilityRoute: env.resolveUtilityRoute?.() || null,
             },
+            lastConfirmedWrite: env.lastConfirmedWrite?.() || null,
             chat: {
                 floorCount: chat.length,
                 latestAiFloor: env.latestAiFloor?.(chat)?.index,
@@ -59,10 +61,14 @@ export function createDiagnosticPackHost(env = {}) {
     }
 
     function overview() {
+        const settings = env.settings?.() || {};
         return buildDiagnosticOverview({
             queue: env.queueSnapshot?.() || null,
             activity: env.compactActivity?.(24) || [],
             safeLogs: env.readTrace?.() || [],
+            lastConfirmedWrite: env.lastConfirmedWrite?.() || null,
+            utilityRoute: env.resolveUtilityRoute?.() || settings.utilityRoute || null,
+            authorDrafts: settings.authorDraftRecovery || [],
         });
     }
 

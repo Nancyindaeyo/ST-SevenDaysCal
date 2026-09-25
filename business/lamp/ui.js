@@ -98,9 +98,13 @@ function row(item, { checked, editing, dismissable = false }) {
 }
 
 function tabs(page) {
+    const tab = (id, label) => {
+        const on = page === id;
+        return `<button type="button" class="sp-lamp-tab${on ? ' is-on' : ''}" id="sp-lamp-tab-${id}" data-lamp-page="${id}" role="tab" aria-selected="${on ? 'true' : 'false'}" aria-controls="sp-lamp-page-${id}" tabindex="${on ? '0' : '-1'}">${label}</button>`;
+    };
     return `<div class="sp-lamp-tabs" role="tablist" aria-label="对账灯子页">
-        <button type="button" class="sp-lamp-tab${page === 'fight' ? ' is-on' : ''}" data-lamp-page="fight">冲突</button>
-        <button type="button" class="sp-lamp-tab${page === 'search' ? ' is-on' : ''}" data-lamp-page="search">搜索</button>
+        ${tab('fight', '冲突')}
+        ${tab('search', '搜索')}
     </div>`;
 }
 
@@ -191,7 +195,7 @@ export function renderLampHtml({
         : '';
     const needKind = !kind && basket.length && page !== 'unused';
     const chase = page === 'search' ? '' : chaseRow(busy);
-    return `<div class="sp-lamp-body">${tabs(page)}${ageHtml}${hint}${chase}${search}${intentBlock}${previewBlock(preview)}
+    return `<div class="sp-lamp-body">${tabs(page)}<div class="sp-lamp-page" id="sp-lamp-page-${page}" role="tabpanel" aria-labelledby="sp-lamp-tab-${page}">${ageHtml}${hint}${chase}${search}${intentBlock}${previewBlock(preview)}
         ${staleBody}
         <section class="sp-lamp-section"><h2 class="sp-lamp-h">${page === 'search' ? '查找结果' : '对上的账'}</h2>${body}</section>
         <section class="sp-lamp-section"><h2 class="sp-lamp-h">待改篮</h2>${basketHtml(basket)}${needKind ? kindRow(kind) : (kind ? kindRow(kind) : '')}
@@ -203,5 +207,5 @@ export function renderLampHtml({
                 <button type="button" class="sp-btn sp-btn-primary" id="sp-lamp-fight">按打架一起改</button>
             </div>
         </section>
-    </div>`;
+    </div></div>`;
 }

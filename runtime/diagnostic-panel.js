@@ -20,6 +20,24 @@ function errorTime(ts) {
     } catch { return ''; }
 }
 
+export function diagnosticRuntimeHtml(overview = {}) {
+    const write = overview.lastConfirmedWrite;
+    const route = overview.utilityRoute;
+    const drafts = Array.isArray(overview.authorDrafts) ? overview.authorDrafts : [];
+    const writeText = write?.at ? `最后确认写入 ${errorTime(write.at)}${write.reason ? ` · ${write.reason}` : ''}` : '还没有确认写入记录';
+    const routeText = route?.status
+        ? `机械 API：${route.status}${route.presetName ? ` · ${route.presetName}` : ''}${route.reason ? ` · ${route.reason}` : ''}`
+        : '机械 API：跟随主 API 或尚未分流';
+    const draftText = drafts.length
+        ? `可恢复草稿 ${drafts.length} 份（${drafts.map(item => item.kind || '未知').join('、')}），不含正文`
+        : '没有待恢复的笺/律草稿';
+    return `<div class="sp-diagnostics-runtime">
+        <div class="sp-diagnostics-runtime-item">${escapeHtml(writeText)}</div>
+        <div class="sp-diagnostics-runtime-item">${escapeHtml(routeText)}</div>
+        <div class="sp-diagnostics-runtime-item">${escapeHtml(draftText)}</div>
+    </div>`;
+}
+
 export function diagnosticOverviewHtml(overview = {}) {
     const errors = Array.isArray(overview.errors) ? overview.errors : [];
     if (!errors.length) {

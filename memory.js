@@ -22,6 +22,7 @@ import { extractStoryText, normalizeTagList, stripTags } from './utils/story-tex
 import { diagnosticMessage, safeDiagnosticLog } from './api/diagnostics.js';
 import { getChatRoot, persistExternalRoots, registerExternalStorageContext } from './runtime/external-chat-storage.js';
 import { chatFingerprints, firstRemovedIndex, pruneMemoryAfterDelete } from './business/memory/invalidate.js';
+import { collectStableGroups, isStrippedEmptyGroup } from './business/memory/groups.js';
 
 export { extractStoryText, normalizeTagList, stripTags };
 
@@ -163,22 +164,7 @@ function getAiFloors() {
 // { key: "startMid-endMid", floors: [{mesid, text}, ...] }
 // Latest group (containing the newest AI floor) is EXCLUDED — never summarized.
 function getStableGroups() {
-    const settings = _getSettings();
-    const N = Math.max(1, +settings.memoryL0Group || 5);
-    const floors = getAiFloors();
-    const groups = [];
-    for (let i = 0; i + N <= floors.length; i += N) {
-        const slice = floors.slice(i, i + N);
-        groups.push({
-            key   : `${slice[0].mesid}-${slice[slice.length - 1].mesid}`,
-            floors: slice,
-        });
-    }
-    // If the last group ended exactly at the newest AI floor, drop it (delay-by-one rule)
-    if (groups.length && floors.length && groups[groups.length - 1].floors.slice(-1)[0].mesid === floors[floors.length - 1].mesid) {
-        groups.pop();
-    }
-    return groups;
+    return collectStableGroups(getAiFloors(), Math.max(1, +_getSettings().memoryL0Group || 5));
 }
 
 // Hash the combined text of a group's floors — invalidates on any reroll/edit
@@ -207,14 +193,7 @@ function isCoveredByL1(group, m) {
 // 与「模型没返回」区分开：这是确定性的净化结果，不该白白重试/让人去调模型。
 // 阈值：原文合计够长（>= 楼数*40 字符，排除本就没内容的空组）但净化后去空白后不足 20 字符。
 function isStrippedEmpty(group) {
-    const floors = group.floors || [];
-    if (!floors.length) return false;
-    let rawTotal = 0, netTotal = 0;
-    for (const f of floors) {
-        rawTotal += Number(f.rawLen) || 0;
-        netTotal += String(f.text || '').replace(/\s+/g, '').length;
-    }
-    return rawTotal >= floors.length * 40 && netTotal < 20;
+    return isStrippedEmptyGroup(group);
 }
 
 // ─── Prompts ─────────────────────────────────────────────────────────────────

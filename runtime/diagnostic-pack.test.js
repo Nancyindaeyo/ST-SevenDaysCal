@@ -24,6 +24,7 @@ test('safe pack keeps flags, queue jobs and activity heads without snapshots', (
             ts: 1,
         }],
         userNote: '重 roll 后没推进',
+        lastConfirmedWrite: { at: 1700000000000, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed' },
     });
     assert.equal(pack.format, 'st-sevendayscal-safe-pack');
     assert.equal(pack.settings.linesMode, 'days');
@@ -33,6 +34,9 @@ test('safe pack keeps flags, queue jobs and activity heads without snapshots', (
     assert.deepEqual(pack.jobs.map(job => job.status), ['failed', 'skipped']);
     assert.equal(pack.activity[0].snapshot, undefined);
     assert.equal(pack.userNote, '重 roll 后没推进');
+    assert.deepEqual(pack.lastConfirmedWrite, {
+        at: 1700000000000, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed',
+    });
 });
 
 test('assistant pack v2 wraps the existing chat dump with runtime', () => {
@@ -107,4 +111,19 @@ test('best-effort rescore failures appear once in the overview', () => {
     assert.equal(overview.errorCount, 1);
     assert.match(overview.errors[0].title, /连续失败 ×2/);
     assert.equal(overview.errors[0].module, 'ledger');
+});
+
+test('overview carries last confirmed write, utility route and draft kinds', () => {
+    const overview = buildDiagnosticOverview({
+        lastConfirmedWrite: { at: 9, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed' },
+        utilityRoute: { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜', cfg: { key: 'secret' } },
+        authorDrafts: [{ kind: 'law', chatId: 'c1', text: '合同正文', ts: 3 }],
+    });
+    assert.deepEqual(overview.lastConfirmedWrite, {
+        at: 9, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed',
+    });
+    assert.deepEqual(overview.utilityRoute, { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜' });
+    assert.deepEqual(overview.authorDrafts, [{ kind: 'law', chatId: 'c1', reason: '', ts: 3 }]);
+    assert.equal(JSON.stringify(overview).includes('secret'), false);
+    assert.equal(JSON.stringify(overview).includes('合同正文'), false);
 });

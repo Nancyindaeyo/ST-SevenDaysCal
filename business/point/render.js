@@ -105,7 +105,7 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
     // 固定态只用**颜色**区分，图标恒 fa-solid fa-thumbtack：FA 免费版无 fa-regular fa-thumbtack，
     // 用 regular 会静默回落到 solid → 固定/未固定长得一模一样（老 bug「图标没变化」）。照 .sp-alm-today-pin 套路。
     const pinBtn = perspective === 'char'
-        ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉'}"><i class="fa-solid fa-thumbtack"></i></button>`
+        ? `<button class="sp-panel-refresh sp-point-pin-char${isPinned ? ' sp-pinned' : ''}" data-name="${escapeAttr(String(userName || '').trim())}" title="${isPinned ? '已固定·点击取消固定' : '固定 TA 到 TA▾ 抽屉'}" aria-label="${isPinned ? '取消固定此角色' : '固定此角色'}"><i class="fa-solid fa-thumbtack"></i></button>`
         : '';
     const pointHistory = historyToolbarState({
         hasChat: !!env?.chatId?.(),
@@ -118,7 +118,6 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
         <span class="sp-schedule-label">的点</span>
         ${pinBtn}
         ${historyButtonHtml({ disabled: pointHistory.historyDisabled, title: pointHistory.historyTitle, module: 'point' })}
-        <button class="sp-panel-refresh sp-refresh-schedule${refreshBusy}" title="${axisState._almSyncingPoint ? '点正在同步中，稍候…' : '打开刷新账本'}"><i class="fa-solid fa-rotate-right"></i></button>
     </div>` + SP_JUMP_HINT_POINT;
 
     // Parse failed (AI leaked prompt / malformed output) — still render header

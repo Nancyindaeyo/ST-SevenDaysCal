@@ -1,4 +1,5 @@
 import { emptyBooksHtml } from '../bootstrap/ui.js';
+import { settingsNavHtml } from '../../runtime/settings-nav.js';
 
 export function panelMarkup({
     themeToggleTitle,
@@ -101,9 +102,9 @@ export function panelMarkup({
                             <div class="sp-ta-drawer" id="sp-ta-drawer" style="display:none"></div>
                         </div>
                         <div class="sp-head-tools">
-                            <button class="sp-icon-btn sp-theme-toggle-btn" title="${themeToggleTitle()}"><i class="fa-solid ${themeToggleIcon()}"></i></button>
-                            <button class="sp-icon-btn sp-fab-toggle-btn${fabEnabled() ? ' sp-btn-active' : ''}" title="悬浮按钮"><i class="fa-regular fa-circle-dot"></i></button>
-                            <button class="sp-icon-btn sp-close-btn"    title="关闭"><i class="fa-solid fa-xmark" style="font-size:var(--sp-fs-100)"></i></button>
+                            <button class="sp-icon-btn sp-theme-toggle-btn" title="${themeToggleTitle()}" aria-label="${themeToggleTitle()}"><i class="fa-solid ${themeToggleIcon()}"></i></button>
+                            <button class="sp-icon-btn sp-fab-toggle-btn${fabEnabled() ? ' sp-btn-active' : ''}" title="悬浮按钮" aria-label="悬浮按钮"><i class="fa-regular fa-circle-dot"></i></button>
+                            <button class="sp-icon-btn sp-close-btn"    title="关闭" aria-label="关闭"><i class="fa-solid fa-xmark" style="font-size:var(--sp-fs-100)"></i></button>
                         </div>
                         <div class="sp-module-intro-pop" id="sp-module-intro-pop" style="display:none"></div>
                     </header>
@@ -115,8 +116,9 @@ export function panelMarkup({
                     <div id="sp-settings-overlay" class="sp-settings-overlay" style="display:none">
                         <div class="sp-settings-header">
                             <span class="sp-settings-title"><i class="fa-solid fa-gear"></i> 设置</span>
-                            <button class="sp-icon-btn sp-settings-close-btn" title="关闭设置"><i class="fa-solid fa-xmark"></i></button>
+                            <button class="sp-icon-btn sp-settings-close-btn" title="关闭设置" aria-label="关闭设置"><i class="fa-solid fa-xmark"></i></button>
                         </div>
+                        ${settingsNavHtml(escapeHtml)}
                         <div class="sp-settings-body">
 
                             <!-- ═══════════ 总开关 ═══════════ -->
@@ -133,7 +135,7 @@ export function panelMarkup({
                             </div>
 
                             <!-- ═══════════ 通用设置 ═══════════ -->
-                            <details class="sp-settings-layer">
+                            <details class="sp-settings-layer" id="sp-settings-general">
                                 <summary class="sp-settings-layer-title">通用设置</summary>
                                 <div class="sp-settings-layer-body">
 
@@ -619,6 +621,7 @@ export function panelMarkup({
                                                 <div class="sp-mem-actions">
                                                     <button id="sp-backup-export" class="sp-save-btn" type="button"><i class="fa-solid fa-file-export"></i> 导出迁移包</button>
                                                     <button id="sp-backup-import" class="sp-mem-btn" type="button"><i class="fa-solid fa-file-import"></i> 导入迁移包</button>
+                                                    <button id="sp-backup-rehearse" class="sp-mem-btn" type="button"><i class="fa-solid fa-vial"></i> 演练迁移包</button>
                                                     <input id="sp-backup-import-file" type="file" accept="application/json,.json" hidden>
                                                 </div>
                                             </div>
@@ -641,6 +644,18 @@ export function panelMarkup({
                                                     <span class="sp-diagnostics-status-text">正在读取状态</span>
                                                 </div>
                                             </header>
+
+                                            <section class="sp-diagnostics-region" aria-labelledby="sp-diagnostics-runtime-title">
+                                                <div class="sp-diagnostics-region-head">
+                                                    <div>
+                                                        <div class="sp-diagnostics-eyebrow">运行上下文</div>
+                                                        <h4 id="sp-diagnostics-runtime-title">写入、草稿和机械路由</h4>
+                                                    </div>
+                                                </div>
+                                                <div id="sp-diagnostics-runtime" class="sp-diagnostics-runtime">
+                                                    <div class="sp-diagnostics-runtime-item">正在读取状态</div>
+                                                </div>
+                                            </section>
 
                                             <div class="sp-diagnostics-metrics" aria-label="诊断摘要">
                                                 <div class="sp-diagnostics-metric">
@@ -719,7 +734,6 @@ export function panelMarkup({
                                 <span class="sp-outline-title">故事面</span>
                                 <span class="sp-schedule-label" id="sp-outline-node-count">0 个节点</span>
                                 <button type="button" class="sp-panel-refresh sp-book-history" data-history="outline" title="查看历史版本" aria-label="查看历史版本"><i class="fa-solid fa-clock-rotate-left"></i></button>
-                                <button class="sp-panel-refresh sp-refresh-outline" title="打开刷新账本" aria-label="打开刷新账本"><i class="fa-solid fa-rotate-right"></i></button>
                             </div>
                             <div class="sp-outline-beats" id="sp-outline-beats">
                                 ${emptyBooksHtml()}

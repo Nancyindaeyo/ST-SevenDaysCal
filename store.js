@@ -31,6 +31,9 @@
 import { getContext } from '../../../extensions.js';
 import { deleteChatRoot, externalOwnKeyBytes, getChatRoot, isExternalMode, persistExternalRoots, registerExternalStorageContext, restoreDeletedChatRoot } from './runtime/external-chat-storage.js';
 import { commitLegacyMigration } from './runtime/legacy-migration.js';
+import { lastConfirmedWriteSnapshot, rememberConfirmedWrite } from './utils/confirmed-write.js';
+
+export { lastConfirmedWriteSnapshot, rememberConfirmedWrite };
 
 registerExternalStorageContext(getContext);
 
@@ -150,14 +153,15 @@ function confirmedSaveError(saved, fallback = 'store-save-unconfirmed') {
 // synchronous writeStore API to avoid a plugin-wide async migration. Production binds a
 // target-specific metadata saver; legacy hosts can only confirm a returned Promise.
 let confirmedMetadataPersistence = null;
+
 export function bindStoreMetadataPersistence(adapter = null) {
     confirmedMetadataPersistence = adapter && typeof adapter.commit === 'function' ? adapter : null;
 }
 
 async function persistConfirmed(boundContext, options = {}) {
     const external = persistExternalRoots({ confirmed: true, ownerGuard: options.ownerGuard });
-    if (external !== null) return await external;
-    if (confirmedMetadataPersistence) return confirmedMetadataPersistence.commit(boundContext, options);
+    if (external !== null) return rememberConfirmedWrite(await external);
+    if (confirmedMetadataPersistence) return rememberConfirmedWrite(await confirmedMetadataPersistence.commit(boundContext, options));
     const ctx = boundContext || getContext?.();
     if (!ctx?.chatId || typeof ctx.saveMetadata !== 'function') return { ok: false, reason: 'saveMetadata-unavailable', commitState: 'not-dispatched', dispatched: false };
     // 旧宿主没有固定目标 saver，只能依赖 saveMetadata 在调用时同步抓取 chatMetadata 快照。
@@ -183,7 +187,7 @@ async function persistConfirmed(boundContext, options = {}) {
     }
     if (!result || typeof result.then !== 'function') return { ok: false, reason: 'saveMetadata-unconfirmed', commitState: 'legacy-unconfirmed', dispatched: true };
     await result;
-    return { ok: true, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed', dispatched: true };
+    return rememberConfirmedWrite({ ok: true, reason: 'saveMetadata-promise-resolved', commitState: 'confirmed', dispatched: true });
 }
 
 const cloneStoreValue = value => value === undefined ? undefined : JSON.parse(JSON.stringify(value));

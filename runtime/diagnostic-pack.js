@@ -89,7 +89,25 @@ function errorItem(source, title, detail, metadata = {}) {
     };
 }
 
-export function buildDiagnosticOverview({ queue = null, activity = [], safeLogs = [] } = {}) {
+export function compactLastConfirmedWrite(value) {
+    if (!value || typeof value !== 'object') return null;
+    const at = Number(value.at);
+    if (!Number.isFinite(at) || at <= 0) return null;
+    return {
+        at,
+        reason: String(value.reason || '').slice(0, 80),
+        commitState: String(value.commitState || 'confirmed').slice(0, 40),
+    };
+}
+
+export function buildDiagnosticOverview({
+    queue = null,
+    activity = [],
+    safeLogs = [],
+    lastConfirmedWrite = null,
+    utilityRoute = null,
+    authorDrafts = [],
+} = {}) {
     const errors = [];
     for (const item of queue?.failed || []) {
         errors.push(errorItem('queue', `${item.label || item.id || '后台任务'}失败`, item.reason || item.error, {
@@ -136,6 +154,9 @@ export function buildDiagnosticOverview({ queue = null, activity = [], safeLogs 
         queueCount: queueJobs.length,
         logCount: Array.isArray(safeLogs) ? safeLogs.length : 0,
         errors: errors.slice(0, 12),
+        lastConfirmedWrite: compactLastConfirmedWrite(lastConfirmedWrite),
+        utilityRoute: utilityRouteSnapshot(utilityRoute || null),
+        authorDrafts: authorDraftsSnapshot(authorDrafts),
     };
 }
 
@@ -157,6 +178,7 @@ export function buildSafeDiagnosticPack({
     safeLogs = [],
     userNote = '',
     exportedAt = new Date().toISOString(),
+    lastConfirmedWrite = null,
 } = {}) {
     return {
         format: 'st-sevendayscal-safe-pack',
@@ -187,6 +209,7 @@ export function buildSafeDiagnosticPack({
         jobs: jobsFromQueue(queue),
         activity: compactActivityEntries(activity),
         safeLogs: Array.isArray(safeLogs) ? safeLogs.slice(-30) : [],
+        lastConfirmedWrite: compactLastConfirmedWrite(lastConfirmedWrite),
     };
 }
 

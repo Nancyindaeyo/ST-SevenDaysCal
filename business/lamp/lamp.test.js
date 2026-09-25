@@ -56,6 +56,9 @@ test('lamp html never injects and jumps to the 构画 side', () => {
     assert.match(html, /data-jump-mod="lines"[^>]*data-jump-key="今夜赴约"/);
     assert.match(html, /冲突/);
     assert.match(html, /搜索/);
+    assert.match(html, /aria-selected="true"/);
+    assert.match(html, /aria-controls="sp-lamp-page-fight"/);
+    assert.match(html, /id="sp-lamp-page-fight"[^>]*role="tabpanel"/);
     assert.match(html, /sp-lamp-actions/);
     assert.doesNotMatch(html, /没有看出打架的账/);
     assert.match(html, /对照最新楼/);

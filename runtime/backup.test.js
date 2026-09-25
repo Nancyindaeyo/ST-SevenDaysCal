@@ -16,6 +16,11 @@ import {
     settingsHasSecrets,
     summarizeBackup,
     createBackupController,
+    previewRestore,
+    formatRestorePreview,
+    rehearseBackup,
+    verifyRestoredRoots,
+    countOwnRootEntries,
     BACKUP_KIND,
 } from './backup.js';
 
@@ -118,6 +123,47 @@ test('partial export warnings make every silently substituted asset explicit', (
         '坐标摘抄读取失败',
     ]);
     assert.deepEqual(backupExportWarnings({ skipped: {} }), []);
+});
+
+test('restore preview lists schema, chat identity, cover roots and counts without writing', () => {
+    const pack = {
+        kind: BACKUP_KIND,
+        version: 1,
+        pluginVersion: '3.15.6',
+        exportedAt: '2026-09-25T00:00:00.000Z',
+        settings: { fabShow: true },
+        currentChat: {
+            is_group: false,
+            chatId: 'now',
+            char_name: '柳',
+            avatar_url: 'liu.png',
+            roots: {
+                'sp-store': { version: 1, data: { 'schedule-user': { raw: '今天' }, 'lines-user': { raw: '线' } } },
+                'sp-memory': { L0: { '1-5': {} }, L1: [{ range: ['1', '5'] }] },
+            },
+        },
+        chats: [{ chatId: 'old', roots: { 'sp-ledger': { items: [{ id: '1' }] } } }],
+        coordinates: { items: [{ id: 'c1' }] },
+        excerpts: { items: [] },
+        worldbooks: [],
+    };
+    const preview = previewRestore(pack, { is_group: false, chatId: 'now', avatar_url: 'liu.png' });
+    assert.equal(preview.ok, true);
+    assert.equal(preview.schemaVersion, 1);
+    assert.equal(preview.currentChat.sameChat, true);
+    assert.deepEqual(preview.currentChat.coverRoots, ['sp-store', 'sp-memory']);
+    assert.equal(preview.currentChat.roots.total, 4);
+    assert.equal(preview.coverage.chatCount, 2);
+    assert.match(formatRestorePreview(preview), /将覆盖根：sp-store、sp-memory/);
+    assert.deepEqual(countOwnRootEntries(pack.currentChat.roots).total, 4);
+    const dry = rehearseBackup(JSON.stringify(pack));
+    assert.equal(dry.preview.pluginVersion, '3.15.6');
+});
+
+test('verifyRestoredRoots reports mismatched roots', () => {
+    const expected = { 'sp-store': { data: { a: 1 } } };
+    assert.equal(verifyRestoredRoots(expected, { 'sp-store': { data: { a: 1 } } }).ok, true);
+    assert.deepEqual(verifyRestoredRoots(expected, { 'sp-store': { data: { a: 2 } } }).mismatches, ['sp-store']);
 });
 
 test('controller records chat, coordinate, and excerpt read failures in the exported pack', async () => {
@@ -273,8 +319,79 @@ test('import writes exported current chat through chat files when another chat i
     const result = await importer.importPack(pack);
     assert.equal(result.currentChat, false);
     assert.equal(result.chats, 1);
+    assert.equal(result.verified, true);
     assert.equal(chatFiles['now|liu.png'][0].chat_metadata.variables.keep, true);
     assert.equal(chatFiles['now|liu.png'][0].chat_metadata['sp-store'].data['schedule-user'].raw, '迁过来');
+});
+
+test('import stops on unknown current-chat commit and records reread mismatches', async () => {
+    const pack = {
+        kind: BACKUP_KIND,
+        version: 1,
+        currentChat: {
+            is_group: false,
+            chatId: 'now',
+            char_name: '柳',
+            file_name: 'now',
+            avatar_url: 'liu.png',
+            roots: { 'sp-store': { version: 1, data: { 'schedule-user': { raw: '迁过来' } } } },
+        },
+        chats: [],
+        settings: {},
+        localStorage: {},
+        worldbooks: [],
+        coordinates: { index: { version: 1, items: [], tags: [] }, items: [] },
+    };
+    const unknown = createBackupController({
+        getContext: () => ({
+            chatId: 'now',
+            characterId: 0,
+            characters: [{ name: '柳', avatar: 'liu.png', chat: 'now' }],
+            chatMetadata: {},
+        }),
+        getSettings: () => ({}),
+        saveSettings: async () => {},
+        localStorage: mockStorage({}),
+        getChatRoot: (key, opts) => {
+            const meta = unknown._meta || (unknown._meta = {});
+            if (!meta[key] && opts?.create) meta[key] = opts.factory();
+            return meta[key] || null;
+        },
+        persistExternalRoots: async () => ({ ok: false, commitState: 'unknown', reason: 'unknown' }),
+        fetch: async () => jsonOk([]),
+        readJson: async () => ({ missing: true, value: null }),
+        uploadJson: async () => {},
+        loadWorldInfo: async () => null,
+        saveWorldInfo: async () => {},
+    });
+    const stopped = await unknown.importPack(pack);
+    assert.equal(stopped.stopped, 'unknown');
+    assert.equal(stopped.currentChat, false);
+    assert.equal(stopped.verified, false);
+
+    const mismatcher = createBackupController({
+        getContext: () => ({
+            chatId: 'now',
+            characterId: 0,
+            characters: [{ name: '柳', avatar: 'liu.png', chat: 'now' }],
+            chatMetadata: {},
+            saveMetadata: async () => {},
+        }),
+        getSettings: () => ({}),
+        saveSettings: async () => {},
+        localStorage: mockStorage({}),
+        getChatRoot: () => ({ data: { 'schedule-user': { raw: '不是这份' } } }),
+        persistExternalRoots: () => null,
+        fetch: async () => jsonOk([]),
+        readJson: async () => ({ missing: true, value: null }),
+        uploadJson: async () => {},
+        loadWorldInfo: async () => null,
+        saveWorldInfo: async () => {},
+    });
+    const mismatched = await mismatcher.importPack(pack);
+    assert.equal(mismatched.currentChat, false);
+    assert.equal(mismatched.verified, false);
+    assert.deepEqual(mismatched.mismatches, ['sp-store']);
 });
 
 function mockStorage(seed) {

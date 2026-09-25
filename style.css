@@ -32,31 +32,33 @@ q::after {
     /* —— 字号令牌：px 基准 × 单一缩放变量，脱钩酒馆全局 Font Scale ——
        键名＝原 rem 值 ×100，px＝原 rem 值 ×16。改 --sp-scale 即整体缩放（设置里 −/＋）。 */
     --sp-scale : 1;
-    --sp-fs-58 : calc(9.28px  * var(--sp-scale));
-    --sp-fs-60 : calc(9.6px   * var(--sp-scale));
-    --sp-fs-62 : calc(9.92px  * var(--sp-scale));
-    --sp-fs-63 : calc(10.08px * var(--sp-scale));
-    --sp-fs-64 : calc(10.24px * var(--sp-scale));
-    --sp-fs-65 : calc(10.4px  * var(--sp-scale));
-    --sp-fs-66 : calc(10.56px * var(--sp-scale));
-    --sp-fs-68 : calc(10.88px * var(--sp-scale));
-    --sp-fs-70 : calc(11.2px  * var(--sp-scale));
-    --sp-fs-72 : calc(11.52px * var(--sp-scale));
-    --sp-fs-73 : calc(11.68px * var(--sp-scale));
-    --sp-fs-74 : calc(11.84px * var(--sp-scale));
-    --sp-fs-75 : calc(12px    * var(--sp-scale));
-    --sp-fs-76 : calc(12.16px * var(--sp-scale));
-    --sp-fs-78 : calc(12.48px * var(--sp-scale));
-    --sp-fs-80 : calc(12.8px  * var(--sp-scale));
-    --sp-fs-81 : calc(12.96px * var(--sp-scale));
-    --sp-fs-82 : calc(13.12px * var(--sp-scale));
-    --sp-fs-83 : calc(13.28px * var(--sp-scale));
-    --sp-fs-84 : calc(13.44px * var(--sp-scale));
-    --sp-fs-85 : calc(13.6px  * var(--sp-scale));
-    --sp-fs-86 : calc(13.76px * var(--sp-scale));
-    --sp-fs-88 : calc(14.08px * var(--sp-scale));
-    --sp-fs-90 : calc(14.4px  * var(--sp-scale));
-    --sp-fs-92 : calc(14.72px * var(--sp-scale));
+    /* 正文/状态字最低 12px：80% 缩放时不再落到约 7.4px。装饰性 caption 仍可用更小令牌。 */
+    --sp-fs-floor: 12px;
+    --sp-fs-58 : max(var(--sp-fs-floor), calc(9.28px  * var(--sp-scale)));
+    --sp-fs-60 : max(var(--sp-fs-floor), calc(9.6px   * var(--sp-scale)));
+    --sp-fs-62 : max(var(--sp-fs-floor), calc(9.92px  * var(--sp-scale)));
+    --sp-fs-63 : max(var(--sp-fs-floor), calc(10.08px * var(--sp-scale)));
+    --sp-fs-64 : max(var(--sp-fs-floor), calc(10.24px * var(--sp-scale)));
+    --sp-fs-65 : max(var(--sp-fs-floor), calc(10.4px  * var(--sp-scale)));
+    --sp-fs-66 : max(var(--sp-fs-floor), calc(10.56px * var(--sp-scale)));
+    --sp-fs-68 : max(var(--sp-fs-floor), calc(10.88px * var(--sp-scale)));
+    --sp-fs-70 : max(var(--sp-fs-floor), calc(11.2px  * var(--sp-scale)));
+    --sp-fs-72 : max(var(--sp-fs-floor), calc(11.52px * var(--sp-scale)));
+    --sp-fs-73 : max(var(--sp-fs-floor), calc(11.68px * var(--sp-scale)));
+    --sp-fs-74 : max(var(--sp-fs-floor), calc(11.84px * var(--sp-scale)));
+    --sp-fs-75 : max(var(--sp-fs-floor), calc(12px    * var(--sp-scale)));
+    --sp-fs-76 : max(var(--sp-fs-floor), calc(12.16px * var(--sp-scale)));
+    --sp-fs-78 : max(var(--sp-fs-floor), calc(12.48px * var(--sp-scale)));
+    --sp-fs-80 : max(var(--sp-fs-floor), calc(12.8px  * var(--sp-scale)));
+    --sp-fs-81 : max(var(--sp-fs-floor), calc(12.96px * var(--sp-scale)));
+    --sp-fs-82 : max(var(--sp-fs-floor), calc(13.12px * var(--sp-scale)));
+    --sp-fs-83 : max(var(--sp-fs-floor), calc(13.28px * var(--sp-scale)));
+    --sp-fs-84 : max(var(--sp-fs-floor), calc(13.44px * var(--sp-scale)));
+    --sp-fs-85 : max(var(--sp-fs-floor), calc(13.6px  * var(--sp-scale)));
+    --sp-fs-86 : max(var(--sp-fs-floor), calc(13.76px * var(--sp-scale)));
+    --sp-fs-88 : max(var(--sp-fs-floor), calc(14.08px * var(--sp-scale)));
+    --sp-fs-90 : max(var(--sp-fs-floor), calc(14.4px  * var(--sp-scale)));
+    --sp-fs-92 : max(var(--sp-fs-floor), calc(14.72px * var(--sp-scale)));
     --sp-fs-95 : calc(15.2px  * var(--sp-scale));
     --sp-fs-100: calc(16px    * var(--sp-scale));
     --sp-fs-105: calc(16.8px  * var(--sp-scale));
@@ -67,6 +69,7 @@ q::after {
     /* —— 控件尺寸令牌：图标按钮方框随字号同步缩放。字号挂 --sp-fs-XX、方框此前漏挂，
        缩放时字变小、22px 方框不动 → 钮显得过大（渲染框内尤明显）。—— */
     --sp-btn-22: calc(22px * var(--sp-scale));
+    --sp-touch-min: 28px;
 
     /* —— 自绘点选控件尺寸令牌：checkbox/radio 自画（appearance:none）后的字形方框边长，
        随插件自身缩放走、脱钩酒馆 Font Scale。toggle 拨杆宽＝此值 × 1.8。 —— */
@@ -337,7 +340,7 @@ q::after {
     border-radius: 7px;
     background: var(--sp-primary);
     color: var(--sp-sheet-bg);
-    font-size: 9px;
+    font-size: var(--sp-fs-62);
     line-height: 14px;
     font-family: var(--sp-font-mono);
 }
@@ -404,7 +407,7 @@ q::after {
     color: var(--sp-primary);
     background: color-mix(in oklab, var(--sp-primary) 10%, transparent);
 }
-.sp-activity-jump i { font-size: 11px; }
+.sp-activity-jump i { font-size: var(--sp-fs-70); }
 .sp-activity-undo-item {
     min-width: 28px;
     height: 28px;
@@ -418,7 +421,7 @@ q::after {
     color: var(--sp-subtle);
     cursor: pointer;
     flex: 0 0 auto;
-    font-size: 11px;
+    font-size: var(--sp-fs-70);
     line-height: 1;
 }
 .sp-activity-undo-item:hover {
@@ -428,7 +431,7 @@ q::after {
 }
 .sp-activity-item-undone {
     color: var(--sp-subtle);
-    font-size: 11px;
+    font-size: var(--sp-fs-70);
     flex: 0 0 auto;
 }
 @keyframes sp-activity-jump-flash {
@@ -1026,9 +1029,6 @@ button.sp-pace-chip.is-open {
     padding: 6px 8px;
 }
 
-.sp-schedule-header .sp-refresh-schedule,
-.sp-lines-tools .sp-refresh-lines,
-.sp-outline-header .sp-refresh-outline { display: none; }
 @media (max-width: 640px) {
     .sp-content-head { cursor: default; touch-action: auto; }
     .sp-content-head:active { cursor: default; }
@@ -8520,4 +8520,91 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     border: 1px solid var(--sp-border, rgba(128, 128, 128, .28));
     border-radius: 10px;
     background: var(--sp-surface-soft, rgba(128, 128, 128, .08));
+}
+
+/* 设置目录：当前位置 + 跳层 + 返回顶部，降低多层 details 迷路。 */
+.sp-settings-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--sp-divider);
+    flex-shrink: 0;
+    background: color-mix(in oklab, var(--sp-primary) 5%, var(--sp-sheet-bg));
+}
+.sp-settings-here { display: flex; align-items: baseline; gap: 6px; font-size: var(--sp-fs-70); color: var(--sp-subtle); }
+.sp-settings-here strong { color: var(--sp-on-surface); font-weight: 600; }
+.sp-settings-toc { display: flex; flex-wrap: wrap; gap: 4px; flex: 1 1 180px; }
+.sp-settings-toc-btn,
+.sp-settings-top {
+    min-height: var(--sp-touch-min);
+    padding: 4px 8px;
+    border: 1px solid var(--sp-divider);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sp-on-surface);
+    font: inherit;
+    font-size: var(--sp-fs-68);
+    cursor: pointer;
+}
+.sp-settings-toc-btn:hover,
+.sp-settings-top:hover { border-color: var(--sp-primary); color: var(--sp-primary); }
+.sp-mem-open-tags {
+    margin-left: 6px;
+    padding: 2px 8px;
+    min-height: var(--sp-touch-min);
+    border: 1px solid var(--sp-primary);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--sp-primary);
+    font: inherit;
+    cursor: pointer;
+}
+.sp-diagnostics-runtime { display: flex; flex-direction: column; gap: 6px; padding: 0 2px 8px; }
+.sp-diagnostics-runtime-item { font-size: var(--sp-fs-70); color: var(--sp-subtle); }
+
+/* 结果语义：成功 / 无变化 / 跳过 / 失败 / 未确认 */
+.sp-outcome-success { color: var(--sp-ok, #3d8b6e); }
+.sp-outcome-unchanged,
+.sp-activity-card.is-quiet { color: var(--sp-subtle); }
+.sp-outcome-skipped { color: color-mix(in oklab, var(--sp-primary) 70%, var(--sp-subtle)); }
+.sp-outcome-failed,
+.sp-activity-card.is-failed { color: var(--sp-danger, #c45); }
+.sp-outcome-unknown { color: color-mix(in oklab, #c90 80%, var(--sp-on-surface)); }
+
+/* 日/夜/自定义主题下焦点可见 */
+.sp-root :focus-visible,
+.sp-inline-box :focus-visible,
+.sp-fab-btn:focus-visible,
+.sp-toast:focus-visible {
+    outline: 2px solid var(--sp-primary);
+    outline-offset: 2px;
+}
+
+/* 触控目标：桌面 28px，粗指针 44px */
+.sp-icon-btn,
+.sp-panel-refresh,
+.sp-side-tab,
+.sp-mini-btn,
+.sp-activity-jump,
+.sp-activity-undo-item {
+    min-width: max(var(--sp-btn-22), var(--sp-touch-min));
+    min-height: max(var(--sp-btn-22), var(--sp-touch-min));
+}
+@media (pointer: coarse) {
+    :root { --sp-touch-min: 44px; }
+}
+
+/* 短屏 / 横屏：底部工具和设置页脚不挤没 */
+@media (max-height: 520px), (orientation: landscape) and (max-height: 560px) {
+    .sp-sidebar-util,
+    .sp-settings-footer,
+    .sp-settings-nav,
+    .sp-head-tools,
+    .sp-panel-tools {
+        display: flex;
+        flex-shrink: 0;
+    }
+    .sp-settings-footer { position: sticky; bottom: 0; background: var(--sp-sheet-bg); }
 }

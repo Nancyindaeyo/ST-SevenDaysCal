@@ -1,4 +1,4 @@
-import { diagnosticOverviewHtml } from './diagnostic-panel.js';
+import { diagnosticOverviewHtml, diagnosticRuntimeHtml } from './diagnostic-panel.js';
 
 export function parseApiTimeoutSec(raw) {
     const text = String(raw ?? '').trim();
@@ -28,6 +28,7 @@ export function bindDiagnostics(env = {}) {
         $in('#sp-diagnostics-queue-count').text(String(Number(overview.queueCount) || 0));
         $in('#sp-diagnostics-log-count').text(String(Number(overview.logCount) || 0));
         $in('#sp-diagnostics-error-list').html(diagnosticOverviewHtml(overview));
+        $in('#sp-diagnostics-runtime').html(diagnosticRuntimeHtml(overview));
         return overview;
     };
     env.inEl?.('#sp-diagnostics-section')?.addEventListener('toggle', function () {

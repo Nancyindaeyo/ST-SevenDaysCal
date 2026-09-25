@@ -182,4 +182,8 @@ export function bindMemorySettings(env = {}) {
         }
     });
     $in('#sp-mem-progress-abort').on('click', () => memory.abortRebuild());
+    $in('#sp-mem-status').on('click', '.sp-mem-open-tags', function () {
+        if (!env.settingsOpen?.()) env.toggleSettings?.();
+        env.openTagSettings?.();
+    });
 }
