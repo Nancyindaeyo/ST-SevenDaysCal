@@ -786,3 +786,256 @@ test('manual outline cursor can be undone only while the snapshot still matches'
     assert.equal(refused.reason, 'diverged');
     assert.equal(outline.cursor, 0);
 });
+
+test('full undo does not mark undone when confirmed writes fail', async () => {
+    let point = 'after';
+    const toasts = [];
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async () => ({ ok: false, reason: 'cas-rejected', commitState: 'not-dispatched' }),
+        toast: message => toasts.push(message),
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'guide',
+        items: [{ module: 'point', title: '体检', action: 'complete' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const failed = await feature.undo(entry.id);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failed.reason, 'cas-rejected');
+    assert.equal(point, 'after');
+    assert.equal(feature.list()[0].undone, false);
+    assert.match(toasts.join('\n'), /没有记成已撤回/);
+});
+
+test('unknown commit and stale writes keep the activity retryable', async () => {
+    let point = 'after';
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => {
+            point = raw;
+            return { ok: true, commitState: 'unknown' };
+        },
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const unknownEntry = feature.record({
+        source: 'guide',
+        items: [{ module: 'point', title: '体检', action: 'edit' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const unknown = await feature.undo(unknownEntry.id);
+    assert.equal(unknown.status, 'failed');
+    assert.equal(unknown.reason, 'unknown');
+    assert.equal(feature.list()[0].undone, false);
+
+    point = 'after';
+    const staleFeature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => {
+            point = raw;
+            return { ok: true, stale: true, commitState: 'confirmed', reason: 'committed-but-stale' };
+        },
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const staleEntry = staleFeature.record({
+        source: 'guide',
+        items: [{ module: 'point', title: '体检', action: 'edit' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const stale = await staleFeature.undo(staleEntry.id);
+    assert.equal(stale.status, 'failed');
+    assert.equal(stale.reason, 'stale');
+    assert.equal(staleFeature.list()[0].undone, false);
+});
+
+test('reread fingerprint mismatch refuses to mark a full undo', async () => {
+    let point = 'after';
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async () => ({ ok: true, commitState: 'confirmed' }),
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'guide',
+        items: [{ module: 'point', title: '体检', action: 'edit' }],
+        snapshot: { point: 'before' },
+        after: { point: 'after' },
+    });
+    const failed = await feature.undo(entry.id);
+    assert.equal(failed.status, 'failed');
+    assert.equal(point, 'after');
+    assert.equal(feature.list()[0].undone, false);
+});
+
+test('item undo only records refs whose writes were confirmed', async () => {
+    const widget = (aDesc, bDesc) => `<calendar_widget>
+StartDate: 2024-03-01
+Day: 1|晴|12℃
+Event: main|体检|${aDesc}|上午|医院||false
+Id: POINT-a
+Event: main|会议|${bDesc}|下午|公司||false
+Id: POINT-b
+</calendar_widget>`;
+    const lineWidget = desc => `<storylines_widget>
+Line: 调查|延展|今天|world|false|false
+Id: LINE-a
+Desc: ${desc}
+Next: 下一步
+</storylines_widget>`;
+    let point = widget('对齐后体检', '对齐后会议');
+    let lines = lineWidget('对齐后调查');
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async raw => { point = raw; return { ok: true, commitState: 'confirmed' }; },
+        readLines: () => lines,
+        writeLines: async () => ({ ok: false, reason: 'cas-rejected', commitState: 'not-dispatched' }),
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'align',
+        items: [
+            { module: 'point', title: '体检', action: 'edit', ref: 'POINT-a' },
+            { module: 'lines', title: '调查', action: 'advance', ref: 'LINE-a' },
+        ],
+        snapshot: { point: widget('原体检', '对齐后会议'), lines: lineWidget('原调查') },
+        after: { point: widget('对齐后体检', '对齐后会议'), lines: lineWidget('对齐后调查') },
+    });
+    point = widget('对齐后体检', '后来手改会议');
+    const result = await feature.undo(entry.id);
+    assert.equal(result.status, 'updated');
+    assert.equal(result.mode, 'partial');
+    assert.match(point, /原体检/);
+    assert.match(lines, /对齐后调查/);
+    assert.equal(feature.list()[0].undone, false);
+    assert.deepEqual(feature.list()[0].undoneRefs, ['POINT-a']);
+});
+
+test('item undo stays retryable when the only write fails', async () => {
+    const widget = desc => `<calendar_widget>
+StartDate: 2024-03-01
+Day: 1|晴|12℃
+Event: main|体检|${desc}|上午|医院||false
+Id: POINT-a
+</calendar_widget>`;
+    let point = widget('对齐后体检');
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readPoint: () => point,
+        writePoint: async () => ({ ok: false, reason: 'missing-chat', commitState: 'not-dispatched' }),
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'align',
+        items: [{ module: 'point', title: '体检', action: 'edit', ref: 'POINT-a' }],
+        snapshot: { point: widget('原体检') },
+        after: { point: widget('对齐后体检') },
+    });
+    const failed = await feature.undo(entry.id, { module: 'point', title: '体检', action: 'edit', ref: 'POINT-a' });
+    assert.equal(failed.status, 'failed');
+    assert.equal(feature.list()[0].undone, false);
+    assert.deepEqual(feature.list()[0].undoneRefs, []);
+    assert.match(point, /对齐后体检/);
+});
+
+test('outline dashed and ledger full undo only succeed after confirmed reread', async () => {
+    let outline = { raw: 'after', cursor: 2 };
+    let dashed = [{ id: 'd2', text: 'after' }];
+    let ledger = { entries: [{ id: 'L2' }], seq: 2 };
+    const feature = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readOutline: () => outline,
+        writeOutline: async next => { outline = next; return { ok: true, commitState: 'confirmed' }; },
+        readDashed: () => dashed,
+        writeDashed: async next => { dashed = next; return { ok: true, commitState: 'confirmed', items: next }; },
+        readLedger: () => ledger,
+        writeLedger: async next => { ledger = next; return { ok: true, commitState: 'confirmed' }; },
+        query: () => ({ length: 0 }),
+    });
+    const entry = feature.record({
+        source: 'refresh',
+        items: [
+            { module: 'outline', title: '节点', action: 'replace' },
+            { module: 'dashed', title: 'after', action: 'add', ref: 'd2' },
+            { module: 'ledger', title: '伤情', action: 'add' },
+        ],
+        snapshot: {
+            outline: { raw: 'before', cursor: 1 },
+            dashed: [{ id: 'd1', text: 'before' }],
+            ledger: { entries: [{ id: 'L1' }], seq: 1 },
+        },
+        after: {
+            outline: { raw: 'after', cursor: 2 },
+            dashed: [{ id: 'd2', text: 'after' }],
+            ledger: { entries: [{ id: 'L2' }], seq: 2 },
+        },
+    });
+    const ok = await feature.undo(entry.id);
+    assert.equal(ok.status, 'updated');
+    assert.equal(outline.cursor, 1);
+    assert.equal(dashed[0].id, 'd1');
+    assert.equal(ledger.seq, 1);
+    assert.equal(feature.list()[0].undone, true);
+
+    outline = { raw: 'after', cursor: 2 };
+    dashed = [{ id: 'd2', text: 'after' }];
+    ledger = { entries: [{ id: 'L2' }], seq: 2 };
+    const failing = createActivityFeature({
+        chatId: () => 'c1',
+        storage: { getItem: () => '[]', setItem() {} },
+        keyForChat: () => 'k',
+        readOutline: () => outline,
+        writeOutline: async next => { outline = next; return { ok: true, commitState: 'confirmed' }; },
+        readDashed: () => dashed,
+        writeDashed: async () => ({ ok: false, reason: 'cas-rejected', commitState: 'not-dispatched' }),
+        readLedger: () => ledger,
+        writeLedger: async next => { ledger = next; return { ok: true, commitState: 'confirmed' }; },
+        toast() {},
+        query: () => ({ length: 0 }),
+    });
+    const failedEntry = failing.record({
+        source: 'refresh',
+        items: [{ module: 'dashed', title: 'after', action: 'add', ref: 'd2' }],
+        snapshot: {
+            outline: { raw: 'before', cursor: 1 },
+            dashed: [{ id: 'd1', text: 'before' }],
+            ledger: { entries: [{ id: 'L1' }], seq: 1 },
+        },
+        after: {
+            outline: { raw: 'after', cursor: 2 },
+            dashed: [{ id: 'd2', text: 'after' }],
+            ledger: { entries: [{ id: 'L2' }], seq: 2 },
+        },
+    });
+    const failed = await failing.undo(failedEntry.id);
+    assert.equal(failed.status, 'failed');
+    assert.equal(failing.list()[0].undone, false);
+    assert.equal(dashed[0].id, 'd2');
+});

@@ -139,7 +139,7 @@ export function createDashedModule(env = {}) {
         const meta = readMeta();
         const mapped = result.items.map(item => ({ ...item, sourceKey: item?.sourceKey || dashedSourceKey(item.text) }));
         const ok = env.writeStore(key(), { ...meta, items: mapped, ts, theme }) === true;
-        return { ...result, ok: result.items.length ? ok : true };
+        return { ...result, ok };
     };
     const commitConfirmed = async (items, ts, ownerGuard) => {
         const result = pruneDashedItems(items, keep(), env.getSettings().dashedCleanupEnabled !== false);
@@ -168,7 +168,22 @@ export function createDashedModule(env = {}) {
     async function openDialog() { if (busy) return; const ctx = env.context(), chatId = ctx.chatId, user = ctx.name1 || '用户', char = ctx.name2 || '角色'; const choices = [{ value: 'random', label: '随机抽取主题', exclusive: true }, ...DASHED_TOPIC_CONFIG.map(x => ({ value: x.value, label: x.value === 'user' ? user : x.value === 'char' ? char : x.label })), { value: 'custom', label: '自定义' }]; const result = await env.dialog.selectMany({ title: '新增冷知识', body: '选择想了解的主题，生成数量按有效素材浮动。', choices, initialValues: ['random'], custom: { value: 'custom', placeholder: '填写自定义主题…', maxLength: 200 }, confirmText: '生成', validate: value => !value.values.length ? '请至少选择一个主题' : value.values.includes('custom') && !value.customValue ? '请填写自定义主题' : '' }); if (!result || env.chatId() !== chatId) return; let topics = result.values; if (topics.includes('random')) topics = pickRandomDashedTopics(DASHED_TOPIC_CONFIG, random); return run({ manual: true, topics, customValue: result.customValue, count: dashedTargetCount(topics.length) }); }
     async function remove(id) { const target = read().find(x => x.id === id); if (!target) { env.toast('这条冷知识已不存在', true); refresh(); return; } const chatId = env.chatId(); if (!await env.dialog.confirm({ title: '删除冷知识', body: '确认删除这条冷知识吗？', confirmText: '删除', cancelText: '取消' }) || env.chatId() !== chatId) return; const latest = read(); if (!latest.some(x => x.id === id)) return refresh(); commit(latest.filter(x => x.id !== id)); refresh(); }
     function toggle(id) { const latest = read(), target = latest.find(x => x.id === id); if (!target) { env.toast('这条冷知识已不存在', true); refresh(); return; } const was = target.locked === true, committed = commit(latest.map(x => x.id === id ? { ...x, locked: !was } : x)); const kept = committed.items.some(x => x.id === id); refresh(); if (was && !kept) env.toast('已解锁，并按保留规则清理这条较旧冷知识'); else if (committed.removed.length) env.toast(`${was ? '已解锁' : '已锁定'}；同时清理 ${committed.removed.length} 条较旧冷知识`); else env.toast(was ? '已解锁这条冷知识' : '已锁定这条冷知识'); return committed; }
-    function cleanup(notify = false) { if (env.getSettings().dashedCleanupEnabled === false) return 0; const current = read(), preview = pruneDashedItems(current, keep(), true); if (!preview.removed.length) return 0; commit(current); refresh(); if (notify && env.getSettings().notifyMode !== 'off') env.toast(`已清理 ${preview.removed.length} 条较旧冷知识`); return preview.removed.length; }
+    function sameDashedIds(actual, expected) {
+        return actual.length === expected.length && expected.every((item, i) => actual[i]?.id === item.id);
+    }
+    function cleanup(notify = false) {
+        if (env.getSettings().dashedCleanupEnabled === false) return 0;
+        const current = read();
+        const preview = pruneDashedItems(current, keep(), true);
+        if (!preview.removed.length) return 0;
+        const committed = commit(preview.items);
+        const actual = read();
+        const verified = committed.ok === true && sameDashedIds(actual, preview.items);
+        refresh();
+        if (!verified) return 0;
+        if (notify && env.getSettings().notifyMode !== 'off') env.toast(`已清理 ${preview.removed.length} 条较旧冷知识`);
+        return preview.removed.length;
+    }
     function inlineHtml() { if (env.getSettings().dashedEnabled !== true) return ''; const items = parse(1); let inner = busy ? '<div class="sp-dashed-inline-empty"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>' : items.length ? '<div class="sp-dashed-inline-empty">补了一条，去线页看</div>' : ''; if (!inner) return ''; return '<div class="sp-dashed-inline-sub"><div class="sp-dashed-inline-hint"><span>冷知识</span><button class="sp-inline-refresh-dashed' + (busy ? ' sp-refresh-busy' : '') + '" title="换一条冷知识"><i class="fa-solid fa-rotate-right"></i></button></div>' + inner + '</div>'; }
     function panelHtml() { const items = read(), s = busy ? '<div class="sp-lines-dashed-status"><i class="fa-solid fa-spinner fa-spin"></i> 正在翻找冷知识…</div>' : panelError ? `<div class="sp-lines-dashed-error"><i class="fa-solid fa-circle-exclamation"></i> ${env.escapeHtml(panelError)}</div>` : ''; if (!items.length) return `${s}<div class="sp-empty sp-lines-dashed-empty"><i class="fa-solid fa-lightbulb"></i><p>还没有冷知识，可以点击右上角新增</p></div>`; return `${s}<div class="sp-lines-dashed-list">${items.map((item, i) => `<div class="sp-beat sp-lines-dashed-item${item.locked ? ' sp-lines-dashed-pinned' : ''}" data-jump-mod="dashed" data-id="${env.escapeAttr(item.id)}" data-jump-ref="${env.escapeAttr(item.id)}" data-jump-key="${env.escapeAttr(String(item.text || '').slice(0, 40))}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-actions"><button type="button" class="sp-lines-dashed-lock" data-id="${env.escapeAttr(item.id)}" title="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}" aria-label="${item.locked ? '取消锁定这条冷知识' : '锁定这条冷知识'}"><i class="fa-solid ${item.locked ? 'fa-lock' : 'fa-lock-open'}"></i></button><button type="button" class="sp-lines-dashed-delete" data-id="${env.escapeAttr(item.id)}" title="删除这条冷知识" aria-label="删除这条冷知识"><i class="fa-solid fa-xmark"></i></button></span></div><div class="sp-beat-scene">${env.escapeHtml(item.text)}</div></div>`).join('')}</div>`; }
     function toolbarHtml({ onEvents, lineBusy, generationBusy, eventsHistory = {}, dashedHistory = {} }) {
@@ -222,5 +237,5 @@ export function createDashedModule(env = {}) {
         lastAutoRunFloor = mid;
         return rerunAutoFloor(mid, { latestStory, reroll: false });
     }
-    return { run, onAiFloor, rerunAutoFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrate, hydrateAuto: hydrate, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
+    return { run, onAiFloor, rerunAutoFloor, openDialog, remove, toggle, cleanup, setTheme: theme => { const meta = readMeta(); env.writeStore(key(), { ...meta, theme: String(theme || '') }); }, theme: readTheme, abort: (reason = 'manual-abort') => { controller?.abort(reason); controller = null; busy = false; }, read, parse, commit, commitConfirmed, inlineHtml, panelHtml, toolbarHtml, state, resetAuto, hydrate, hydrateAuto: hydrate, isBusy: () => busy, controller: () => controller, resetError: () => { panelError = ''; }, targetCount: dashedTargetCount, normalizeKeepCount: normalizeDashedKeepCount, pickTopics: pickRandomDashedTopics };
 }

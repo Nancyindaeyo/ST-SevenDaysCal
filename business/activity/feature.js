@@ -13,6 +13,13 @@ import { restoreLineItem, restorePointItem } from './revert.js';
 import { createActivityStore } from './store.js';
 import { activityButtonHtml, activityOverlayHtml, authorChangeSummary, quoteTextForSpace, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
 import { isPaceExpandable, canJumpActivityItem } from './jump.js';
+import {
+    RESTORE_WRITE_ORDER,
+    isRestoreWriteConfirmed,
+    normalizeRestoreWriteResult,
+    restoreFailureReason,
+    snapshotHasModule,
+} from './write-result.js';
 
 export function createActivityFeature(env = {}) {
     const store = env.store || createActivityStore({
@@ -43,12 +50,43 @@ export function createActivityFeature(env = {}) {
         if (names.includes('ledger')) snapshot.ledger = env.readLedger?.() || null;
         return snapshot;
     };
+    const applyWriter = async (name, value) => {
+        const writers = {
+            point: env.writePoint,
+            lines: env.writeLines,
+            outline: env.writeOutline,
+            dashed: env.writeDashed,
+            ledger: env.writeLedger,
+        };
+        try {
+            return normalizeRestoreWriteResult(await writers[name]?.(value), { reason: `${name}-restore-failed` });
+        } catch (error) {
+            const fromSave = error?.saveResult
+                ? normalizeRestoreWriteResult(error.saveResult, { reason: error.message || `${name}-restore-failed` })
+                : null;
+            return {
+                ok: false,
+                stale: fromSave?.stale === true,
+                commitState: fromSave?.commitState || error?.commitState || 'not-dispatched',
+                reason: fromSave?.reason || error?.message || `${name}-restore-failed`,
+            };
+        }
+    };
+    const expectedAfterRestore = (snapshot, results) => {
+        const expected = { ...snapshot };
+        if (Array.isArray(results.dashed?.items)) expected.dashed = results.dashed.items;
+        return expected;
+    };
     const restore = async snapshot => {
-        if (snapshot?.point != null) await env.writePoint?.(snapshot.point);
-        if (snapshot?.lines != null) await env.writeLines?.(snapshot.lines);
-        if (snapshot?.outline) await env.writeOutline?.(snapshot.outline);
-        if (snapshot?.dashed) await env.writeDashed?.(snapshot.dashed);
-        if (snapshot?.ledger) await env.writeLedger?.(snapshot.ledger);
+        const results = {};
+        for (const name of RESTORE_WRITE_ORDER) {
+            if (!snapshotHasModule(snapshot, name)) continue;
+            results[name] = await applyWriter(name, snapshot[name]);
+        }
+        const current = capture(Object.keys(results));
+        const matched = sameSnapshot(current, expectedAfterRestore(snapshot, results));
+        const ok = Object.values(results).every(isRestoreWriteConfirmed) && matched;
+        return { ok, matched, results };
     };
     const syncPaceOpen = () => {
         const $overlay = $in?.('#sp-activity-overlay');
@@ -135,11 +173,15 @@ export function createActivityFeature(env = {}) {
         const current = capture(names);
         if (onlyItem && (entry.undoneRefs || []).includes(undoItemKey(onlyItem))) return { status: 'skipped' };
         if (!onlyItem && (!entry.after || sameSnapshot(current, entry.after))) {
-            await restore(entry.snapshot);
+            const restored = await restore(entry.snapshot);
+            if (!restored.ok) {
+                paint();
+                return { status: 'failed', reason: restoreFailureReason(restored.results), mode: 'full', results: restored.results };
+            }
             store.update(chatId(), entry.id, { undone: true, stale: false, undoneRefs: (entry.items || []).map(undoItemKey) });
             env.onRestored?.(entry);
             paint();
-            return { status: 'updated', mode: 'full' };
+            return { status: 'updated', mode: 'full', results: restored.results };
         }
         const targets = (onlyItem ? [onlyItem] : remainingUndoItems(entry)).filter(item => item.module === 'point' || item.module === 'lines');
         let nextPoint = current.point;
@@ -155,16 +197,39 @@ export function createActivityFeature(env = {}) {
             }
         }
         if (!restored.length) return { status: 'diverged' };
-        const writes = [];
-        if (nextPoint !== current.point) writes.push(env.writePoint?.(nextPoint));
-        if (nextLines !== current.lines) writes.push(env.writeLines?.(nextLines));
-        await Promise.all(writes);
-        const undoneRefs = [...new Set([...(entry.undoneRefs || []), ...restored.map(undoItemKey)])];
+        const confirmedItems = [];
+        const writeResults = {};
+        if (nextPoint !== current.point) {
+            const written = await applyWriter('point', nextPoint);
+            const matched = sameSnapshot(capture(['point']), { point: nextPoint });
+            writeResults.point = written;
+            if (isRestoreWriteConfirmed(written) && matched) {
+                confirmedItems.push(...restored.filter(item => item.module === 'point'));
+            }
+        }
+        if (nextLines !== current.lines) {
+            const written = await applyWriter('lines', nextLines);
+            const matched = sameSnapshot(capture(['lines']), { lines: nextLines });
+            writeResults.lines = written;
+            if (isRestoreWriteConfirmed(written) && matched) {
+                confirmedItems.push(...restored.filter(item => item.module === 'lines'));
+            }
+        }
+        if (!confirmedItems.length) {
+            paint();
+            return { status: 'failed', reason: restoreFailureReason(writeResults), mode: 'items', results: writeResults };
+        }
+        const undoneRefs = [...new Set([...(entry.undoneRefs || []), ...confirmedItems.map(undoItemKey)])];
         const leftover = remainingUndoItems({ ...entry, undoneRefs });
         store.update(chatId(), entry.id, { undone: leftover.length === 0, stale: false, undoneRefs });
         env.onRestored?.(entry);
         paint();
-        return { status: 'updated', mode: leftover.length ? 'partial' : 'items', restored: restored.length };
+        return {
+            status: 'updated',
+            mode: leftover.length ? 'partial' : 'items',
+            restored: confirmedItems.length,
+            results: writeResults,
+        };
     };
 
     const latestUndoableAlign = floorId => list().find(item => {
@@ -188,6 +253,10 @@ export function createActivityFeature(env = {}) {
         if (result.status === 'diverged') {
             env.toast?.(item ? '这条后来又改过了，没法原样撤回' : '之后又改过了，没法原样撤回', true);
             return { status: 'failed', reason: 'diverged' };
+        }
+        if (result.status === 'failed') {
+            env.toast?.(item ? '这条撤回未能确认写入' : '撤回未能确认写入，没有记成已撤回', true);
+            return result;
         }
         if (result.mode === 'partial') env.toast?.(`已撤回未再改过的 ${result.restored} 条`);
         return result;
@@ -262,6 +331,10 @@ export function createActivityFeature(env = {}) {
             env.toast?.('之后又改过了，没法按新正文自动补对齐。可在【改】里重试。', true);
             return restored;
         }
+        if (restored.status === 'failed') {
+            env.toast?.('上次改动没能撤回去，没有继续重跑', true);
+            return restored;
+        }
         const result = await env.realign?.({
             reason: String(reason || defaultReason(cause)),
             cause,
@@ -291,6 +364,10 @@ export function createActivityFeature(env = {}) {
             const restored = await revertIfCurrent(entry);
             if (restored.status === 'diverged' && cause === 'reroll') {
                 env.toast?.('之后又改过了，没法按新正文自动补推进。可在【改】里重试。', true);
+                return restored;
+            }
+            if (restored.status === 'failed') {
+                env.toast?.('上次推进没能撤回去，没有继续重跑', true);
                 return restored;
             }
         }

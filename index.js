@@ -1362,30 +1362,31 @@ const activityFeature = createActivityFeature({
     writePoint: async raw => {
         const key = getCacheKey('user', '');
         const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+        return writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
     },
     writeLines: async raw => {
         const key = getLinesCacheKey();
         const saved = readStore(key) || {};
-        await writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
+        return writeStoreConfirmed(key, { ...saved, raw, ts: Date.now() });
     },
     writeOutline: async ({ raw, cursor } = {}) => {
         const target = outlineFeature.repository.capture();
-        if (!outlineFeature.repository.commitOutline(target, { raw: String(raw || ''), ts: Date.now(), cursor: cursor ?? 1 })) return false;
-        outlineFeature.refreshPanel();
-        outlineFeature.injection.refresh();
-        return true;
+        const saved = await outlineFeature.repository.commitOutlineConfirmed(target, { raw: String(raw || ''), ts: Date.now(), cursor: cursor ?? 1 });
+        if (saved === true || saved?.ok === true) {
+            outlineFeature.refreshPanel();
+            outlineFeature.injection.refresh();
+        }
+        return saved;
     },
-    writeDashed: items => linesFeature.dashed.commit(items),
+    writeDashed: items => linesFeature.dashed.commitConfirmed(items),
     writeLedger: async state => {
         const chatId = getContext()?.chatId;
         const result = await ledger.replaceLedgerStateAtomic(state, {
             target: getLedgerTarget(),
             guard: () => getContext()?.chatId === chatId,
         });
-        if (result?.ok !== true) throw Object.assign(new Error(result?.reason || 'ledger-restore-failed'), { saveResult: result });
-        refreshLedgerInjection();
-        return true;
+        if (result?.ok === true) refreshLedgerInjection();
+        return result;
     },
     onRestored: () => {
         const saved = readStore(getCacheKey('user', ''));
