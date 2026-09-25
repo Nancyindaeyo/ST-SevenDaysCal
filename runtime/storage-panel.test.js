@@ -72,6 +72,8 @@ test('storage mode copy covers empty chat, external, and probe states', () => {
     assert.equal(storageModeCopy({ chatId: 'a', mode: 'chat' }).probe, true);
     assert.equal(storageModeCopy({ chatId: 'a', mode: 'chat' }, { ok: true }).hideMigrate, false);
     assert.match(storageModeCopy({ chatId: 'a', mode: 'chat' }, { ok: false }).text, /未检测到兼容/);
+    assert.match(storageModeCopy({ chatId: 'a', mode: 'chat' }, { ok: false, reason: 'capability-mismatch' }).text, /缺少 records/);
+    assert.match(storageModeCopy({ chatId: 'a', mode: 'chat' }, { ok: false, reason: 'network' }).text, /聊天内数据与迁移源都保留/);
 });
 
 test('paintStorageMode aborts after probe if chat left chat-mode', async () => {

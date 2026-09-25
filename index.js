@@ -112,6 +112,7 @@ import { postChatCompletion, callCustomApi, callMemoryApi, callTheaterApi, bindA
 import { normalizeApiUrl } from './api/sse.js';
 import { safeDiagnosticLog, diagnosticMessage, makeDiagnosticError, shouldNotifyGeneration, classifyGenerationError } from './api/diagnostics.js';
 import { readDiagnosticTrace, recordChatBoundary, traceDiagnosticEvent } from './runtime/diagnostic-trace.js';
+import { noteBestEffortFailure } from './runtime/best-effort-failures.js';
 import { createDiagnosticPackHost } from './runtime/diagnostic-pack-host.js';
 import {
     abortMigration,
@@ -306,6 +307,7 @@ const inlineHost = createInlineHost({
 const chatSurfaceRegistration = registerChatSurfaceParticipant(createChatSurfaceParticipantHooks({
     getInlineHost: () => inlineHost,
     getCoordinate: () => coordinateRuntime?.feature,
+    getChatId: () => getContext()?.chatId,
 }));
 const chatSurfaceOwnsDom = Boolean(chatSurfaceRegistration && isManagedChatSurface());
 
@@ -1340,12 +1342,47 @@ let linesMode           = false;
 const manualEditing = { point: false, lines: false, outline: false };
 const activityFeature = createActivityFeature({
     chatId: () => getContext().chatId,
+    storeKey: () => keyDesc('activity', 'user', ''),
     storage: createActivityChatStorage({
         read: () => readStore(keyDesc('activity', 'user', '')),
-        write: value => writeStore(keyDesc('activity', 'user', ''), value),
+        write: value => {
+            const live = String(getContext().chatId || '');
+            if (value?.chatId && String(value.chatId) !== live) return false;
+            return writeStore(keyDesc('activity', 'user', ''), value);
+        },
+        writeConfirmed: (value, options) => {
+            const live = String(getContext().chatId || '');
+            const target = String(value?.chatId || live);
+            if (!live || live !== target) {
+                return Promise.resolve({ ok: false, stale: true, commitState: 'not-dispatched', reason: 'stale' });
+            }
+            return writeStoreConfirmed(keyDesc('activity', 'user', ''), value, {
+                ...options,
+                ownerGuard: () => String(getContext().chatId || '') === target,
+            });
+        },
         browserStorage: localStorage,
         chatId: () => getContext().chatId,
     }),
+    persistConfirmed: (value, options) => {
+        const live = String(getContext().chatId || '');
+        const target = String(value?.chatId || live);
+        if (!live || live !== target) {
+            return Promise.resolve({ ok: false, stale: true, commitState: 'not-dispatched', reason: 'stale' });
+        }
+        return writeStoreConfirmed(keyDesc('activity', 'user', ''), value, {
+            ...options,
+            ownerGuard: () => String(getContext().chatId || '') === target,
+        });
+    },
+    readRecovery: () => {
+        const list = getSettings().activityPersistRecovery;
+        return Array.isArray(list) ? list : [];
+    },
+    writeRecovery: list => {
+        getSettings().activityPersistRecovery = Array.isArray(list) ? list : [];
+        saveSettingsDebounced();
+    },
     keyForChat: () => 'activity-user',
     onPersistenceError: failure => {
         console.error('[SP activity] 改动记录未持久化', failure);
@@ -2206,6 +2243,7 @@ jQuery(async () => {
     globalThis[panelLifecycleKey]?.();
     const cleanupPanelLifecycle = () => {
         panelWindow.dispose();
+        fabRuntime.dispose?.();
         jQuery(window).off('pagehide.sevenDaysCalPanel');
         if (globalThis[panelLifecycleKey] === cleanupPanelLifecycle) delete globalThis[panelLifecycleKey];
     };
@@ -2548,6 +2586,7 @@ jQuery(async () => {
             pruneExternalSnapshots,
             isExternalMode,
             warnRename: err => console.warn('[7dayscal] 坐标改名同步失败', safeDiagnosticLog('axis', 'save', err)),
+            noteBestEffortFailure: metadata => noteBestEffortFailure(traceDiagnosticEvent, metadata),
         },
     });
     // 柏宝书就绪事件：加载顺序不固定，早期同步检测可能扑空而误报"未就绪"。

@@ -1,10 +1,10 @@
 # 构画：`index.js` 还可以怎么拆
 
-更新：2026-09-16。装配根大约 **4256** 行，还要保留酒馆事件、feature 接线和跨模块 env。下面按「能整段搬走、少改行为」排序。
+更新：2026-09-25。装配根大约 **4500** 行（`index.budget.js` 口径，预算 4550 行 / 220 个顶层函数），还要保留酒馆事件、feature 接线和跨模块 env。下面按「能整段搬走、少改行为」排序。
 
 原则：新功能继续放 `business/` / `runtime/`；`index.js` 只留 `createX({...})` 和必要的薄封装。不要为拆而拆。灯工作台这一轮已经证明：产品可以进 `business/lamp/`，但 collect / extras / 手改如果顺手写在根上，根会立刻再胖一圈。
 
-`createLinesFeature` / `createActivityFeature` / `createPanelHost` / `createRefreshController` 这些大 options 看起来肥，那是装配根该留的接线，不是下一刀。下一刀只搬「根上还在跑算法或分发」的函数。
+`createLinesFeature` / `createActivityFeature` / `createPanelHost` / `createRefreshController` 这些大 options 看起来肥，那是装配根该留的接线，不是下一刀。可后移中块已经搬完。全量 Vue 重写的判断写在《[路线图](../路线图.md)》第二节，不在本文件排刀。
 
 ---
 
@@ -82,6 +82,7 @@
 ## 不要做的拆法
 
 - 再做一个 `index2.js` 对半切，循环依赖会立刻回来。
+- 用 Vue / React 全量重写现有面板来「趁拆完换框架」。
 - 把 `store.js` 和酒馆 `chatMetadata` 藏进业务模块。
 - 为了看起来干净，把二十行胶水拆成多个无独立语义的文件。
 - 把打架提示词、搜索、意图解析再搬回装配根；它们已经在 `business/lamp/`。

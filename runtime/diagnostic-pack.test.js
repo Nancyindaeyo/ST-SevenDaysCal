@@ -54,11 +54,24 @@ test('helpers keep day keys and compact entries', () => {
         utilityPresetId: 'p1',
         utilityRoute: { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜', cfg: { url: 'https://x', key: 'secret' } },
         authorDraftRecovery: [{ kind: 'slip', chatId: 'c1', reason: 'stale', text: '私笺正文', ts: 9 }],
+        activityPersistRecovery: [{
+            chatId: 'c1',
+            entryId: 'ghost',
+            source: 'align',
+            persistState: 'unknown',
+            reason: 'unknown',
+            ts: 11,
+            snapshot: { point: 'secret-raw' },
+        }],
     });
     assert.deepEqual(routed.utilityRoute, { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜' });
     assert.deepEqual(routed.authorDrafts, [{ kind: 'slip', chatId: 'c1', reason: 'stale', ts: 9 }]);
+    assert.deepEqual(routed.activityPersistRecovery, [{
+        chatId: 'c1', entryId: 'ghost', source: 'align', persistState: 'unknown', reason: 'unknown', ts: 11,
+    }]);
     assert.equal(JSON.stringify(routed).includes('secret'), false);
     assert.equal(JSON.stringify(routed).includes('私笺正文'), false);
+    assert.equal(JSON.stringify(routed).includes('secret-raw'), false);
     assert.equal(compactActivityEntries([{ source: 'a' }, { source: 'b' }, { source: 'c' }], 2).length, 2);
     assert.deepEqual(jobsFromQueue({ running: { id: 'align', label: '对齐' } })[0], {
         id: 'align', label: '对齐', status: 'running', reason: '', enqueuedAt: 0, startedAt: 0,
@@ -81,5 +94,17 @@ test('diagnostic overview merges queue, activity and trace failures', () => {
     assert.equal(overview.errorCount, 3);
     assert.equal(overview.queueCount, 2);
     assert.equal(overview.logCount, 2);
+    assert.equal(overview.errors[0].module, 'ledger');
+});
+
+test('best-effort rescore failures appear once in the overview', () => {
+    const overview = buildDiagnosticOverview({
+        safeLogs: [
+            { event: 'best-effort-failed', status: 'rejected', module: 'ledger', reasonCode: 'ledger-inject-rescore-failed', floor: 3, ts: 10 },
+            { event: 'best-effort-failed', status: 'rejected', module: 'ledger', reasonCode: 'ledger-inject-rescore-failed', floor: 4, ts: 20 },
+        ],
+    });
+    assert.equal(overview.errorCount, 1);
+    assert.match(overview.errors[0].title, /连续失败 ×2/);
     assert.equal(overview.errors[0].module, 'ledger');
 });

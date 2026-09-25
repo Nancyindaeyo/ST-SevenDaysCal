@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { actionLabel, ACTIVITY_CAP, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAdvanceEntry, isAlignEntry, isRetryableEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
+import { actionLabel, ACTIVITY_CAP, activityPersistMarker, entryTouchesLines, entryTouchesPoint, floorUnchangedNote, isAdvanceEntry, isAlignEntry, isRetryableEntry, normalizeActivityEntry, sourceLabel, canUndoActivity } from './schema.js';
 import { createActivityStore, createActivityChatStorage } from './store.js';
 import { createActivityFeature } from './feature.js';
 import { diffPointRaw, diffSnapshots, itemsFromPatches, sameSnapshot } from './diff.js';
@@ -457,6 +457,111 @@ test('activity persistence failures are reported and legacy data is retained', (
     });
     assert.deepEqual(migratedStore.list('c1'), []);
     assert.deepEqual(migrationFailures, ['storage-read-failed']);
+});
+
+test('confirmed activity writes bind the live chat and keep a recovery marker on failure', async () => {
+    const writes = [];
+    const recovery = { items: [] };
+    let chatId = 'a';
+    let revision = 1;
+    const store = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage: { getItem: () => '[]', setItem() {} },
+        captureIdentity: () => ({ chatId, chatRevision: revision }),
+        persistConfirmed: async (value, options) => {
+            writes.push({ chatId: value.chatId, count: value.entries.length, live: options.ownerGuard?.() });
+            return { ok: true, commitState: 'confirmed' };
+        },
+        readRecovery: () => recovery.items,
+        writeRecovery: items => { recovery.items = items; },
+    });
+    store.prepend('a', { id: 'ok', source: 'advance', items: [] });
+    await Promise.resolve();
+    assert.equal(store.list('a')[0].chatId, 'a');
+    assert.equal(store.list('a')[0].persistState, 'confirmed');
+    assert.deepEqual(writes, [{ chatId: 'a', count: 1, live: true }]);
+
+    const failures = [];
+    const failed = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage: { getItem: () => '[]', setItem() {} },
+        captureIdentity: () => ({ chatId: 'now', chatRevision: 2 }),
+        persistConfirmed: async () => ({ ok: false, commitState: 'unknown', reason: 'unknown' }),
+        readRecovery: () => recovery.items,
+        writeRecovery: items => { recovery.items = items; },
+        onPersistenceError: failure => failures.push(failure.reason),
+    });
+    failed.prepend('now', { id: 'ghost', source: 'align', items: [{ module: 'point', title: '体检', action: 'edit' }] });
+    await Promise.resolve();
+    assert.equal(failed.list('now')[0].persistState, 'unknown');
+    assert.equal(failed.persistRecovery('now')[0].entryId, 'ghost');
+    assert.equal(failed.persistRecovery('now')[0].persistState, 'unknown');
+    assert.deepEqual(failures, ['unknown']);
+    failed.clearMemory();
+    assert.deepEqual(failed.list('now'), []);
+    assert.equal(failed.persistRecovery('now')[0].entryId, 'ghost');
+});
+
+test('activity persist never writes the previous chat after a switch', async () => {
+    const writes = [];
+    let chatId = 'a';
+    const store = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage: { getItem: () => '[]', setItem() {} },
+        captureIdentity: () => ({ chatId, chatRevision: 1 }),
+        persistConfirmed: async value => {
+            writes.push(value.chatId);
+            return { ok: true, commitState: 'confirmed' };
+        },
+        readRecovery: () => [],
+        writeRecovery() {},
+    });
+    store.prepend('a', { id: 'old', source: 'advance', items: [] });
+    chatId = 'b';
+    store.prepend('a', { id: 'late', source: 'advance', items: [] });
+    await Promise.resolve();
+    assert.deepEqual(writes, ['a']);
+    assert.equal(store.list('a')[0].id, 'late');
+    assert.equal(store.list('a')[0].persistState, 'stale');
+});
+
+test('reload after a failed persist keeps the recovery marker and empty chat store', async () => {
+    const recovery = { items: [] };
+    const failed = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage: { getItem: () => '[]', setItem() {} },
+        captureIdentity: () => ({ chatId: 'now', chatRevision: 1 }),
+        persistConfirmed: async () => ({ ok: false, stale: false, commitState: 'failed', reason: 'cas' }),
+        readRecovery: () => recovery.items,
+        writeRecovery: items => { recovery.items = items; },
+    });
+    failed.prepend('now', { id: 'ghost', source: 'align', items: [] });
+    await Promise.resolve();
+    const reloaded = createActivityStore({
+        keyForChat: () => 'activity-user',
+        storage: { getItem: () => '[]', setItem() {} },
+        captureIdentity: () => ({ chatId: 'now', chatRevision: 2 }),
+        persistConfirmed: async () => ({ ok: true, commitState: 'confirmed' }),
+        readRecovery: () => recovery.items,
+        writeRecovery: items => { recovery.items = items; },
+    });
+    assert.deepEqual(reloaded.list('now'), []);
+    assert.equal(reloaded.persistRecovery('now')[0].entryId, 'ghost');
+    assert.equal(reloaded.persistRecovery('now')[0].persistState, 'failed');
+    assert.equal(reloaded.persistRecovery('now')[0].snapshot, undefined);
+});
+
+test('activity persist marker never carries snapshots', () => {
+    const marker = activityPersistMarker('c1', [{
+        id: 'e1',
+        source: 'advance',
+        snapshot: { point: 'secret' },
+        items: [{ module: 'point', title: '体检' }],
+    }], { commitState: 'unknown', reason: 'unknown' });
+    assert.equal(marker.entryId, 'e1');
+    assert.equal(marker.persistState, 'unknown');
+    assert.equal(marker.snapshot, undefined);
+    assert.equal(JSON.stringify(marker).includes('secret'), false);
 });
 
 test('unchanged and failed aligns are recorded without undo snapshots', () => {

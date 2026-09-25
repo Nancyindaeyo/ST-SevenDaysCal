@@ -22,10 +22,20 @@ import {
 } from './write-result.js';
 
 export function createActivityFeature(env = {}) {
+    let chatRevision = 0;
+    const captureIdentity = () => ({
+        chatId: String(env.chatId?.() ?? ''),
+        chatRevision,
+        storeKey: env.storeKey?.() || null,
+    });
     const store = env.store || createActivityStore({
         storage: env.storage,
         keyForChat: env.keyForChat,
         onPersistenceError: env.onPersistenceError,
+        persistConfirmed: env.persistConfirmed,
+        captureIdentity,
+        readRecovery: env.readRecovery,
+        writeRecovery: env.writeRecovery,
     });
     let open = false;
     let unread = 0;
@@ -577,6 +587,7 @@ export function createActivityFeature(env = {}) {
         isOpen: () => open,
         overlayHtml: activityOverlayHtml,
         buttonHtml: activityButtonHtml,
+        persistRecovery: () => store.persistRecovery?.(chatId()) || [],
         onChatChanged: () => {
             unread = 0;
             restyled = false;
@@ -584,9 +595,11 @@ export function createActivityFeature(env = {}) {
             listExpanded = false;
             blockedReroll = [];
             watched = { floorId: -1, signature: '' };
+            chatRevision += 1;
             store.clearMemory();
             if (open) paint();
         },
+        get chatRevision() { return chatRevision; },
         setBlockedReroll(labels = []) {
             blockedReroll = (Array.isArray(labels) ? labels : []).map(value => String(value || '').trim()).filter(Boolean).slice(0, 12);
             paint();

@@ -1,7 +1,12 @@
-import { DIALOG_HOST_ID, FAB_ID, FAB_POS_KEY, MODAL_ID, PEN_ICON_SVG } from './ids.js';
+import { createDevicePreferences, normalizePoint } from '../../runtime/device-preferences.js';
+import { DIALOG_HOST_ID, FAB_ID, MODAL_ID, PEN_ICON_SVG } from './ids.js';
 
 export function parseStoredPos(raw) {
-    try { return JSON.parse(raw || 'null'); } catch { return null; }
+    if (raw == null || raw === '') return null;
+    try {
+        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return normalizePoint(parsed);
+    } catch { return null; }
 }
 
 export function clampFabBox(left, top, { width = 0, height = 0, vw = 0, vh = 0 } = {}) {
@@ -18,12 +23,17 @@ export function createFab(env = {}) {
     const fabId = env.fabId || FAB_ID;
     const modalId = env.modalId || MODAL_ID;
     const dialogHostId = env.dialogHostId || DIALOG_HOST_ID;
-    const posKey = env.posKey || FAB_POS_KEY;
     const pen = env.penIcon || PEN_ICON_SVG;
+    const prefs = env.prefs || createDevicePreferences({
+        storage: () => win.localStorage,
+        viewport: () => ({ vw: win.innerWidth, vh: win.innerHeight, width: 48, height: 48 }),
+    });
     let busyCount = 0;
     let resizeAbort = null;
     let dragState = null;
     let dragged = false;
+    let wandObserver = null;
+    let pointerTarget = null;
 
     function fabEl() { return doc.getElementById(fabId); }
     function fabBtn() { return fabEl()?.querySelector('.sp-fab-btn'); }
@@ -60,12 +70,23 @@ export function createFab(env = {}) {
         env.$in?.('.sp-sub-toggle').toggleClass('sp-locked', state === 'generating');
     }
 
-    function removeStaleHosts() {
-        doc.querySelectorAll(`#${modalId}, #${dialogHostId}, #${fabId}`).forEach(el => el.remove());
-        env.clearShadows?.();
+    function disconnectWandObserver() {
+        try { wandObserver?.disconnect?.(); } catch {}
+        wandObserver = null;
+    }
+
+    function dispose() {
+        disconnectWandObserver();
         resizeAbort?.abort();
         resizeAbort = null;
         dragState = null;
+        pointerTarget = null;
+    }
+
+    function removeStaleHosts() {
+        dispose();
+        doc.querySelectorAll(`#${modalId}, #${dialogHostId}, #${fabId}`).forEach(el => el.remove());
+        env.clearShadows?.();
     }
 
     function injectExtButton() {
@@ -81,9 +102,10 @@ export function createFab(env = {}) {
             doc.getElementById('sp_open_wand')?.addEventListener('click', () => env.open?.());
             return true;
         }
-        if (!mountWandBtn()) {
-            const obs = new MutationObserver(() => { if (mountWandBtn()) obs.disconnect(); });
-            obs.observe(doc.body, { childList: true, subtree: true });
+        disconnectWandObserver();
+        if (!mountWandBtn() && doc.body) {
+            wandObserver = new MutationObserver(() => { if (mountWandBtn()) disconnectWandObserver(); });
+            wandObserver.observe(doc.body, { childList: true, subtree: true });
         }
     }
 
@@ -104,8 +126,16 @@ export function createFab(env = {}) {
     }
 
     function persistFabPos(left, top) {
-        try { win.localStorage.setItem(posKey, JSON.stringify({ left, top })); }
-        catch { /* 配额/隐私模式失败时仍必须结束手势 */ }
+        prefs.writeFabPos({ left, top });
+    }
+
+    function readFabPos() {
+        return prefs.readFabPos({
+            vw: win.innerWidth,
+            vh: win.innerHeight,
+            width: fabEl()?.offsetWidth || 48,
+            height: fabEl()?.offsetHeight || 48,
+        }).value;
     }
 
     function onPointerEnd(ev) {
@@ -116,7 +146,7 @@ export function createFab(env = {}) {
             if (box) persistFabPos(box.left, box.top);
         }
         dragState = null;
-        const captureTarget = ev.currentTarget;
+        const captureTarget = ev.currentTarget || pointerTarget;
         if (captureTarget?.hasPointerCapture?.(pointerId)) {
             try { captureTarget.releasePointerCapture(pointerId); } catch { /* 捕获已丢失 */ }
         }
@@ -124,7 +154,7 @@ export function createFab(env = {}) {
 
     function inject() {
         doc.querySelectorAll(`#${fabId}`).forEach(el => el.remove());
-        const savedPos = parseStoredPos(win.localStorage.getItem(posKey));
+        const savedPos = readFabPos();
         const mobile = env.isMobile?.() === true;
         const posStyle = (!mobile && savedPos)
             ? `left:${savedPos.left}px;top:${savedPos.top}px;right:auto;bottom:auto;`
@@ -153,7 +183,7 @@ export function createFab(env = {}) {
                     sheet.style.maxHeight = ''; sheet.style.maxWidth = '';
                 }
             } else if (!nowMobile && wasMobile) {
-                const sp = parseStoredPos(win.localStorage.getItem(posKey));
+                const sp = readFabPos();
                 if (sp) applyPos(fabEl(), {
                     left: Math.min(sp.left, win.innerWidth - 60),
                     top: Math.min(sp.top, win.innerHeight - 60),
@@ -165,6 +195,7 @@ export function createFab(env = {}) {
         const fab = fabEl();
         const fabButton = fabBtn();
         if (!fab || !fabButton) return;
+        pointerTarget = fabButton;
         fabButton.addEventListener('pointerdown', function (e) {
             if (e.isPrimary === false || e.button !== 0 || dragState) return;
             dragged = false;
@@ -188,5 +219,5 @@ export function createFab(env = {}) {
         });
     }
 
-    return { inject, setBusy, setFailed, setExtBtnState, injectExtButton, removeStaleHosts };
+    return { inject, setBusy, setFailed, setExtBtnState, injectExtButton, removeStaleHosts, dispose, prefs };
 }

@@ -38,7 +38,7 @@ test('panel dispose removes window and visual viewport listeners', () => {
         addEventListener: (name, handler) => windowListeners.set(name, handler),
         removeEventListener: (name, handler) => { if (windowListeners.get(name) === handler) windowListeners.delete(name); },
         getComputedStyle: () => ({ top: '0', bottom: '0' }),
-        localStorage: { getItem: () => null },
+        localStorage: { getItem: () => null, setItem() { throw new Error('quota'); } },
     };
     const doc = {
         getElementById: () => root,
@@ -58,6 +58,47 @@ test('panel dispose removes window and visual viewport listeners', () => {
     panel.dispose();
     assert.equal(windowListeners.size, 0);
     assert.equal(viewportListeners.size, 0);
+});
+
+test('panel drag storage throw still ends the gesture', () => {
+    const sheet = {
+        style: { transform: 'none', left: '10px', top: '20px', right: 'auto' },
+        offsetWidth: 320,
+        offsetHeight: 400,
+        getBoundingClientRect: () => ({ left: 10, top: 20, width: 320, height: 400 }),
+    };
+    const ended = [];
+    const panel = createPanelWindow({
+        $: () => ({
+            closest: () => ({ length: 0 }),
+            on() { return this; },
+            off(name) { ended.push(String(name)); return this; },
+        }),
+        document: {
+            body: { style: {} },
+            addEventListener() {},
+            removeEventListener() {},
+        },
+        window: {
+            innerWidth: 800,
+            innerHeight: 600,
+            localStorage: { getItem: () => null, setItem() { throw new Error('quota'); } },
+            addEventListener() {},
+            removeEventListener() {},
+        },
+        isMobile: () => false,
+        sheet: () => sheet,
+    });
+    panel.onDragStart({
+        type: 'mousedown',
+        button: 0,
+        target: {},
+        clientX: 10,
+        clientY: 20,
+        preventDefault() {},
+    });
+    assert.doesNotThrow(() => panel.dispose());
+    assert.ok(ended.some(name => name.includes('spdrag')));
 });
 
 test('opening the panel restores last view before painting home', () => {

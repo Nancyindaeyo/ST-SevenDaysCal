@@ -111,6 +111,20 @@ export function storageModeCopy(state = {}, probe) {
             hideRetry: true,
         };
     }
+    if (probe?.reason === 'capability-mismatch') {
+        return {
+            text: '已检测到白鳥数据后端，但缺少 records / 列表 / CAS / 原子替换等必要能力。当前聊天继续沿用原存储方式，不会清空聊天内数据。',
+            hideMigrate: true,
+            hideRetry: true,
+        };
+    }
+    if (probe?.reason === 'network' || probe?.reason === 'unavailable' || probe?.reason === 'timeout') {
+        return {
+            text: '白鳥数据后端无响应或未安装。当前聊天继续沿用原存储方式，聊天内数据与迁移源都保留。',
+            hideMigrate: true,
+            hideRetry: true,
+        };
+    }
     return { text: '未检测到兼容的白鳥数据后端；当前聊天继续沿用原存储方式。', hideMigrate: true, hideRetry: true };
 }
 

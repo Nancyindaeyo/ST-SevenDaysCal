@@ -229,7 +229,23 @@ export function normalizeActivityEntry(raw, { now = Date.now(), random = Math.ra
         swipeId: optionalIndex(source.swipeId),
         signature: String(source.signature || ''),
         retry: normalizeActivityRetry(source),
+        chatId: String(source.chatId || ''),
+        chatRevision: Number(source.chatRevision) || 0,
+        persistState: ['pending', 'confirmed', 'failed', 'unknown', 'stale'].includes(source.persistState) ? source.persistState : '',
     };
+}
+
+export function activityPersistMarker(chatId, entries = [], persist = {}) {
+    const latest = Array.isArray(entries) ? entries[0] : null;
+    return Object.freeze({
+        chatId: String(chatId || latest?.chatId || ''),
+        entryId: String(latest?.id || ''),
+        source: String(latest?.source || ''),
+        floorId: optionalIndex(latest?.floorId),
+        ts: Number(latest?.ts) || Date.now(),
+        persistState: persist.commitState || persist.persistState || 'failed',
+        reason: String(persist.reason || 'storage-write-failed'),
+    });
 }
 
 export function sourceLabel(source) {

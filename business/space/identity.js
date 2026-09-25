@@ -1,14 +1,15 @@
+import { createChatScopedIdentity, sameChatScopedIdentity } from '../chat-scoped-identity.js';
+
 export function createSpaceIdentity({ chatId = '', chatRevision = 0, historyKey = null } = {}) {
-    const id = String(chatId ?? '').trim();
-    return Object.freeze({
-        chatId: id,
-        chatRevision: Number(chatRevision) || 0,
-        historyKey: id ? Object.freeze({ ...(historyKey || {}), kind: 'space-chat', view: 'user', charName: '', chatId: id }) : null,
+    return createChatScopedIdentity({
+        chatId,
+        chatRevision,
+        keys: {
+            historyKey: { value: historyKey, kind: 'space-chat', extras: { view: 'user', charName: '' } },
+        },
     });
 }
 
 export function sameSpaceIdentity(left, right) {
-    return !!left && !!right
-        && left.chatId === right.chatId
-        && left.chatRevision === right.chatRevision;
+    return sameChatScopedIdentity(left, right);
 }

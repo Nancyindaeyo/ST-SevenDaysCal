@@ -381,7 +381,9 @@ export function persistExternalRoots({ confirmed = false, ownerGuard = () => tru
         rejected.catch(() => {}); return confirmed ? rejected : false;
     }
     if (!isExternalMode()) return null;
-    if (!isExternalReady() || isStorageBusy()) {
+    // unknown/CAS 之后 status 是 unavailable，但 pending 仍在；后续写入必须合并，不能当成尚未加载。
+    const canMergePending = activeMatches() && !!active.pendingCurrent && active.status === 'unavailable';
+    if ((!isExternalReady() && !canMergePending) || isStorageBusy()) {
         const rejected = Promise.reject(Object.assign(new Error(active.error || '外置存储不可用'), { code: 'external-not-ready' }));
         rejected.catch(() => {}); return confirmed ? rejected : false;
     }

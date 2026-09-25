@@ -180,8 +180,20 @@ export function createChatFloorHandlers(h) {
             if (h.getSettings?.().ledgerInject !== true) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
-            try { h.refreshLedgerInjection?.(); } catch {}
-            try { h.refreshInlineWindow?.(true); } catch {}
+            const note = (fn, reasonCode) => {
+                try { fn(); }
+                catch (error) {
+                    h.noteBestEffortFailure?.({
+                        module: 'ledger',
+                        phase: 'rescore',
+                        reasonCode,
+                        floor: messageId,
+                        detail: String(error?.message || error || '').slice(0, 120),
+                    });
+                }
+            };
+            note(() => h.refreshLedgerInjection?.(), 'ledger-inject-rescore-failed');
+            note(() => h.refreshInlineWindow?.(true), 'inline-window-rescore-failed');
         },
         rename: async (data) => {
             if (!h.pluginEnabled?.()) return;

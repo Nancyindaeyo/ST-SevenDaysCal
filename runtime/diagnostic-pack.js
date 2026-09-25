@@ -2,6 +2,7 @@ import { PLUGIN_VERSION } from '../version.js';
 import { detectPromptContractConflicts, promptContractCatalog } from './prompt-contracts.js';
 import { authorDraftsSnapshot } from '../business/utils/author-draft.js';
 import { utilityRouteSnapshot } from './utility-route.js';
+import { aggregateBestEffortFailures, isBestEffortFailure } from './best-effort-failures.js';
 
 const SETTING_FLAGS = Object.freeze([
     'pluginEnabled',
@@ -28,6 +29,16 @@ export function settingsSnapshot(settings = {}) {
     if (settings.ledgerCaptureInterval != null) out.ledgerCaptureInterval = settings.ledgerCaptureInterval;
     if (settings.utilityRoute) out.utilityRoute = utilityRouteSnapshot(settings.utilityRoute);
     if (Array.isArray(settings.authorDraftRecovery)) out.authorDrafts = authorDraftsSnapshot(settings.authorDraftRecovery);
+    if (Array.isArray(settings.activityPersistRecovery)) {
+        out.activityPersistRecovery = settings.activityPersistRecovery.slice(0, 8).map(item => ({
+            chatId: String(item?.chatId || ''),
+            entryId: String(item?.entryId || ''),
+            source: String(item?.source || ''),
+            persistState: String(item?.persistState || ''),
+            reason: String(item?.reason || ''),
+            ts: Number(item?.ts) || 0,
+        }));
+    }
     return out;
 }
 
@@ -94,11 +105,19 @@ export function buildDiagnosticOverview({ queue = null, activity = [], safeLogs 
         }));
     }
     for (const item of Array.isArray(safeLogs) ? safeLogs : []) {
+        if (isBestEffortFailure(item)) continue;
         if (item?.status !== 'failed' && item?.status !== 'rejected') continue;
         errors.push(errorItem('trace', `${item.module || '运行时'} · ${item.phase || item.event || '失败'}`, item.detail || item.reasonCode || item.errorClass, {
             module: item.module,
             floorId: item.floor,
             ts: item.ts,
+        }));
+    }
+    for (const group of aggregateBestEffortFailures(safeLogs)) {
+        errors.push(errorItem('trace', `${group.module} 连续失败 ×${group.count}`, group.reasonCode, {
+            module: group.module,
+            floorId: group.floorId,
+            ts: group.ts,
         }));
     }
     errors.sort((left, right) => right.ts - left.ts);

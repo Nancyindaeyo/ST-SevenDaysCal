@@ -1,5 +1,5 @@
-import { parseStoredPos } from './fab.js';
-import { MODAL_ID, OUTLINE_CHAT_H_KEY, PANEL_POS_KEY, PANEL_SIZE_KEY } from './ids.js';
+import { createDevicePreferences } from '../../runtime/device-preferences.js';
+import { MODAL_ID } from './ids.js';
 
 export function clampPanelDrag(left, top, { width = 0, vw = 0, vh = 0 } = {}) {
     return {
@@ -46,9 +46,14 @@ export function createPanelWindow(env = {}) {
     const doc = env.document || globalThis.document;
     const win = env.window || globalThis.window;
     const modalId = env.modalId || MODAL_ID;
-    const posKey = env.posKey || PANEL_POS_KEY;
-    const sizeKey = env.sizeKey || PANEL_SIZE_KEY;
-    const outlineHKey = env.outlineHKey || OUTLINE_CHAT_H_KEY;
+    const prefs = env.prefs || createDevicePreferences({
+        storage: () => win.localStorage,
+        viewport: () => ({
+            vw: win.innerWidth,
+            vh: win.innerHeight,
+            mobile: env.isMobile?.() === true,
+        }),
+    });
     let dragState = null;
     let resizeState = null;
     let resizeRAF = null;
@@ -78,7 +83,7 @@ export function createPanelWindow(env = {}) {
         if (!dragState) return;
         const el = sheet();
         const rect = el.getBoundingClientRect();
-        if (!env.isMobile?.()) win.localStorage.setItem(posKey, JSON.stringify({ left: rect.left, top: rect.top }));
+        if (!env.isMobile?.()) prefs.writePanelPos({ left: rect.left, top: rect.top });
         dragState = null;
         $(doc).off('mousemove.spdrag mouseup.spdrag');
         doc.removeEventListener('touchmove', onDragMove);
@@ -142,7 +147,7 @@ export function createPanelWindow(env = {}) {
         const el = sheet();
         el.style.willChange = '';
         doc.body.style.userSelect = '';
-        win.localStorage.setItem(sizeKey, JSON.stringify({ width: el.offsetWidth, height: el.offsetHeight }));
+        prefs.writePanelSize({ width: el.offsetWidth, height: el.offsetHeight });
         resizeState = null;
         $(doc).off('mousemove.spresize mouseup.spresize');
         doc.removeEventListener('touchmove', onResizeMove);
@@ -176,7 +181,7 @@ export function createPanelWindow(env = {}) {
         const chatEl = env.inEl?.('#sp-outline-chat');
         function onDivEnd() {
             if (!divState) return;
-            win.localStorage.setItem(outlineHKey, String(chatEl.offsetHeight));
+            prefs.writeOutlineChatHeight(chatEl.offsetHeight);
             divState = null;
             doc.removeEventListener('mousemove', onDivMove);
             doc.removeEventListener('mouseup', onDivEnd);
@@ -193,7 +198,7 @@ export function createPanelWindow(env = {}) {
         }
         function onDivStart(e) {
             e.preventDefault();
-            const savedH = parseInt(win.localStorage.getItem(outlineHKey), 10) || 210;
+            const savedH = prefs.readOutlineChatHeight().value;
             chatEl.style.height = `${savedH}px`;
             divState = { startY: e.touches ? e.touches[0].clientY : e.clientY, startH: chatEl.offsetHeight };
             doc.addEventListener('mousemove', onDivMove);
@@ -207,7 +212,7 @@ export function createPanelWindow(env = {}) {
     }
 
     function restoreOutlineChatHeight() {
-        const h = parseInt(win.localStorage.getItem(outlineHKey), 10) || 210;
+        const h = prefs.readOutlineChatHeight().value;
         const el = env.inEl?.('#sp-outline-chat');
         if (el) el.style.height = `${h}px`;
     }
@@ -294,10 +299,15 @@ export function createPanelWindow(env = {}) {
             bindViewportSync();
             return;
         }
-        const pos = parseStoredPos(win.localStorage.getItem(posKey));
+        const pos = prefs.readPanelPos({
+            vw: win.innerWidth,
+            vh: win.innerHeight,
+            width: el.offsetWidth,
+            height: el.offsetHeight,
+        }).value;
         if (pos) {
-            el.style.left = `${Math.min(pos.left, win.innerWidth - el.offsetWidth)}px`;
-            el.style.top = `${Math.min(pos.top, win.innerHeight - 60)}px`;
+            el.style.left = `${pos.left}px`;
+            el.style.top = `${pos.top}px`;
             el.style.right = 'auto';
         }
     }

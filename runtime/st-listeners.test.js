@@ -217,6 +217,21 @@ test('ledger without enqueueJob still runs immediately', async () => {
     assert.ok(h.calls.includes('ledgerCapture'));
 });
 
+test('ledger inject rescore records best-effort failures without toasting', async () => {
+    const noted = [];
+    const h = floorHost({
+        refreshLedgerInjection() { throw new Error('inject-down'); },
+        refreshInlineWindow() { throw new Error('inline-down'); },
+        noteBestEffortFailure: payload => noted.push(payload),
+        toast() { noted.push('toast'); },
+    });
+    await createChatFloorHandlers(h).ledgerInjectRescore(2);
+    assert.deepEqual(noted.map(item => item.reasonCode || item), [
+        'ledger-inject-rescore-failed',
+        'inline-window-rescore-failed',
+    ]);
+});
+
 test('last rendered handler schedules the floor drain', () => {
     const h = floorHost();
     createChatFloorHandlers(h).floorQueueDrain();

@@ -16,32 +16,49 @@ export function ensureInlineRuntimeSource(content) {
     return source;
 }
 
-export function createChatSurfaceParticipantHooks({ getInlineHost, getCoordinate } = {}) {
+export function createChatSurfaceParticipantHooks({ getInlineHost, getCoordinate, getChatId } = {}) {
     const inline = () => getInlineHost?.();
     const coordinate = () => getCoordinate?.();
+    const liveChat = () => String(getChatId?.() ?? '');
+    const mountedButtons = new WeakSet();
     return {
         prepareContent({ content } = {}, claims) {
+            const chatId = liveChat();
             const source = ensureInlineRuntimeSource(content);
             if (!source || typeof claims?.claim !== 'function') return;
             claims.claim(source, ({ element, source: live }) => {
+                if (liveChat() !== chatId) return () => {};
                 live?.removeAttribute?.('data-sp-inline-inert');
                 inline()?.mountElement?.(element);
                 return () => {
-                    inline()?.unmountElement?.(element);
+                    if (liveChat() === chatId) inline()?.unmountElement?.(element);
                     live?.replaceChildren?.();
                     live?.setAttribute?.('data-sp-inline-inert', '');
                 };
             });
         },
         didMount({ element, mesid } = {}) {
-            coordinate()?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
-            return () => coordinate()?.unmountMessageButton?.(element);
+            const chatId = liveChat();
+            if (element && mountedButtons.has(element)) {
+                return () => {
+                    mountedButtons.delete(element);
+                    if (liveChat() === chatId) coordinate()?.unmountMessageButton?.(element);
+                };
+            }
+            if (element) mountedButtons.add(element);
+            if (liveChat() === chatId) coordinate()?.mountMessageButton?.(element, { rebindMessageId: Number(mesid) });
+            return () => {
+                if (element) mountedButtons.delete(element);
+                if (liveChat() === chatId) coordinate()?.unmountMessageButton?.(element);
+            };
         },
         didCommitContent({ element, content } = {}) {
             if (content?.querySelector?.(`[${INLINE_RUNTIME_ATTR}]`)) return;
+            const chatId = liveChat();
             inline()?.mountElement?.(element);
             coordinate()?.mountMessageButton?.(element, { rebindMessageId: Number(element?.getAttribute?.('mesid')) });
             return () => {
+                if (liveChat() !== chatId) return;
                 inline()?.unmountElement?.(element);
                 coordinate()?.unmountMessageButton?.(element);
             };

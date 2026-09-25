@@ -15,6 +15,8 @@ test('fab position clamps inside the viewport', () => {
 test('stored fab pos ignores damaged json', () => {
     assert.equal(parseStoredPos('not-json'), null);
     assert.deepEqual(parseStoredPos('{"left":12,"top":8}'), { left: 12, top: 8 });
+    assert.equal(parseStoredPos('{"left":"12","top":8}'), null);
+    assert.equal(parseStoredPos('{"left":null,"top":8}'), null);
 });
 
 test('theme mode cycles auto → day → night → auto', () => {

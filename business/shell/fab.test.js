@@ -53,3 +53,34 @@ test('lost pointer capture and storage failure still end the gesture', () => {
     assert.doesNotThrow(() => lost.call(button, { pointerId: 1, currentTarget: button }));
     assert.doesNotThrow(() => lost.call(button, { pointerId: 1, currentTarget: button }));
 });
+
+test('dispose releases the waiting wand observer', () => {
+    const observers = [];
+    const document = {
+        getElementById: () => null,
+        querySelectorAll: () => [],
+        documentElement: { insertAdjacentHTML() {} },
+        body: {},
+    };
+    const original = globalThis.MutationObserver;
+    globalThis.MutationObserver = class {
+        constructor(fn) { this.fn = fn; observers.push(this); }
+        observe() { this.observed = true; }
+        disconnect() { this.disconnected = true; }
+    };
+    try {
+        const fab = createFab({
+            $: () => ({ toggleClass() { return this; }, removeClass() { return this; }, addClass() { return this; } }),
+            $in: () => ({ toggleClass() { return this; } }),
+            document,
+            window: { localStorage: { getItem: () => null, setItem() {} }, innerWidth: 800, innerHeight: 600, addEventListener() {} },
+            fabId: 'sp-fab',
+        });
+        fab.injectExtButton();
+        assert.equal(observers[0].observed, true);
+        fab.dispose();
+        assert.equal(observers[0].disconnected, true);
+    } finally {
+        globalThis.MutationObserver = original;
+    }
+});

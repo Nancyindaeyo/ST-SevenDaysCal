@@ -22,6 +22,7 @@ export const DEFAULT_SETTINGS = {
     utilityPaused    : false, // 用户明确暂停全部机械调用
     utilityAllowMain : false, // 用户明确允许失效时改走主 API（持续）
     authorDraftRecovery: [],  // 笺/律切聊天未确认写入的可恢复草稿，不是当前聊天活数据
+    activityPersistRecovery: [], // 【改】确认写入失败的最小恢复标记，不含快照正文
     fabShow : true,
     // 插件总开关：false = 构画完全隐身（藏悬浮球 / 楼内块 / 锚点收藏入口，停一切后台判定与潜伏注入），如同未安装；
     // 设置面板仍可从酒馆魔杖菜单进入以重新开启。默认开。
@@ -122,6 +123,8 @@ export function getSettings() {
     if (!Array.isArray(s.theaterPoolBooks)) s.theaterPoolBooks = [];
     if (s.authorDraftRecovery === DEFAULT_SETTINGS.authorDraftRecovery) s.authorDraftRecovery = [];
     if (!Array.isArray(s.authorDraftRecovery)) s.authorDraftRecovery = [];
+    if (s.activityPersistRecovery === DEFAULT_SETTINGS.activityPersistRecovery) s.activityPersistRecovery = [];
+    if (!Array.isArray(s.activityPersistRecovery)) s.activityPersistRecovery = [];
     const n = Math.floor(Number(s.theaterCount));
     s.theaterCount = Number.isInteger(n) && n >= 1 && n <= 3 ? n : 2;
     const interval = Math.floor(Number(s.ledgerReconcileInterval));
