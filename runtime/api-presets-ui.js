@@ -1,3 +1,5 @@
+import { utilityPresetDeleteImpact, utilityRouteLabel } from './utility-route.js';
+
 export function apiPresetSnapshotKey(cfg) {
     return JSON.stringify({
         url: cfg?.url || '', key: cfg?.key || '', model: cfg?.model || '',
@@ -96,13 +98,41 @@ export function createApiPresetUi(env = {}) {
         $lb.text(p ? p.name : '选择预设…');
     }
 
+    function currentUtilityRoute() {
+        return env.resolveUtilityRoute?.() || null;
+    }
+
+    function paintUtilityRoute(route = currentUtilityRoute()) {
+        const $status = $in('#sp-util-route-status');
+        const $actions = $in('#sp-util-route-actions');
+        if (!$status.length) return;
+        if (!route) {
+            $status.text('');
+            $actions.attr('hidden', true);
+            return;
+        }
+        $status.text(route.status === 'follow-main' && route.reason === 'no-utility-preset' ? '' : utilityRouteLabel(route));
+        $actions.removeAttr('hidden');
+        $in('#sp-util-fix').toggle(route.status === 'invalid');
+        $in('#sp-util-allow-session').toggle(route.status === 'invalid');
+        $in('#sp-util-allow-persist').toggle(route.status === 'invalid');
+        $in('#sp-util-pause').toggle(route.status !== 'paused');
+        $in('#sp-util-resume').toggle(route.status === 'paused' || route.reason === 'user-allow-main' || route.reason === 'session-allow-main');
+    }
+
     function syncUtilityPresetLabel() {
         const $lb = $in('#sp-util-preset-label');
         if (!$lb.length) return;
+        const route = currentUtilityRoute();
+        if (route) {
+            $lb.text(utilityRouteLabel(route));
+            paintUtilityRoute(route);
+            return;
+        }
         const id = settings().utilityPresetId || '';
         const p = id ? loadApiPresets().find(x => x.id === id) : null;
-        if (id && !p) { settings().utilityPresetId = ''; }   // 悬空 id 自愈
         $lb.text(p ? `机械任务 → ${p.name}` : '跟随主 API（不分流）');
+        paintUtilityRoute(null);
     }
 
     function syncState() {
@@ -253,7 +283,7 @@ export function createApiPresetUi(env = {}) {
         });
 
         let delArmed = false, delTimer = null;
-        $in('#sp-preset-del').on('click', function () {
+        $in('#sp-preset-del').on('click', async function () {
             const id = settings().apiPresetActiveId;
             if (!id) return;
             const $btn = $(this), $i = $btn.find('i');
@@ -271,7 +301,17 @@ export function createApiPresetUi(env = {}) {
             clearTimeout(delTimer); delArmed = false;
             $i.attr('class', 'fa-solid fa-trash'); $btn.css('color', '').attr('title', '删除当前选中的预设');
             const p = loadApiPresets().find(x => x.id === id);
-            if (settings().utilityPresetId === id) settings().utilityPresetId = '';
+            if (utilityPresetDeleteImpact(settings().utilityPresetId, id)) {
+                const choice = await choose?.({
+                    title: '删除机械任务正在使用的预设',
+                    body: '删除后机械任务会失效并暂停调用，不会再悄悄改走主 API。你可以稍后修复预设、改回跟随主 API，或明确允许主 API。',
+                    choices: [
+                        { value: 'cancel', label: '取消', primary: true },
+                        { value: 'delete', label: '仍要删除' },
+                    ],
+                });
+                if (choice !== 'delete') return;
+            }
             deleteApiPreset(id);
             render();
             renderUtility();
@@ -286,10 +326,53 @@ export function createApiPresetUi(env = {}) {
         $in('#sp-util-preset-list').on('click', '.sp-preset-item', function () {
             const id = $(this).attr('data-id') || '';
             settings().utilityPresetId = id;
+            settings().utilityAllowMain = false;
+            env.setUtilitySessionAllowMain?.(false);
             saveSettingsDebounced();
             renderUtility();
             $in('#sp-util-preset-list').slideUp(120);
             $in('#sp-util-preset-box').removeClass('sp-preset-box-open');
+        });
+        $in('#sp-util-fix').on('click', function () {
+            const id = settings().utilityPresetId || '';
+            const p = id ? loadApiPresets().find(x => x.id === id) : null;
+            if (p) {
+                settings().apiPresetActiveId = id;
+                fillApiInputs(p);
+                $in('#sp-preset-list').slideDown(120);
+                $in('#sp-preset-box').addClass('sp-preset-box-open');
+                render();
+                showPresetHint('已打开该预设，请补全 URL / Key / 模型后点更新');
+                return;
+            }
+            $in('#sp-util-preset-list').slideDown(120);
+            $in('#sp-util-preset-box').addClass('sp-preset-box-open');
+            showPresetHint('原预设已删除。请新建或另选机械任务预设');
+        });
+        $in('#sp-util-allow-session').on('click', function () {
+            env.setUtilitySessionAllowMain?.(true);
+            renderUtility();
+            showPresetHint('本次会话机械任务改走主 API');
+        });
+        $in('#sp-util-allow-persist').on('click', function () {
+            settings().utilityAllowMain = true;
+            saveSettingsDebounced();
+            renderUtility();
+            showPresetHint('已持续允许机械任务改走主 API');
+        });
+        $in('#sp-util-pause').on('click', function () {
+            settings().utilityPaused = true;
+            saveSettingsDebounced();
+            renderUtility();
+            showPresetHint('已暂停机械任务');
+        });
+        $in('#sp-util-resume').on('click', function () {
+            settings().utilityPaused = false;
+            settings().utilityAllowMain = false;
+            env.setUtilitySessionAllowMain?.(false);
+            saveSettingsDebounced();
+            renderUtility();
+            showPresetHint('已恢复机械任务分流');
         });
     }
 

@@ -5947,6 +5947,38 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     flex: 0 0 auto;
     margin: 10px 12px 0;
 }
+.sp-author-recovery {
+    flex: 0 0 auto;
+    margin: 8px 12px 0;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--SmartThemeQuoteColor, #c9a227) 45%, transparent);
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--SmartThemeQuoteColor, #c9a227) 12%, transparent);
+}
+.sp-author-recovery-item + .sp-author-recovery-item {
+    margin-top: 8px;
+}
+.sp-author-recovery-copy {
+    margin: 0 0 6px;
+    font-size: var(--sp-fs-70);
+}
+.sp-author-recovery-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+.sp-author-recovery-btn {
+    font-size: var(--sp-fs-68);
+}
+.sp-util-route-status {
+    margin-top: 8px;
+}
+.sp-util-route-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+}
 .sp-slip-textarea {
     flex: 1;
     min-height: 0;

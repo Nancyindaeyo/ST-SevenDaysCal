@@ -1,6 +1,7 @@
 import { outlineBaseline, parseOutline, parseOutlineRelocationAnswer, shouldAdvanceOutline } from './schema.js';
 import { buildOutlineJudgePrompt, buildOutlineRelocationPrompt } from './prompts.js';
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, safeDiagnosticLog } from '../../api/diagnostics.js';
+import { mechanicalCallConfig } from '../../runtime/utility-route.js';
 import { tickFloorGate } from '../refresh/floor-tick.js';
 
 export function createOutlineJudge({
@@ -87,13 +88,24 @@ export function createOutlineJudge({
         const task = makeOwner(target, baseline);
         try {
             const ctx = context?.();
-            const config = loadConfig?.() || {};
-            if (!config.url || !config.key) {
-                const error = makeDiagnosticError('config-missing');
+            const call = mechanicalCallConfig(loadConfig?.());
+            if (!call.ok) {
+                const error = makeDiagnosticError(call.reason);
                 finish(task);
+                if (call.reason.startsWith('utility-route-')) {
+                    onActivity?.({
+                        source: 'outline',
+                        floorId: messageId,
+                        outcome: 'skipped',
+                        reasonCode: call.reason,
+                        note: '机械任务因路由失效跳过。去设置修复预设，或明确允许主 API。',
+                    });
+                    return { status: 'skipped', error, reason: call.reason };
+                }
                 recordFailure(messageId, error, 'config-missing', '没配 API，面判定没跑。去设置填好后再重试。');
                 return { status: 'failed', error, reason: 'config-missing' };
             }
+            const config = call.cfg;
             const format = beat => `${beat.time ? beat.time + '·' : ''}《${beat.title}》`;
             const prompt = buildOutlineJudgePrompt(
                 format(current),
@@ -176,13 +188,24 @@ export function createOutlineJudge({
         const current = repository.cursor(target);
         if (!beats.length || current < 1) return { status: 'skipped' };
         const ctx = context?.();
-        const config = loadConfig?.() || {};
-        if (!config.url || !config.key) {
-            const error = makeDiagnosticError('config-missing');
+        const call = mechanicalCallConfig(loadConfig?.());
+        if (!call.ok) {
+            const error = makeDiagnosticError(call.reason);
             logDiagnostic?.(safeDiagnosticLog('outline', 'request', error, { background: true }));
+            if (call.reason.startsWith('utility-route-')) {
+                onActivity?.({
+                    source: 'outline',
+                    floorId: null,
+                    outcome: 'skipped',
+                    reasonCode: call.reason,
+                    note: '机械任务因路由失效跳过。去设置修复预设，或明确允许主 API。',
+                });
+                return { status: 'skipped', error, reason: call.reason };
+            }
             recordFailure(null, error, 'config-missing', '没配 API，面重定位没跑。去设置填好后再试。');
             return { status: 'failed', error, reason: 'config-missing' };
         }
+        const config = call.cfg;
         abort();
         const baseline = outlineBaseline(saved);
         const task = makeOwner(target, baseline);

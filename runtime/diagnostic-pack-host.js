@@ -39,7 +39,10 @@ export function createDiagnosticPackHost(env = {}) {
         const today = env.todayAnchor?.();
         return buildSafeDiagnosticPack({
             pluginVersion: pluginVersion(),
-            settings: env.settings?.() || {},
+            settings: {
+                ...(env.settings?.() || {}),
+                utilityRoute: env.resolveUtilityRoute?.() || null,
+            },
             chat: {
                 floorCount: chat.length,
                 latestAiFloor: env.latestAiFloor?.(chat)?.index,

@@ -176,3 +176,17 @@ test('critical draft flush returning false is treated as a lifecycle failure', (
     assert.match(result.failures[0].message, /returned false/);
     assert.equal(reports.length, 1);
 });
+
+test('critical draft flush returning {ok:false} is treated as a lifecycle failure', async () => {
+    const reports = [];
+    const h = host({
+        slip: { flush: async () => ({ ok: false, parked: true, reason: 'stale' }) },
+        reportLifecycleFailures: failures => reports.push(failures),
+    });
+    const result = applyPluginEnabled(h, false);
+    assert.equal(result.ok, true);
+    await Promise.resolve();
+    assert.equal(reports.length, 1);
+    assert.equal(reports[0][0].port, 'slip.flush');
+    assert.equal(reports[0][0].critical, true);
+});

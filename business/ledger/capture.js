@@ -1,6 +1,7 @@
 import { ledgerSourceFingerprint, legacyLedgerSourceFingerprint } from './reconcile.js';
 import { ledgerOwnerIdentity, sameLedgerOwner } from './owner.js';
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, runGenerationUiEffect } from '../../api/diagnostics.js';
+import { mechanicalCallConfig } from '../../runtime/utility-route.js';
 import { ledgerHistoryScopeFromSettings, selectHistoryRecords, ledgerHistoryScopeLabel } from './history-scope.js';
 // 刻度捕获纯依赖：只负责正文楼层/来源窗口与稳定性，不执行 API 或落库。
 export const LEDGER_EVENT_TYPES = `【什么算刻度事件】会随时间推移改变状态、或到某天该发生的事，典型三类：
@@ -375,8 +376,9 @@ export function createLedgerCaptureController(options = {}) {
                     };
                     let result;
                     try {
-                        const provenanceCfg = env.provenanceConfig?.() || cfg;
-                        if (!provenanceCfg?.url || !provenanceCfg?.key) throw Object.assign(new Error('未配置 API'), { diagnosticCode: 'config-missing' });
+                        const provenanceCall = mechanicalCallConfig(env.provenanceConfig?.() || cfg);
+                        if (!provenanceCall.ok) throw makeDiagnosticError(provenanceCall.reason);
+                        const provenanceCfg = provenanceCall.cfg;
                         result = await env.callApi(ctx, buildProvenancePrompt(unresolved, i + 1, provenanceBatches.length), provenanceCfg, userName, charName, ctrl.signal, 0, { ...sourceTravel, noAlmanac: true, ledgerSourceFloors: batch, temperature: 0.3, promptMode: 'mechanical', diagnosticModule: 'ledger-provenance', diagnosticSink: provenanceDiagnostic.sink });
                     }
                     catch (error) {

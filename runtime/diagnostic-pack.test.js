@@ -50,6 +50,15 @@ test('assistant pack v2 wraps the existing chat dump with runtime', () => {
 test('helpers keep day keys and compact entries', () => {
     assert.equal(dayKey({ month: 5, day: 4, year: 2027 }), '2027-5-4');
     assert.equal(settingsSnapshot({ linesMode: 'manual', apiKey: 'x' }).apiKey, undefined);
+    const routed = settingsSnapshot({
+        utilityPresetId: 'p1',
+        utilityRoute: { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜', cfg: { url: 'https://x', key: 'secret' } },
+        authorDraftRecovery: [{ kind: 'slip', chatId: 'c1', reason: 'stale', text: '私笺正文', ts: 9 }],
+    });
+    assert.deepEqual(routed.utilityRoute, { status: 'invalid', reason: 'missing-key', presetId: 'p1', presetName: '便宜' });
+    assert.deepEqual(routed.authorDrafts, [{ kind: 'slip', chatId: 'c1', reason: 'stale', ts: 9 }]);
+    assert.equal(JSON.stringify(routed).includes('secret'), false);
+    assert.equal(JSON.stringify(routed).includes('私笺正文'), false);
     assert.equal(compactActivityEntries([{ source: 'a' }, { source: 'b' }, { source: 'c' }], 2).length, 2);
     assert.deepEqual(jobsFromQueue({ running: { id: 'align', label: '对齐' } })[0], {
         id: 'align', label: '对齐', status: 'running', reason: '', enqueuedAt: 0, startedAt: 0,

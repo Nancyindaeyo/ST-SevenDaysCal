@@ -18,7 +18,7 @@ export const FLOOR_JOB_LABELS = Object.freeze({
     dashed: '冷知识',
 });
 
-export const VISIBLE_SKIP_REASONS = Object.freeze(['no-stamp', 'config-missing', 'no-api']);
+export const VISIBLE_SKIP_REASONS = Object.freeze(['no-stamp', 'config-missing', 'no-api', 'utility-route-invalid', 'utility-route-paused']);
 
 export function jobLabel(id) {
     return FLOOR_JOB_LABELS[id] || id;

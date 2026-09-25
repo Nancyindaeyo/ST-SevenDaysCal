@@ -72,6 +72,70 @@ test('chat change cancels a pending save so it cannot land on the next chat', as
     assert.equal(painted, '乙');
 });
 
+test('chat change parks a dirty draft instead of writing the next chat', async () => {
+    const writes = [];
+    const events = [];
+    let chatId = 'a';
+    const bag = { items: [] };
+    const liveInput = { onInput: null };
+    let painted = '';
+    const live = createSlipFeature({
+        context: () => ({ chatId }),
+        keyDesc: () => ({ kind: SLIP_KIND, view: 'user', charName: '', chatId }),
+        readStore: () => ({ text: chatId === 'a' ? '甲' : chatId === 'b' ? '乙' : '丙', ts: 1 }),
+        writeStore: (key, value) => { writes.push({ chatId: key.chatId, text: value.text }); return true; },
+        readRecovery: () => bag.items,
+        writeRecovery: items => { bag.items = items; },
+        onDraftEvent: event => events.push(event),
+        $in: sel => sel === '#sp-slip-input' ? {
+            length: 1,
+            0: {},
+            val(value) { if (value !== undefined) painted = value; return painted; },
+            on(ev, handler) {
+                if (String(ev).startsWith('input')) liveInput.onInput = handler;
+                return this;
+            },
+        } : { length: 0 },
+    });
+    live.bindUi();
+    live.open();
+    liveInput.onInput.call({ value: '还没存的甲' });
+    chatId = 'b';
+    live.onChatChanged();
+    chatId = 'c';
+    live.onChatChanged();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.deepEqual(writes, []);
+    assert.equal(bag.items.length, 1);
+    assert.equal(bag.items[0].chatId, 'a');
+    assert.equal(bag.items[0].text, '还没存的甲');
+    assert.equal(JSON.stringify(events).includes('还没存的甲'), false);
+    chatId = 'a';
+    const restored = live.restore({ chatId: 'a', mode: 'original' });
+    assert.equal(restored.ok, true);
+    assert.deepEqual(writes, [{ chatId: 'a', text: '还没存的甲' }]);
+    assert.equal(bag.items.length, 0);
+});
+
+test('flush confirmation failure parks the draft with the same failure semantics', async () => {
+    const bag = { items: [] };
+    const feature = createSlipFeature({
+        context: () => ({ chatId: 'now' }),
+        keyDesc: () => ({ kind: SLIP_KIND, view: 'user', charName: '', chatId: 'now' }),
+        readStore: () => ({ text: '', ts: 0 }),
+        writeStore: () => false,
+        writeStoreConfirmed: async () => ({ ok: false, commitState: 'unknown', reason: 'unknown' }),
+        readRecovery: () => bag.items,
+        writeRecovery: items => { bag.items = items; },
+        $in: () => ({ length: 0 }),
+    });
+    const result = await feature.flush('不要写怀孕');
+    assert.equal(result.ok, false);
+    assert.equal(result.parked, true);
+    assert.equal(result.commitState, 'unknown');
+    assert.equal(bag.items[0].text, '不要写怀孕');
+});
+
 test('flush after blur writes the current chat only', () => {
     const writes = [];
     const feature = createSlipFeature({

@@ -216,7 +216,7 @@ export function panelMarkup({
                                     <label class="sp-cfg-group">机械任务分流</label>
                                     <!-- 机械任务分流：把「记忆摘要 / 大纲推进判定」这类机械调用可选路由到某个预设（如便宜小模型）；生成类始终走上面主 API。选项即时生效落 settings.json，无需点保存。留空=不分流 -->
                                     <div class="sp-util-preset-block">
-                                        <p class="sp-cfg-hint">记忆摘要、日期 / 大纲判定这类机械调用改走此预设（如便宜小模型省钱）；正式生成始终走主 API。即时生效，无需保存。</p>
+                                        <p class="sp-cfg-hint">记忆摘要、日期 / 大纲判定这类机械调用改走此预设（如便宜小模型省钱）；正式生成始终走主 API。即时生效，无需保存。预设失效时不会悄悄改走主 API。</p>
                                         <div class="sp-preset-row">
                                             <button type="button" id="sp-util-preset-box" class="sp-preset-box" title="选择机械任务预设">
                                                 <span id="sp-util-preset-label" class="sp-preset-label">跟随主 API（不分流）</span>
@@ -224,6 +224,14 @@ export function panelMarkup({
                                             </button>
                                         </div>
                                         <div id="sp-util-preset-list" class="sp-preset-list" style="display:none"></div>
+                                        <p id="sp-util-route-status" class="sp-cfg-hint sp-util-route-status" aria-live="polite"></p>
+                                        <div id="sp-util-route-actions" class="sp-util-route-actions" hidden>
+                                            <button type="button" id="sp-util-fix" class="sp-btn">修复预设</button>
+                                            <button type="button" id="sp-util-allow-session" class="sp-btn">本次允许主 API</button>
+                                            <button type="button" id="sp-util-allow-persist" class="sp-btn">持续允许主 API</button>
+                                            <button type="button" id="sp-util-pause" class="sp-btn">暂停机械任务</button>
+                                            <button type="button" id="sp-util-resume" class="sp-btn">恢复分流</button>
+                                        </div>
                                     </div>
                                 </div>
                             </details>
@@ -759,12 +767,14 @@ export function panelMarkup({
 
                         <div class="sp-slip-wrap" id="sp-slip-wrap" role="tabpanel" aria-labelledby="sp-tab-slip" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <p class="sp-cfg-hint sp-slip-hint">只给你看。永远不进主楼、间、引导或柏宝书。</p>
+                            <div id="sp-slip-recovery" class="sp-author-recovery" hidden></div>
                             <textarea id="sp-slip-input" class="sp-input sp-slip-textarea" placeholder="下章想坑谁、不要写的东西、这张卡的私设…"></textarea>
                         </div>
 
                         <div class="sp-law-wrap" id="sp-law-wrap" role="tabpanel" aria-labelledby="sp-tab-law" aria-hidden="true" style="display:none;flex-direction:column;flex:1;min-height:0">
                             <label class="sp-mode-opt sp-law-inject-row"><input type="checkbox" id="sp-law-inject"><span>注入主楼</span></label>
                             <p class="sp-cfg-hint sp-law-hint">默认关。勾选后每轮塞进主楼，还要开设置里的「允许潜伏注入主楼 AI」。和世界书蓝灯 D0 同类，但这份只跟这次聊天走。笺永不进模型。</p>
+                            <div id="sp-law-recovery" class="sp-author-recovery" hidden></div>
                             <textarea id="sp-law-input" class="sp-input sp-law-textarea" placeholder="不要写怀孕&#10;称呼保持您"></textarea>
                         </div>
 

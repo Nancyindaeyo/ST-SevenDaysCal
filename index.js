@@ -104,9 +104,10 @@ import {
 import { createTimeTravelHost } from './business/axis/time-travel-host.js';
 import { createTimeTravelDestinationResolver } from './business/axis/time-travel-destination.js';
 import { escapeHtml, escapeAttr, autoGrowTextarea, cleanText } from './utils/dom.js';
+import { sanitizeDraftEvent } from './business/utils/author-draft.js';
 import { _cnToNumber, _CN_MONTH_ALIAS, extractDayFromTime } from './utils/cn-date.js';
 import { weatherGlyph, maskKey } from './utils/format.js';
-import { getSettings, parseExcludeParams, loadCfg, loadUtilityCfg, saveCfg, loadApiPresets, upsertApiPreset, deleteApiPreset, renameApiPreset, fabEnabled, pluginEnabled, injectEnabled, getLinesInterval, saveLinesInterval, getLinesMode, saveLinesMode, getLedgerReconcileInterval } from './runtime/settings.js';
+import { getSettings, parseExcludeParams, loadCfg, resolveUtilityRoute, setUtilitySessionAllowMain, saveCfg, loadApiPresets, upsertApiPreset, deleteApiPreset, renameApiPreset, fabEnabled, pluginEnabled, injectEnabled, getLinesInterval, saveLinesInterval, getLinesMode, saveLinesMode, getLedgerReconcileInterval } from './runtime/settings.js';
 import { postChatCompletion, callCustomApi, callMemoryApi, callTheaterApi, bindApiClient, GEN_TEMPERATURE } from './api/client.js';
 import { normalizeApiUrl } from './api/sse.js';
 import { safeDiagnosticLog, diagnosticMessage, makeDiagnosticError, shouldNotifyGeneration, classifyGenerationError } from './api/diagnostics.js';
@@ -695,7 +696,7 @@ const ledgerCaptureController = createLedgerCaptureController({
     target: getLedgerTarget,
     charKey: charStableKey,
     config: loadCfg,
-    provenanceConfig: loadUtilityCfg,
+    provenanceConfig: resolveUtilityRoute,
     calendar: loadCalDesc,
     validDate: almValidMonthDay,
     today: almTodayAnchor,
@@ -1098,7 +1099,7 @@ const dateDetection = createDateDetectionHost({
     captureGenerationContext,
     charStableKey,
     getContext,
-    config: loadUtilityCfg,
+    config: resolveUtilityRoute,
     storyEnabled: storyClockEnabled,
     storyDate: storyClockDate,
     storyClock: latestStoryClock,
@@ -1326,6 +1327,8 @@ const apiPresetUi = createApiPresetUi({
     escapeAttr,
     escapeHtml,
     choose: options => customDialog.choose(options),
+    resolveUtilityRoute,
+    setUtilitySessionAllowMain,
 });
 
 let settingsOpen   = false;
@@ -1566,6 +1569,7 @@ const diagnosticPack = createDiagnosticPackHost({
     pluginVersion: PLUGIN_VERSION,
     getContext,
     settings: getSettings,
+    resolveUtilityRoute,
     latestStoryClock,
     todayAnchor: almTodayAnchor,
     latestAiFloor,
@@ -1703,7 +1707,7 @@ const outlineFeature = createOutlineFeature({
     pluginEnabled,
     injectEnabled,
     loadConfig: loadCfg,
-    loadUtilityConfig: loadUtilityCfg,
+    loadUtilityConfig: resolveUtilityRoute,
     callApi: ({ ctx, prompt, config, userName, charName, signal, historyLimit, options }) =>
         callCustomApi(ctx, prompt, config, userName, charName, signal, historyLimit, options),
     precheck: memoryPreCheckConfirm,
@@ -1858,20 +1862,45 @@ const spaceFeature = createSpaceFeature({
     intentFromGuide: state => intentFromGuide(state, { kind: 'fight' }),
     handoffToLamp: intent => lampHost.handoffFromGuide(intent),
 });
+const authorDraftPorts = {
+    readRecovery: () => {
+        const list = getSettings().authorDraftRecovery;
+        return Array.isArray(list) ? list : [];
+    },
+    writeRecovery: list => {
+        getSettings().authorDraftRecovery = Array.isArray(list) ? list : [];
+        saveSettingsDebounced();
+    },
+    toast: showToast,
+    onDraftEvent: event => {
+        const safe = sanitizeDraftEvent(event);
+        try {
+            traceDiagnosticEvent('author-draft', {
+                module: safe.kind,
+                reasonCode: safe.reason,
+                status: safe.parked ? 'parked' : 'saved',
+            });
+        } catch {}
+    },
+};
 const slipFeature = createSlipFeature({
     context: getContext,
     keyDesc,
     readStore,
     writeStore,
+    writeStoreConfirmed,
     $in,
+    ...authorDraftPorts,
 });
 const lawFeature = createLawFeature({
     context: getContext,
     keyDesc,
     readStore,
     writeStore,
+    writeStoreConfirmed,
     injectEnabled,
     $in,
+    ...authorDraftPorts,
 });
 const stageHost = createStageHost({
     calendar: loadCalDesc,

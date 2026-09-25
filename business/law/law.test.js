@@ -142,6 +142,49 @@ test('chat change clears a pending inject so the next chat does not inherit it',
     assert.equal(ui.inject(), false);
 });
 
+test('chat change parks text and inject together and never writes the next chat', async () => {
+    const writes = [];
+    const events = [];
+    let chatId = 'a';
+    const bag = { items: [] };
+    const ui = fieldUi();
+    const feature = createLawFeature({
+        context: () => ({
+            chatId,
+            constants: { promptTypes: { IN_CHAT: 1 }, promptRoles: { SYSTEM: 0 } },
+            setExtensionPrompt: () => {},
+        }),
+        keyDesc: () => ({ kind: LAW_KIND, view: 'user', charName: '', chatId }),
+        readStore: () => chatId === 'a' ? { text: '旧律', inject: true, ts: 1 } : { text: '', inject: false, ts: 0 },
+        writeStore: (key, value) => { writes.push({ chatId: key.chatId, text: value.text, inject: value.inject }); return true; },
+        injectEnabled: () => true,
+        readRecovery: () => bag.items,
+        writeRecovery: items => { bag.items = items; },
+        onDraftEvent: event => events.push(event),
+        $in: sel => ui.$in(sel),
+    });
+    feature.bindUi();
+    feature.open();
+    ui.onInput().call({ value: '还没存的律' });
+    chatId = 'b';
+    feature.onChatChanged();
+    chatId = 'c';
+    feature.onChatChanged();
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.deepEqual(writes, []);
+    assert.equal(bag.items[0].text, '还没存的律');
+    assert.equal(bag.items[0].inject, true);
+    assert.equal(bag.items[0].chatId, 'a');
+    assert.equal(JSON.stringify(events).includes('还没存的律'), false);
+    chatId = 'c';
+    const wrong = feature.restore({ chatId: 'a', mode: 'original' });
+    assert.equal(wrong.ok, false);
+    assert.equal(wrong.reason, 'wrong-chat');
+    const current = feature.restore({ chatId: 'a', mode: 'current' });
+    assert.equal(current.ok, true);
+    assert.deepEqual(writes, [{ chatId: 'c', text: '还没存的律', inject: true }]);
+});
+
 test('enter law resets other modes then opens', () => {
     const calls = [];
     enterLawSidebar({

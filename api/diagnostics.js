@@ -4,7 +4,8 @@ import { isDiagnosticRequestId, traceDiagnosticEvent } from '../runtime/diagnost
 import { recordDiagnosticResult } from '../runtime/external-chat-storage.js';
 
 const CODES = new Set([
-    'config-missing', 'http-400', 'auth', 'not-found', 'rate-limit', 'server',
+    'config-missing', 'utility-route-invalid', 'utility-route-paused',
+    'http-400', 'auth', 'not-found', 'rate-limit', 'server',
     'timeout', 'network', 'invalid-json', 'response-error', 'empty-output', 'truncated', 'sse-invalid', 'unknown',
     'parse', 'invalid-structure', 'invalid-fields', 'save', 'recoverable-fallback',
 ]);
@@ -35,6 +36,8 @@ export function classifyGenerationError(error, { status = 0, phase = 'request' }
 
 const MESSAGES = Object.freeze({
     'config-missing': '请先配置 API',
+    'utility-route-invalid': '机械任务预设已失效，已暂停调用。请到设置里修复预设，或明确允许改走主 API。',
+    'utility-route-paused': '机械任务已暂停。',
     'http-400': 'AI 请求参数不被接口接受。请检查模型配置或在“剔除参数”中移除不支持的参数。',
     auth: 'AI API Key 无效或没有权限，请检查 Key 和模型权限。',
     'not-found': 'AI 接口地址不可用（404），请检查 Base URL。',

@@ -1,4 +1,5 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError, runGenerationUiEffect, safeDiagnosticLog } from '../../api/diagnostics.js';
+import { mechanicalCallConfig } from '../../runtime/utility-route.js';
 
 export const DATE_JUDGE_HISTORY_LIMIT = 3;
 export const DATE_JUDGE_PROMPT = `请暂停角色扮演，作为剧情分析助手，只做一件事：判断以上最近的对话里，故事此刻发生在哪一天。
@@ -83,13 +84,18 @@ export function createDateDetectionController(options = {}) {
         if (busy) return { status: 'skipped' };
         const participantIdentity = options.captureParticipantIdentity?.() || null;
         const ctx = options.context(); const charKey = options.charKey?.(ctx); if (!charKey) return { status: 'skipped' };
-        const cfg = options.config?.();
-        if (!cfg?.url || !cfg?.key) {
-            const error = makeDiagnosticError('config-missing');
+        const call = mechanicalCallConfig(options.config?.());
+        if (!call.ok) {
+            const error = makeDiagnosticError(call.reason);
             options.logDiagnostic?.(safeDiagnosticLog('axis', 'request', error, { background: true }));
+            if (call.reason.startsWith('utility-route-')) {
+                if (options.settings?.().notifyMode === 'full') options.toast?.(diagnosticMessage(error), null, true);
+                return { status: 'skipped', reason: call.reason, error };
+            }
             if (options.settings?.().notifyMode === 'full') options.toast?.('剧情日期自动确认失败，请先配置 API', null, true);
             return { status: 'failed', error };
         }
+        const cfg = call.cfg;
         const ownerIdentity = { ...identity(), participantIdentity }; const ctrl = new AbortController(); abortController = ctrl; busy = true;
         const remove = options.bridge?.(externalSignal, ctrl) || (() => {});
         try {

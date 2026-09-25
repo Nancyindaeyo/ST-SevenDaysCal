@@ -1,6 +1,7 @@
 // runtime/settings.js — 设置数据读写 + 开关 + API 预设。Phase 0 从 index.js 机械搬移（业务逻辑不变）。
 import { extension_settings } from '../../../../extensions.js';
 import { saveSettingsDebounced } from '../../../../../script.js';
+import { resolveUtilityRoute as resolveUtilityRoutePure } from './utility-route.js';
 
 export const PLUGIN_ID  = 'schedule-planner';
 
@@ -16,8 +17,11 @@ export const DEFAULT_SETTINGS = {
     apiPresetActiveId: '',   // 上次选中的预设 id，纯 UI 高亮/回显用，不代表已生效
     // 机械任务分流：把「记忆摘要 / 大纲推进判定」这类机械调用路由到某个预设（如便宜小模型），
     // 生成类（点/线/面/间/棱/历）始终走上面主 API。空=不分流、全走主 API（与旧版行为一致）。
-    // 存的是预设 id；指向的预设被删或缺 url/key 时，loadUtilityCfg() 自动退回主 API。
+    // 存的是预设 id。预设被删或缺 url/key/model 时 fail-closed，不再静默退回主 API。
     utilityPresetId  : '',
+    utilityPaused    : false, // 用户明确暂停全部机械调用
+    utilityAllowMain : false, // 用户明确允许失效时改走主 API（持续）
+    authorDraftRecovery: [],  // 笺/律切聊天未确认写入的可恢复草稿，不是当前聊天活数据
     fabShow : true,
     // 插件总开关：false = 构画完全隐身（藏悬浮球 / 楼内块 / 锚点收藏入口，停一切后台判定与潜伏注入），如同未安装；
     // 设置面板仍可从酒馆魔杖菜单进入以重新开启。默认开。
@@ -116,6 +120,8 @@ export function getSettings() {
     if (s.calendarTemplateBindings === DEFAULT_SETTINGS.calendarTemplateBindings) s.calendarTemplateBindings = {};
     if (s.theaterPoolBooks === DEFAULT_SETTINGS.theaterPoolBooks) s.theaterPoolBooks = [];
     if (!Array.isArray(s.theaterPoolBooks)) s.theaterPoolBooks = [];
+    if (s.authorDraftRecovery === DEFAULT_SETTINGS.authorDraftRecovery) s.authorDraftRecovery = [];
+    if (!Array.isArray(s.authorDraftRecovery)) s.authorDraftRecovery = [];
     const n = Math.floor(Number(s.theaterCount));
     s.theaterCount = Number.isInteger(n) && n >= 1 && n <= 3 ? n : 2;
     const interval = Math.floor(Number(s.ledgerReconcileInterval));
@@ -152,19 +158,30 @@ export function loadCfg() {
     };
 }
 
+let utilitySessionAllowMain = false;
+
+export function setUtilitySessionAllowMain(on) {
+    utilitySessionAllowMain = on === true;
+}
+
+export function getUtilitySessionAllowMain() {
+    return utilitySessionAllowMain === true;
+}
+
+export function resolveUtilityRoute() {
+    const s = getSettings();
+    return resolveUtilityRoutePure({
+        utilityPresetId: s.utilityPresetId,
+        utilityPaused: s.utilityPaused === true,
+        utilityAllowMain: s.utilityAllowMain === true,
+        sessionAllowMain: getUtilitySessionAllowMain(),
+        presets: loadApiPresets(),
+        mainCfg: loadCfg(),
+    });
+}
+
 export function loadUtilityCfg() {
-    const id = getSettings().utilityPresetId || '';
-    if (!id) return loadCfg();
-    const p = loadApiPresets().find(x => x.id === id);
-    if (!p || !p.url || !p.key) return loadCfg();   // 预设被删/缺 url/key → 退回主 API
-    return {
-        url          : p.url   || '',
-        key          : p.key   || '',
-        model        : p.model || '',
-        excludeParams: Array.isArray(p.excludeParams) ? p.excludeParams : [],
-        timeoutSec   : normalizeApiTimeout(p.timeoutSec),
-        stream       : p.stream === true,
-    };
+    return resolveUtilityRoute().cfg || null;
 }
 
 export function saveCfg(c) {

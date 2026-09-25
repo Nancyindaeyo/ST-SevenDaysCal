@@ -1,5 +1,7 @@
 import { PLUGIN_VERSION } from '../version.js';
 import { detectPromptContractConflicts, promptContractCatalog } from './prompt-contracts.js';
+import { authorDraftsSnapshot } from '../business/utils/author-draft.js';
+import { utilityRouteSnapshot } from './utility-route.js';
 
 const SETTING_FLAGS = Object.freeze([
     'pluginEnabled',
@@ -13,6 +15,9 @@ const SETTING_FLAGS = Object.freeze([
     'ledgerCaptureEnabled',
     'ledgerJudgeInterval',
     'notifyMode',
+    'utilityPresetId',
+    'utilityPaused',
+    'utilityAllowMain',
 ]);
 
 export function settingsSnapshot(settings = {}) {
@@ -21,6 +26,8 @@ export function settingsSnapshot(settings = {}) {
         if (settings[key] !== undefined) out[key] = settings[key];
     }
     if (settings.ledgerCaptureInterval != null) out.ledgerCaptureInterval = settings.ledgerCaptureInterval;
+    if (settings.utilityRoute) out.utilityRoute = utilityRouteSnapshot(settings.utilityRoute);
+    if (Array.isArray(settings.authorDraftRecovery)) out.authorDrafts = authorDraftsSnapshot(settings.authorDraftRecovery);
     return out;
 }
 

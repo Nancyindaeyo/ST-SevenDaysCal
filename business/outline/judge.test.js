@@ -44,6 +44,17 @@ test('outline judge records a failed activity when API is missing', async () => 
     assert.equal(activities[0].reasonCode, 'config-missing');
 });
 
+test('outline judge skips when the utility route is invalid', async () => {
+    const { judge, activities } = makeJudge({
+        loadConfig: () => ({ status: 'invalid', reason: 'missing-preset', presetId: 'gone', presetName: '', cfg: null }),
+    });
+    const result = await judge.runAdvance(3);
+    assert.equal(result.status, 'skipped');
+    assert.equal(result.reason, 'utility-route-invalid');
+    assert.equal(activities[0].outcome, 'skipped');
+    assert.equal(activities[0].reasonCode, 'utility-route-invalid');
+});
+
 test('outline judge records parse failures so 【改】 can retry', async () => {
     const { judge, activities } = makeJudge({
         loadConfig: () => ({ url: 'u', key: 'k' }),

@@ -73,7 +73,11 @@ export function renderQueueStatus(queue = null) {
     )).join('');
     const skippedHtml = skippedJobs.map(job => {
         const reason = String(job.reason || job.error || '跳过');
-        const hint = reason === 'no-stamp' ? '缺戳' : reason === 'config-missing' || reason === 'no-api' ? '没配 API' : reason;
+        const hint = reason === 'no-stamp' ? '缺戳'
+            : reason === 'config-missing' || reason === 'no-api' ? '没配 API'
+                : reason === 'utility-route-invalid' ? '机械路由失效'
+                    : reason === 'utility-route-paused' ? '机械任务已暂停'
+                        : reason;
         return `<button type="button" class="sp-activity-queue-skip" data-queue-retry="${escape(job.id)}" data-skip-reason="${escape(reason)}" title="${escape(job.label)}跳过">${escape(job.label)}跳过 · ${escape(hint)}</button>`;
     }).join('');
     const rejectedHtml = rejectedJobs.map(job => {

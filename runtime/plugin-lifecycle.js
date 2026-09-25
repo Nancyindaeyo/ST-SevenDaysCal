@@ -106,6 +106,12 @@ function reportLifecycleFailure(h, failure, failures, async = false) {
     }
 }
 
+function isFailureValue(spec, result) {
+    if (!spec.falseIsFailure) return false;
+    if (result === false) return true;
+    return !!(result && typeof result === 'object' && result.ok === false);
+}
+
 function invokeLifecycleEffect(h, spec, failures) {
     const fn = readPath(h, spec.port);
     if (typeof fn !== 'function') {
@@ -116,12 +122,16 @@ function invokeLifecycleEffect(h, spec, failures) {
     const owner = ownerPath ? readPath(h, ownerPath) : h;
     try {
         const result = fn.apply(owner, spec.args || []);
-        if (spec.falseIsFailure && result === false) {
+        if (isFailureValue(spec, result)) {
             reportLifecycleFailure(h, lifecycleFailure(spec, new Error(`${spec.port} returned false`)), failures);
             return;
         }
         if (result && typeof result.then === 'function') {
-            result.catch(error => reportLifecycleFailure(h, lifecycleFailure(spec, error), failures, true));
+            result.then(value => {
+                if (isFailureValue(spec, value)) {
+                    reportLifecycleFailure(h, lifecycleFailure(spec, new Error(`${spec.port} returned false`)), failures, true);
+                }
+            }, error => reportLifecycleFailure(h, lifecycleFailure(spec, error), failures, true));
         }
     } catch (error) {
         reportLifecycleFailure(h, lifecycleFailure(spec, error), failures);

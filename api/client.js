@@ -1,6 +1,7 @@
 import { getContext } from '../../../../extensions.js';
 import { substituteParams } from '../../../../../script.js';
-import { getSettings, pluginEnabled, loadCfg, loadUtilityCfg } from '../runtime/settings.js';
+import { getSettings, pluginEnabled, loadCfg, resolveUtilityRoute } from '../runtime/settings.js';
+import { mechanicalCallConfig } from '../runtime/utility-route.js';
 import {
     normalizeApiUrl,
     PROTECTED_BODY_KEYS,
@@ -361,8 +362,10 @@ export async function callCustomApi(ctx, prompt, cfg, userName, charName, signal
 // Called by memory.js — minimal wrapper around user's configured API.
 // Skips chat history / world info; just sends raw messages array through.
 export async function callMemoryApi(messages, signal = null) {
+    const call = mechanicalCallConfig(resolveUtilityRoute());
+    if (!call.ok) throw makeDiagnosticError(call.reason);
     return postChatCompletion({
-        cfg: loadUtilityCfg(),   // 机械任务：可分流到轻量预设（省钱/降配），未设则=主 API
+        cfg: call.cfg,
         messages,
         maxTokens: 30000,   // 上限放宽（与其它调用统一为 30000）；摘要实际长度仍由提示词约束
         temperature: 0.3,   // low temp for factual extraction
