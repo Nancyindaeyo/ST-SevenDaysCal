@@ -1,18 +1,21 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace, QUOTE_MAX } from './excerpt-schema.js';
+import { clipText, matchExcerpt, normalizeExcerpt, normalizeExcerpts, formatExcerptForSpace } from './excerpt-schema.js';
 import { createExcerptRepository } from './excerpt-repository.js';
 import { groupItemsByTag, groupItemsByTheater, theaterGroupTitle, matchQuery, hayOf, coordinateBrowseMode } from './browse.js';
-import { filterSearchList, joinPickedText, readShadowSelection, splitPickUnits, useTapPick } from './excerpt-ui.js';
+import { bindClipCapture, bindSnapSelection, filterSearchList, joinPickedText, readShadowSelection, resolveClipQuote, splitPickUnits, useTapPick } from './excerpt-ui.js';
 import { snapshotSearchText } from './capture.js';
 
-test('clipText collapses space and caps length', () => {
-    assert.equal(clipText('  a \n  b  ', 20), 'a b');
-    assert.equal(clipText('a\n\n\nb', 20, { keepBreaks: true }), 'a\n\nb');
-    const long = '字'.repeat(QUOTE_MAX + 8);
-    const clipped = clipText(long, QUOTE_MAX);
+test('clipText collapses space and keeps long excerpts', () => {
+    assert.equal(clipText('  a \n  b  '), 'a b');
+    assert.equal(clipText('a\n\n\nb', undefined, { keepBreaks: true }), 'a\n\nb');
+    const long = '字'.repeat(8008);
+    assert.equal(clipText(long), long);
+    assert.equal(normalizeExcerpt({ id: '1', quote: long, note: long }).quote, long);
+    assert.equal(normalizeExcerpt({ id: '1', quote: '留', note: long }).note, long);
+    const clipped = clipText(long, 10);
     assert.equal(clipped.endsWith('…'), true);
-    assert.equal(clipped.length <= QUOTE_MAX, true);
+    assert.equal(clipped.length <= 10, true);
 });
 
 test('matchExcerpt searches quote and note with all tokens', () => {
@@ -134,6 +137,36 @@ test('character cards index snapshot body, notes and tags for search', async () 
     assert.match(html, /data-search="[^"]*春/);
 });
 
+test('excerpt composer and edit notes have no maxlength', async () => {
+    const { createCoordinateRenderer } = await import('./render.js');
+    let html = '';
+    const renderer = createCoordinateRenderer({
+        repository: {
+            getItem: async () => ({ id: '1', charName: '春', html: '<p>窗边还有月光。</p>', floorIndex: 1, ts: 1, tags: [] }),
+            getTags: async () => [],
+            listByChat: async () => [],
+            countItems: async () => 0,
+        },
+        excerptRepo: {
+            list: async () => [{ id: 'e1', quote: '长摘抄', note: '点评', charName: '春', floorIndex: 1, ts: 1, tags: [] }],
+            count: async () => 1,
+        },
+        setBody: next => { html = next; },
+        getState: () => ({
+            level: 'full', itemId: '1', shelf: 'snaps', browse: 'char', snapSearch: '', clipSearch: '',
+            composer: { quote: '窗边还有月光。', note: '' }, excerptEditId: 'e1', filter: null,
+        }),
+        documentRef: { createTreeWalker: () => ({ nextNode: () => null }), createElement: () => ({}) },
+        queryRoot: { querySelector: () => null },
+    });
+    await renderer.full('1');
+    assert.match(html, /sp-excerpt-composer/);
+    assert.equal(/sp-excerpt-note-input[^>]*maxlength/.test(html), false);
+    await renderer.excerpts();
+    assert.match(html, /sp-excerpt-note-input/);
+    assert.equal(/sp-excerpt-note-input[^>]*maxlength/.test(html), false);
+});
+
 test('search box is not a shelf tab', async () => {
     const { createCoordinateRenderer } = await import('./render.js');
     let html = '';
@@ -216,6 +249,62 @@ test('shadow selection falls back to tapped sentences', () => {
     assert.equal(readShadowSelection(host), '第一句。 第二句。');
 });
 
+test('mobile multi-pick wins over a leftover native range and a cleared selection', () => {
+    const host = {
+        contains: () => true,
+        shadowRoot: {
+            getSelection: () => '只剩最后一句。',
+            contains: () => true,
+            querySelectorAll: () => [{ textContent: '第一句。' }, { textContent: '第二句。' }],
+        },
+    };
+    assert.equal(readShadowSelection(host), '第一句。 第二句。');
+    assert.equal(resolveClipQuote(host, '缓存'), '第一句。 第二句。');
+    const empty = {
+        contains: () => false,
+        shadowRoot: {
+            getSelection: () => '',
+            contains: () => false,
+            querySelectorAll: () => [],
+        },
+    };
+    assert.equal(resolveClipQuote(empty, '  缓存的两句  '), '缓存的两句');
+});
+
+test('clip button pointerdown keeps multi-pick after native selection is gone', () => {
+    const onPicks = [
+        { textContent: '第一句。' },
+        { textContent: '第二句。' },
+    ];
+    const host = {
+        contains: () => false,
+        shadowRoot: {
+            getSelection: () => '',
+            contains: () => false,
+            querySelectorAll: sel => sel === '.sp-anchor-pick-on' ? onPicks : [],
+            addEventListener() {},
+            removeEventListener() {},
+        },
+    };
+    const handlers = {};
+    const button = {
+        addEventListener: (type, fn) => { handlers[type] = fn; },
+        removeEventListener: (type) => { delete handlers[type]; },
+    };
+    let quote = '';
+    const offSel = bindSnapSelection({
+        host,
+        onChange: next => { quote = next; },
+        tapPick: () => true,
+    });
+    const offBtn = bindClipCapture(button, () => { quote = resolveClipQuote(host, quote); });
+    quote = '';
+    handlers.pointerdown();
+    assert.equal(quote, '第一句。 第二句。');
+    offBtn();
+    offSel();
+});
+
 test('snapshot notes and search text stay in the index meta', async () => {
     const { normalizeMeta } = await import('./schema.js');
     const meta = normalizeMeta({ id: 'x', textPreview: '正文', note: '  这是备注  ', searchText: '  正文 后面还有月光  ' });
@@ -262,4 +351,8 @@ test('excerpt repository keeps snapshots untouched in its own file', async () =>
     assert.deepEqual((await repo.get(saved.id)).tags, []);
     await repo.remove(saved.id);
     assert.equal(await repo.count(), 0);
+    const long = '月'.repeat(5000);
+    const longSaved = await repo.add({ quote: long, note: '点评'.repeat(2500), charName: '春' });
+    assert.equal(longSaved.quote, long);
+    assert.equal(longSaved.note.length, 5000);
 });

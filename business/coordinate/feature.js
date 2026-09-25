@@ -3,9 +3,9 @@ import { createCoordinateUI } from './ui.js';
 import { captureMesText, sanitizeSnapshot, makePreview } from './capture.js';
 import { createCoordinateRenderer, createFullscreenController } from './render.js';
 import { clearReplyMarker, normalizeId, readReplyMarker, replyVersion, writeReplyMarker } from './identity.js';
-import { clipText, NOTE_MAX, QUOTE_MAX } from './excerpt-schema.js';
+import { clipText } from './excerpt-schema.js';
 import { SNAP_NOTE_MAX } from './schema.js';
-import { bindSnapSelection, filterSearchList, readShadowSelection } from './excerpt-ui.js';
+import { bindClipCapture, bindSnapSelection, filterSearchList, resolveClipQuote } from './excerpt-ui.js';
 
 export function createCoordinateFeature({ repository, excerpts = null, root = null, capture = captureMesText, ports = null, host = {} } = {}) {
     const ui = createCoordinateUI({ root });
@@ -19,15 +19,23 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
     const rendererImpl = createCoordinateRenderer({ repository, excerptRepo: excerpts, setBody: html => { const active = activeRender; if (root && active && active.token === renderToken && controller.isCurrent(active.revision)) root.innerHTML = html; }, getState: () => { const state = ui.state?.() || {}; return { ...state, level: state.level || ui.route(), charName: state.charName, chatId: state.chatId ?? null, itemId: state.itemId }; }, setState: next => ui.setRoute(next), getTheme: () => currentTheme, documentRef: host.document || globalThis.document, queryRoot: root });
     const renderCurrent = task => { const current = { token: ++renderToken, revision: controller.snapshotRevision() }; activeRender = current; return Promise.resolve(task()).finally(() => { if (activeRender === current) activeRender = null; }); };
     let clipOff = null;
+    let lastClipQuote = '';
+    const rememberClip = quote => {
+        const next = String(quote || '');
+        if (next) lastClipQuote = next;
+        root?.querySelector?.('.sp-anchor-clip')?.classList.toggle('sp-anchor-clip-ready', Boolean(next));
+    };
     const attachClipPicker = () => {
         clipOff?.();
         clipOff = null;
+        lastClipQuote = '';
         const hostEl = root?.querySelector?.('#sp-anchor-full-host');
         if (!hostEl) return;
-        clipOff = bindSnapSelection({
-            host: hostEl,
-            onChange: quote => root?.querySelector?.('.sp-anchor-clip')?.classList.toggle('sp-anchor-clip-ready', Boolean(quote)),
-        });
+        const clipBtn = root.querySelector('.sp-anchor-clip');
+        const capture = () => rememberClip(resolveClipQuote(hostEl, lastClipQuote));
+        const offBtn = bindClipCapture(clipBtn, capture);
+        const offSel = bindSnapSelection({ host: hostEl, onChange: rememberClip });
+        clipOff = () => { offBtn(); offSel(); };
     };
     const renderer = new Proxy(rendererImpl, { get(target, key) { const value = target[key]; return typeof value === 'function' && ['render', 'chars', 'chats', 'items', 'full', 'tags', 'excerpts', 'group'].includes(key) ? (...args) => renderCurrent(() => value.apply(target, args)).then(result => { applySearchFilter(); if (key === 'full' || (key === 'render' && ui.route() === 'full')) attachClipPicker(); return result; }) : value; } });
     const fullscreen = createFullscreenController({ body: root, sheet: host.sheet?.(), documentRef: host.document || globalThis.document });
@@ -238,7 +246,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
                 return renderer.render();
             }
             if (el.matches('.sp-anchor-clip')) {
-                const quote = clipText(readShadowSelection(target.querySelector('#sp-anchor-full-host')), QUOTE_MAX);
+                const quote = clipText(resolveClipQuote(target.querySelector('#sp-anchor-full-host'), lastClipQuote));
                 if (!quote) return host.toast?.('先在快照里划选或点选一段文字', null, true);
                 ui.setComposer({ quote, note: '', snapshotId: ui.itemId() });
                 return renderer.full(ui.itemId());
@@ -248,7 +256,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
                 return ui.itemId() ? renderer.full(ui.itemId()) : renderer.render();
             }
             if (el.matches('.sp-excerpt-save')) {
-                const note = clipText(target.querySelector('.sp-excerpt-composer .sp-excerpt-note-input')?.value, NOTE_MAX, { keepBreaks: true });
+                const note = clipText(target.querySelector('.sp-excerpt-composer .sp-excerpt-note-input')?.value, undefined, { keepBreaks: true });
                 const composer = ui.state().composer;
                 if (!composer?.quote || !excerpts) return;
                 const snap = await repository.getItem(composer.snapshotId || ui.itemId());
@@ -299,7 +307,7 @@ export function createCoordinateFeature({ repository, excerpts = null, root = nu
             if (el.matches('.sp-excerpt-edit')) { ui.setExcerptEdit(id); return renderer.excerpts(); }
             if (el.matches('.sp-excerpt-edit-cancel')) { ui.setExcerptEdit(null); return renderer.excerpts(); }
             if (el.matches('.sp-excerpt-edit-save')) {
-                const note = clipText(target.querySelector(`.sp-excerpt-note-input[data-id="${id}"]`)?.value, NOTE_MAX, { keepBreaks: true });
+                const note = clipText(target.querySelector(`.sp-excerpt-note-input[data-id="${id}"]`)?.value, undefined, { keepBreaks: true });
                 try { await excerpts.update(id, { note }); }
                 catch (error) { return host.toast?.(`保存失败：${error?.message || ''}`, null, true); }
                 ui.setExcerptEdit(null);

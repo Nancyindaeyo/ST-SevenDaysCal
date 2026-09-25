@@ -2,8 +2,6 @@ import { matchQuery, hayOf } from './browse.js';
 
 export const EXCERPTS_NAME = 'sp-anchor-excerpts.json';
 export const EXCERPT_SCHEMA_VERSION = 1;
-export const QUOTE_MAX = 2000;
-export const NOTE_MAX = 4000;
 
 export function emptyExcerpts() {
     return { version: EXCERPT_SCHEMA_VERSION, items: [] };
@@ -14,8 +12,9 @@ export function clipText(value, max, { keepBreaks = false } = {}) {
     text = keepBreaks
         ? text.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').replace(/[ \t]{2,}/g, ' ').trim()
         : text.replace(/\s+/g, ' ').trim();
-    if (text.length <= max) return text;
-    return `${text.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+    const cap = Number(max);
+    if (!Number.isFinite(cap) || cap < 0 || text.length <= cap) return text;
+    return `${text.slice(0, Math.max(0, cap - 1)).trimEnd()}…`;
 }
 
 export function normalizeExcerpt(item) {
@@ -27,8 +26,8 @@ export function normalizeExcerpt(item) {
         chatName: String(src.chatName || ''),
         charName: String(src.charName || ''),
         floorIndex: Number.isFinite(Number(src.floorIndex)) ? Number(src.floorIndex) : null,
-        quote: clipText(src.quote, QUOTE_MAX),
-        note: clipText(src.note, NOTE_MAX, { keepBreaks: true }),
+        quote: clipText(src.quote),
+        note: clipText(src.note, undefined, { keepBreaks: true }),
         tags: Array.isArray(src.tags) ? [...new Set(src.tags.map(id => String(id)).filter(Boolean))] : [],
         ts: Number(src.ts) || 0,
     };

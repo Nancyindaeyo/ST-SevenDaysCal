@@ -54,7 +54,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
         return `<div class="sp-anchor-shelf" role="tablist"><button type="button" class="sp-anchor-shelf-tab${shelf !== 'clips' ? ' sp-anchor-shelf-on' : ''}" data-shelf="snaps" role="tab">快照${snapN}</button><button type="button" class="sp-anchor-shelf-tab${shelf === 'clips' ? ' sp-anchor-shelf-on' : ''}" data-shelf="clips" role="tab">摘抄${clipN}</button></div>`;
     };
     const snapHead = async (s, extra = '') => `<div class="sp-anchor-head sp-anchor-chars-head">${await shelfBar(s.shelf)}${s.shelf !== 'clips' ? browseBar(s.browse) : ''}${extra}</div>`;
-    const composerHtml = composer => !composer?.quote ? '' : `<div class="sp-excerpt-composer"><div class="sp-excerpt-composer-kicker">新摘抄</div><blockquote class="sp-excerpt-quote">${escapeHtml(composer.quote)}</blockquote><textarea class="sp-excerpt-note-input sp-input" rows="3" maxlength="4000" placeholder="写一句点评，也可以先留空…">${escapeHtml(composer.note || '')}</textarea><div class="sp-excerpt-composer-foot"><button type="button" class="sp-excerpt-cancel sp-mini-btn">取消</button><button type="button" class="sp-excerpt-save sp-mini-btn">收下这条</button></div></div>`;
+    const composerHtml = composer => !composer?.quote ? '' : `<div class="sp-excerpt-composer"><div class="sp-excerpt-composer-kicker">新摘抄</div><blockquote class="sp-excerpt-quote">${escapeHtml(composer.quote)}</blockquote><textarea class="sp-excerpt-note-input sp-input" rows="3" placeholder="写一句点评，也可以先留空…">${escapeHtml(composer.note || '')}</textarea><div class="sp-excerpt-composer-foot"><button type="button" class="sp-excerpt-cancel sp-mini-btn">取消</button><button type="button" class="sp-excerpt-save sp-mini-btn">收下这条</button></div></div>`;
     const snapTheme = () => {
         const root = queryRoot?.closest?.('.sp-root') || queryRoot?.querySelector?.('.sp-root') || documentRef?.querySelector?.('.sp-root');
         const cs = root ? globalThis.getComputedStyle?.(root) : null;
@@ -176,7 +176,7 @@ export function createCoordinateRenderer({ repository, excerptRepo = null, setBo
             const editing = s.excerptEditId === item.id;
             const quote = `<blockquote class="sp-excerpt-quote">${escapeHtml(item.quote)}</blockquote>`;
             const note = editing
-                ? `<textarea class="sp-excerpt-note-input sp-input" rows="3" maxlength="4000" data-id="${esc(item.id)}" placeholder="点评…">${escapeHtml(item.note || '')}</textarea>`
+                ? `<textarea class="sp-excerpt-note-input sp-input" rows="3" data-id="${esc(item.id)}" placeholder="点评…">${escapeHtml(item.note || '')}</textarea>`
                 : (item.note ? `<div class="sp-excerpt-note">${escapeHtml(item.note)}</div>` : `<div class="sp-excerpt-note sp-excerpt-note-empty">还没有点评</div>`);
             const actions = editing
                 ? `<div class="sp-excerpt-actions"><button type="button" class="sp-excerpt-edit-save sp-mini-btn" data-id="${esc(item.id)}">保存</button><button type="button" class="sp-excerpt-edit-cancel sp-mini-btn" data-id="${esc(item.id)}">取消</button></div>`

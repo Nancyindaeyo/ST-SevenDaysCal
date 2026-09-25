@@ -65,7 +65,7 @@ export function readPickedText(host) {
     return joinPickedText([...picks].map(el => el.textContent));
 }
 
-export function readShadowSelection(host) {
+export function readNativeSelection(host) {
     if (!host) return '';
     const shadow = host.shadowRoot;
     const fromSel = sel => String(sel?.toString?.() || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
@@ -78,7 +78,26 @@ export function readShadowSelection(host) {
         const text = inside ? fromSel(docSel) : '';
         if (text) return text;
     }
-    return readPickedText(host);
+    return '';
+}
+
+export function readShadowSelection(host) {
+    return readPickedText(host) || readNativeSelection(host);
+}
+
+export function resolveClipQuote(host, cached = '') {
+    return readShadowSelection(host) || String(cached || '').replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+export function bindClipCapture(button, capture) {
+    if (!button || typeof capture !== 'function') return () => {};
+    const onPointer = () => { capture(); };
+    button.addEventListener('pointerdown', onPointer);
+    button.addEventListener('touchstart', onPointer, { passive: true });
+    return () => {
+        button.removeEventListener('pointerdown', onPointer);
+        button.removeEventListener('touchstart', onPointer);
+    };
 }
 
 export function bindSnapSelection({ host, onChange, tapPick = useTapPick } = {}) {

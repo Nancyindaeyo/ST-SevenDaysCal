@@ -711,7 +711,8 @@ q::after {
     height: 1.35em;
     display: block;
 }
-/* Chinese vertical text on tab labels — book-spine style */
+/* Chinese vertical text on tab labels — book-spine style.
+   vertical-rl 折到第二列会往左加，两字会读成「标坐 / 台日」。锁单列。 */
 .sp-side-tab .sp-tab-label {
     writing-mode: vertical-rl;
     text-orientation: upright;
@@ -719,6 +720,8 @@ q::after {
     font-weight: 600;
     letter-spacing: 0.32em;
     line-height: 1;
+    white-space: nowrap;
+    max-width: 1.15em;
 }
 /* Tick mark on margin rule — hairline inactive, solid accent active */
 .sp-side-tab::before {
@@ -8582,14 +8585,16 @@ body.sp-anchor-fs-lock { overflow: hidden; }
     outline-offset: 2px;
 }
 
-/* 触控目标：桌面 28px，粗指针 44px */
+/* 触控目标：桌面 28px，粗指针 44px。侧栏 tab 只保高度，加宽会让竖排标签折成「标坐」。 */
 .sp-icon-btn,
 .sp-panel-refresh,
-.sp-side-tab,
 .sp-mini-btn,
 .sp-activity-jump,
 .sp-activity-undo-item {
     min-width: max(var(--sp-btn-22), var(--sp-touch-min));
+    min-height: max(var(--sp-btn-22), var(--sp-touch-min));
+}
+.sp-side-tab {
     min-height: max(var(--sp-btn-22), var(--sp-touch-min));
 }
 @media (pointer: coarse) {
