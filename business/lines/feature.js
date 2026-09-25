@@ -227,6 +227,12 @@ export function createLinesFeature(env = {}) {
               title: l.pin ? "解锁这条线" : "锁定这条线",
             },
             {
+              action: "line-dormant",
+              icon: l.dormant ? "fa-eye" : "fa-moon",
+              label: l.dormant ? "唤醒" : "休眠",
+              title: l.dormant ? "唤醒这条线" : "休眠这条线，不注入也不进日台",
+            },
+            {
               action: "line-inject",
               icon: "fa-arrow-right-to-bracket",
               label: "注入",
@@ -254,7 +260,7 @@ export function createLinesFeature(env = {}) {
         const nextHtml = l.next
           ? `<div class="sp-line-next ${l.stall ? "sp-line-next-stall" : "sp-line-next-go"}"><span class="sp-line-next-tag">${l.stall ? "⏸" : "→"}</span>${sensitive(nextText, adult)}</div>`
           : "";
-        return `<div class="sp-beat sp-line-card${l.stall ? " sp-line-stall" : ""}${l.pin ? " sp-line-pinned" : ""}${l.adult ? " sp-line-adult" : ""}" data-line-idx="${i}" data-jump-mod="lines" data-jump-key="${env.escapeAttr?.(l.name) || ""}"${l.id ? ` data-jump-ref="${env.escapeAttr?.(l.id) || ""}"` : ""} style="border-left:3px solid ${edgeColor}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-type" style="color:${color}">${env.escapeHtml?.(l.stage)}</span>${lineStageMeterHtml(l.stage, color)}${l.when ? `<span class="sp-line-when">${env.escapeHtml?.(l.when)}</span>` : ""}${l.stall ? '<span class="sp-line-stall-tag">停滞</span>' : ""}<span class="sp-beat-actions">${actions}</span></div>${sensitive(titleHtml("sp-beat-title", l), adult)}${cueLabelsHtml(l)}${sensitive(desc, adult)}${nextHtml}</div>`;
+        return `<div class="sp-beat sp-line-card${l.stall ? " sp-line-stall" : ""}${l.pin ? " sp-line-pinned" : ""}${l.adult ? " sp-line-adult" : ""}${l.dormant ? " sp-line-dormant" : ""}" data-line-idx="${i}" data-jump-mod="lines" data-jump-key="${env.escapeAttr?.(l.name) || ""}"${l.id ? ` data-jump-ref="${env.escapeAttr?.(l.id) || ""}"` : ""} style="border-left:3px solid ${edgeColor}"><div class="sp-beat-head"><span class="sp-seq-badge">#${i + 1}</span><span class="sp-beat-type" style="color:${color}">${env.escapeHtml?.(l.stage)}</span>${lineStageMeterHtml(l.stage, color)}${l.when ? `<span class="sp-line-when">${env.escapeHtml?.(l.when)}</span>` : ""}${l.stall ? '<span class="sp-line-stall-tag">停滞</span>' : ""}${l.dormant ? '<span class="sp-line-dormant-tag">休眠</span>' : ""}<span class="sp-beat-actions">${actions}</span></div>${sensitive(titleHtml("sp-beat-title", l), adult)}${cueLabelsHtml(l)}${sensitive(desc, adult)}${nextHtml}</div>`;
       })
       .join("");
     return `${env.jumpHint?.() || ""}${cards}`;
@@ -1006,6 +1012,7 @@ export function createLinesFeature(env = {}) {
     reroll: (...args) => actions?.reroll?.(...args),
     deleteLine: (...args) => actions?.delete?.(...args),
     togglePin: (...args) => actions?.pin?.(...args),
+    toggleDormant: (...args) => actions?.dormant?.(...args),
     get sheet() {
       return sheet;
     },

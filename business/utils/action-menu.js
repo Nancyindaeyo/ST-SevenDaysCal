@@ -46,6 +46,7 @@ export function dispatchManualAction(ctx, env = {}) {
     if (action === 'point-inject') return env.inject?.(ctx.iid);
     if (action === 'line-edit') return env.lineEdit?.(ctx.idx);
     if (action === 'line-pin') return env.linePin?.(ctx.idx);
+    if (action === 'line-dormant') return env.lineDormant?.(ctx.idx);
     if (action === 'line-delete') return env.lineDelete?.(ctx.idx);
     if (action === 'line-inject') return env.inject?.(ctx.iid);
     if (action === 'outline-edit') return env.outlineEdit?.(beat);

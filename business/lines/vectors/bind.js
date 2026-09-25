@@ -10,7 +10,7 @@ export function bindVectorTickets({ previousLines = [], generatedLines = [], fre
     const used = new Set();
     const bound = (Array.isArray(generatedLines) ? generatedLines : []).map(line => {
         const queue = queues.get(line?.name); const old = queue?.shift();
-        if (old) { if (line.ticketId != null) throw new Error('old-line-ticket-forbidden'); const withoutTicket = { ...line }; delete withoutTicket.ticketId; return { ...withoutTicket, pin: old.pin === true, adult: old.adult === true, cue: old.cue ?? null }; }
+        if (old) { if (line.ticketId != null) throw new Error('old-line-ticket-forbidden'); const withoutTicket = { ...line }; delete withoutTicket.ticketId; return { ...withoutTicket, pin: old.pin === true, adult: old.adult === true, dormant: old.dormant === true, cue: old.cue ?? null }; }
         // A terminal line is only valid when it closes an identity present in this run.
         // Dropping it here also leaves the next fresh ticket untouched.
         if (isTerminalLineStage(line?.stage)) { if (line.ticketId != null) throw new Error('terminal-line-ticket-forbidden'); return null; }

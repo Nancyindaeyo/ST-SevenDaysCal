@@ -148,7 +148,7 @@ export function undoItemKey(item = {}) {
 
 export function remainingUndoItems(entry) {
     const done = new Set(entry?.undoneRefs || []);
-    return (entry?.items || []).filter(item => item.module === 'point' || item.module === 'lines').filter(item => !done.has(undoItemKey(item)));
+    return (entry?.items || []).filter(item => item.module === 'point' || item.module === 'lines' || (item.module === 'outline' && item.action !== 'cursor')).filter(item => !done.has(undoItemKey(item)));
 }
 
 function optionalIndex(value) {

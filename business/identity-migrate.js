@@ -1,6 +1,7 @@
 // 旧聊天补本地 Id:：只改存储文本，不进生成提示词。没有缺 id 时不重写。
 import { parseCalendar, serializeCalendar } from './point/parse.js';
 import { parseLines, serializeLines } from './lines/schema.js';
+import { parseOutline, serializeOutlineBeats } from './outline/schema.js';
 
 function pointEvents(parsed) {
     return [
@@ -35,6 +36,18 @@ export function migrateLinesRaw(raw) {
         const lines = parseLines(source);
         if (!lines.length || !lines.some(missingId)) return { changed: false, raw: source };
         return { changed: true, raw: serializeLines(lines), previous: source };
+    } catch {
+        return { changed: false, raw: source };
+    }
+}
+
+export function migrateOutlineRaw(raw) {
+    const source = String(raw || '');
+    if (!source.trim()) return { changed: false, raw: source };
+    try {
+        const beats = parseOutline(source);
+        if (!beats.length || !beats.some(missingId)) return { changed: false, raw: source };
+        return { changed: true, raw: serializeOutlineBeats(beats, { assignIds: true }), previous: source };
     } catch {
         return { changed: false, raw: source };
     }

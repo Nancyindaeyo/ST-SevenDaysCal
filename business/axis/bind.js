@@ -49,6 +49,7 @@ export function bindAlmanacPanel($almanac, env = {}) {
         if (Number.isInteger(day)) void env.startTravel?.({ month: env.calMonth?.() + 1, day });
     });
     $almanac.on('click', '.sp-alm-time-travel-stop', function () { void env.cancelTravel?.(); });
+    $almanac.on('click', '.sp-alm-jump-back', function () { void env.jumpBack?.($(this).attr('data-id')); });
     $almanac.on('click', '.sp-alm-cell[data-day]', function () { env.calendarActions?.selectDay?.(parseInt($(this).attr('data-day'), 10)); });
     $almanac.on('click', '.sp-alm-cal-clearsel', function () { env.calendarActions?.selectDay?.(null); });
     $almanac.on('click', '.sp-alm-add-day', function () {

@@ -5,6 +5,7 @@
 // 注入，避免反向 import index.js 造成循环依赖（其余依赖——store / axisState / 历法数据 /
 // escape / weatherChipHtml——均为已拆模块，直接 import）。
 import { parseCalendar, buildPointInjectText } from './parse.js';
+import { diagnosePointWindow } from './window-integrity.js';
 import { isGregorian } from '../calendar/date.js';
 import { asCalendarDate, buildScheduleDateContext, scheduleDateAtOffset, scheduleWeekdayAtOffset, formatPointDate } from './date-context.js';
 import { axisState } from '../axis/state.js';
@@ -186,8 +187,9 @@ export function renderSchedule(raw, userName, perspective = 'user', calendar = n
         `<div class="sp-day-panel sp-future-panel" style="width:calc(100%/${totalTabs})">${future.events.map((ev, ei) => renderEvent(ev, 'future', ei, '', '', '未来')).join('')}</div>`
     );
 
-    const debug = populatedDays < 3 ? `
-        <details class="sp-debug"><summary>⚠ 仅解析到 ${populatedDays} 天</summary>
+    const diagnosis = diagnosePointWindow(raw, ctx.cal);
+    const debug = !diagnosis.ok ? `
+        <details class="sp-debug"><summary>⚠ ${escapeHtml(diagnosis.issues.map(item => item.detail).join('；') || `仅解析到 ${populatedDays} 天`)}</summary>
         <pre class="sp-debug-raw">${escapeHtml(raw)}</pre></details>` : '';
 
     return `${header}${alignHtml}<div class="sp-tab-bar" data-total="${totalTabs}">${tabs.join('')}</div>

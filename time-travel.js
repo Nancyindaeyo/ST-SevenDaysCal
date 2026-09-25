@@ -383,7 +383,14 @@ export function createTimeTravelController({ getChatId, getChat, resolveDestinat
                 state = null;
                 reportState('cancelled');
                 try {
-                    await onSequenceEnd?.({ messageId: mid, chatId: cancelled.chatId, sessionId: cancelled.sessionId, reason: 'cancelled' });
+                    await onSequenceEnd?.({
+                        messageId: mid,
+                        chatId: cancelled.chatId,
+                        sessionId: cancelled.sessionId,
+                        reason: 'cancelled',
+                        sourceDate: cancelled.sourceDate,
+                        selectedTargetDate: cancelled.selectedTargetDate,
+                    });
                 } catch (error) {
                     console.error('[SP 时光旅行] 流程收尾失败', safeDiagnosticLog('time-travel', 'save', error));
                 }
@@ -464,7 +471,14 @@ export function createTimeTravelController({ getChatId, getChat, resolveDestinat
                 reportState(terminalReason);
             }
             try {
-                await onSequenceEnd?.({ messageId: Number(messageId), chatId: active.chatId, sessionId: active.sessionId, reason: terminalReason });
+                await onSequenceEnd?.({
+                    messageId: Number(messageId),
+                    chatId: active.chatId,
+                    sessionId: active.sessionId,
+                    reason: terminalReason,
+                    sourceDate: active.sourceDate,
+                    selectedTargetDate: active.selectedTargetDate,
+                });
             } catch (error) {
                 console.error('[SP 时光旅行] 流程收尾失败', safeDiagnosticLog('time-travel', 'save', error));
             }

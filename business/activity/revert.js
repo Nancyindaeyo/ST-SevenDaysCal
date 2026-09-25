@@ -1,10 +1,12 @@
 import { parseCalendar, serializeCalendar } from '../point/parse.js';
 import { parseLines, serializeLines } from '../lines/schema.js';
+import { parseOutline, serializeOutlineBeats } from '../outline/schema.js';
 import { findBookIndex, fingerprintBookItem } from '../identity.js';
 import { undoItemKey } from './schema.js';
 
 const POINT_KEYS = ['type', 'title', 'desc', 'time', 'location', 'npcAction', 'pin'];
-const LINE_KEYS = ['name', 'stage', 'when', 'agency', 'stall', 'pin', 'adult', 'desc', 'next'];
+const LINE_KEYS = ['name', 'stage', 'when', 'agency', 'stall', 'pin', 'adult', 'dormant', 'desc', 'next'];
+const OUTLINE_KEYS = ['time', 'title', 'type', 'line', 'outcome', 'scene', 'subtext', 'think', 'volume'];
 
 export { undoItemKey };
 
@@ -101,4 +103,43 @@ export function restoreLineItem(currentRaw, snapshotRaw, afterRaw, item) {
     if (fingerprintBookItem(current[currentIndex], LINE_KEYS) !== fingerprintBookItem(after[afterIndex], LINE_KEYS)) return { changed: false, raw: currentRaw };
     current[currentIndex] = { ...snapshot[snapIndex] };
     return { changed: true, raw: serializeLines(current) };
+}
+
+function outlineRawOf(value) {
+    return typeof value === 'string' ? value : String(value?.raw || '');
+}
+
+function outlineCursorOf(value) {
+    return Number(value?.cursor) || 0;
+}
+
+export function restoreOutlineItem(currentValue, snapshotValue, afterValue, item) {
+    const currentRaw = outlineRawOf(currentValue);
+    const snapshot = parseOutline(outlineRawOf(snapshotValue));
+    const after = parseOutline(outlineRawOf(afterValue));
+    const current = parseOutline(currentRaw);
+    const snapIndex = findBookIndex(snapshot, { id: item?.ref, name: item?.title, nameOf: 'title' });
+    const afterIndex = findBookIndex(after, { id: item?.ref, name: item?.title, nameOf: 'title' });
+    const currentIndex = findBookIndex(current, { id: item?.ref, name: item?.title, nameOf: 'title' });
+    const wrap = raw => ({ raw, cursor: outlineCursorOf(snapshotValue) || outlineCursorOf(currentValue) });
+    if (snapIndex < 0 && afterIndex < 0) return { changed: false, raw: currentValue };
+    if (snapIndex < 0 && afterIndex >= 0) {
+        if (currentIndex < 0) return { changed: false, raw: currentValue };
+        if (fingerprintBookItem(current[currentIndex], OUTLINE_KEYS) !== fingerprintBookItem(after[afterIndex], OUTLINE_KEYS)) {
+            return { changed: false, raw: currentValue };
+        }
+        current.splice(currentIndex, 1);
+        return { changed: true, raw: wrap(current.length ? serializeOutlineBeats(current, { assignIds: true }) : '') };
+    }
+    if (afterIndex < 0) {
+        if (currentIndex >= 0) return { changed: false, raw: currentValue };
+        current.splice(Math.min(snapIndex, current.length), 0, { ...snapshot[snapIndex] });
+        return { changed: true, raw: wrap(serializeOutlineBeats(current, { assignIds: true })) };
+    }
+    if (currentIndex < 0) return { changed: false, raw: currentValue };
+    if (fingerprintBookItem(current[currentIndex], OUTLINE_KEYS) !== fingerprintBookItem(after[afterIndex], OUTLINE_KEYS)) {
+        return { changed: false, raw: currentValue };
+    }
+    current[currentIndex] = { ...snapshot[snapIndex] };
+    return { changed: true, raw: wrap(serializeOutlineBeats(current, { assignIds: true })) };
 }

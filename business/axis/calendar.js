@@ -46,11 +46,15 @@ export function renderAxisCalendar(env) {
     }
     let detailItems;
     let detailHead;
+    const latestFootprint = (env.footprints?.() || [])[0];
+    const jumpBackControl = !travelState && latestFootprint?.sourceDate
+        ? `<button class="sp-alm-jump-back sp-mini-btn" data-id="${escapeHtml(latestFootprint.id || '')}">回到出发日</button>`
+        : '';
     const travelControl = travelState
         ? '<button class="sp-alm-time-travel-stop sp-mini-btn">中断时旅</button>'
         : (selected != null && !(anchor.month === month1 && anchor.day === selected)
-            ? `<button class="sp-alm-time-travel sp-mini-btn" data-day="${selected}">跳到这天</button>`
-            : '');
+            ? `<button class="sp-alm-time-travel sp-mini-btn" data-day="${selected}">跳到这天</button>${jumpBackControl}`
+            : jumpBackControl);
     if (selected != null) {
         const selectedDoy = almDayOfYear(month1, selected, cal);
         detailItems = items.filter(it => almItemCoversDoy(it, selectedDoy, cal)).sort((a, b) => a.month - b.month || a.day - b.day);

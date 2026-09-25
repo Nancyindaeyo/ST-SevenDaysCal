@@ -43,10 +43,10 @@ export function searchLampBooks(query, books = {}) {
             push('point', event.title, [event.time, event.location, event.desc].filter(Boolean).join(' · '));
         }
     }
-    for (const line of books.lines || []) {
-        const fields = [line.name, line.when, line.desc, line.next, line.stage];
+    for (const line of books.storedLines || books.lines || []) {
+        const fields = [line.name, line.when, line.desc, line.next, line.stage, line.dormant ? '休眠' : ''];
         if (!matchQuery(needle, fields)) continue;
-        push('lines', line.name, [line.when, line.stage, line.desc].filter(Boolean).join(' · '));
+        push('lines', line.name, [line.dormant ? '休眠' : '', line.when, line.stage, line.desc].filter(Boolean).join(' · '), line.id);
     }
     for (const beat of books.outline || []) {
         const fields = [beat.title, beat.scene, beat.time];

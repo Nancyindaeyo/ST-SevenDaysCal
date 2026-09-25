@@ -125,18 +125,26 @@ function chaseRow(busy = false) {
         <button type="button" class="sp-btn" id="sp-lamp-check-story"${off}>对照最新楼</button>
         <button type="button" class="sp-btn" id="sp-lamp-preview-align"${off}>先看再写</button>
         <button type="button" class="sp-btn" id="sp-lamp-preview-window"${off}>追从上次对齐到现在</button>
+        <button type="button" class="sp-btn" id="sp-lamp-preview-fight"${off}>先看打架</button>
     </div>`;
 }
 
 function previewBlock(preview) {
     if (!preview) return '';
     const note = preview.note ? `<p class="sp-cfg-hint sp-lamp-hint">${escapeHtml(preview.note)}</p>` : '';
+    const route = preview.route
+        ? `<p class="sp-cfg-hint sp-lamp-hint">API ${escapeHtml(preview.route.api)} · ${escapeHtml((preview.route.selected || []).join('/') || 'point/lines')} · token ${escapeHtml(preview.route.tokenTier)}</p>`
+        : '';
+    const locks = preview.skippedLocks?.length
+        ? `<p class="sp-cfg-hint sp-lamp-hint">锁定未改：${escapeHtml(preview.skippedLocks.map(item => item.title || item.name || item).join('、'))}</p>`
+        : '';
     const empty = !preview.items?.length
         ? emptyRow('对照过了，点和线都不用改。')
-        : preview.items.map(item => `<span class="sp-pace-chip">${escapeHtml((MODULE_LABEL[item.module] || item.module) + ' · ' + item.title + ' · ' + (item.detail || ''))}</span>`).join('');
-    return `<section class="sp-lamp-section"><h2 class="sp-lamp-h">拟改清单</h2>${note}<div class="sp-lamp-basket">${empty}</div>
+        : preview.items.map(item => `<span class="sp-pace-chip">${escapeHtml((MODULE_LABEL[item.module] || item.module) + ' · ' + item.title + ' · ' + (item.detail || item.action || ''))}</span>`).join('');
+    const applyLabel = preview.kind === 'fight' ? '写入这次打架' : '写入这次对齐';
+    return `<section class="sp-lamp-section"><h2 class="sp-lamp-h">拟改清单</h2>${note}${route}${locks}<div class="sp-lamp-basket">${empty}</div>
         <div class="sp-lamp-actions">
-            <button type="button" class="sp-btn sp-btn-primary" id="sp-lamp-apply-preview"${preview.items?.length ? '' : ' disabled'}>写入这次对齐</button>
+            <button type="button" class="sp-btn sp-btn-primary" id="sp-lamp-apply-preview"${preview.items?.length ? '' : ' disabled'}>${applyLabel}</button>
             <button type="button" class="sp-btn" id="sp-lamp-drop-preview">丢掉预览</button>
         </div>
     </section>`;

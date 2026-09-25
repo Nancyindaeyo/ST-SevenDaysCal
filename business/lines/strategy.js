@@ -94,9 +94,9 @@ export function floorToFinalize({ chat = [], insertAt } = {}) {
     return null;
 }
 
-export function activeLines(raw, { includeTerminal = false } = {}) {
+export function activeLines(raw, { includeTerminal = false, includeDormant = false } = {}) {
     const lines = parseLines(raw);
-    return lines.filter(line => line.name && (includeTerminal || !TERMINAL_STAGES.has(line.stage)));
+    return lines.filter(line => line.name && (includeDormant || !line.dormant) && (includeTerminal || !TERMINAL_STAGES.has(line.stage)));
 }
 
 export function buildLinesInjection(lines, { prefix = '【潜伏的伏笔·仅供你把握暗线走向，切勿直接引用或点破】', adultMode = 'off', lineDirection = 'natural' } = {}) {

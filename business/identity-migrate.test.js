@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { migrateLinesRaw, migratePointRaw } from './identity-migrate.js';
+import { migrateLinesRaw, migrateOutlineRaw, migratePointRaw } from './identity-migrate.js';
+import { parseOutline } from './outline/schema.js';
 import { parseCalendar } from './point/parse.js';
 import { parseLines } from './lines/schema.js';
 
@@ -35,4 +36,22 @@ Id: LINE-keep
     assert.equal(missing.changed, true);
     assert.equal(parseLines(missing.raw)[0].id.startsWith('LINE-'), true);
     assert.notEqual(parseLines(missing.raw)[0].id, 'LINE-keep');
+});
+
+test('outline migration assigns missing Id and keeps existing ones', () => {
+    const raw = `<outline_widget>
+Beat: 春|开端|主线|线|转折
+Scene: 发生了
+Subtext: 题记
+Think: 思考
+Id: OUTLINE-keep
+Beat: 夏|转折|主线|线|转折
+Scene: 又发生了
+Subtext: 题记
+Think: 思考
+</outline_widget>`;
+    assert.equal(migrateOutlineRaw(raw).changed, true);
+    const beats = parseOutline(migrateOutlineRaw(raw).raw);
+    assert.equal(beats[0].id, 'OUTLINE-keep');
+    assert.match(beats[1].id, /^OUTLINE-/);
 });

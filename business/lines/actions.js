@@ -1,4 +1,4 @@
-import { deleteLine, togglePin, editLineFields } from './mutations.js';
+import { deleteLine, togglePin, toggleDormant, editLineFields } from './mutations.js';
 import { parseLines } from './schema.js';
 
 export function createLinesActions(env = {}) {
@@ -53,6 +53,11 @@ export function createLinesActions(env = {}) {
             const saved = env.readSaved?.(); const result = togglePin(saved?.raw || '', Number(index));
             if (!result.ok) return env.toast?.('这条线已不存在，请刷新面板', true);
             env.write?.({ raw: result.raw, ts: Date.now() }); refresh(); env.toast?.(result.model[Number(index)]?.pin ? '已锁定这条线' : '已解锁这条线');
+        },
+        dormant(index) {
+            const saved = env.readSaved?.(); const result = toggleDormant(saved?.raw || '', Number(index));
+            if (!result.ok) return env.toast?.('这条线已不存在，请刷新面板', true);
+            env.write?.({ raw: result.raw, ts: Date.now() }); refresh(); env.toast?.(result.model[Number(index)]?.dormant ? '已休眠这条线' : '已唤醒这条线');
         },
         async generate(travelContext) { return runExclusive(false, { reroll: true }, travelContext); },
         async advance() { return runExclusive(env.silent?.(), undefined, env.latestFloorTravel?.({ auto: false }) || null); },

@@ -6,6 +6,7 @@ import { pointTodayDayIndex } from '../point/shift.js';
 import { buildReconcilePrompt, buildRefreshAddon } from './prompt.js';
 import { applyLinePatches, applyPointPatches, parseReconcilePatches, summarizeFight, summarizeReconcile } from './patch.js';
 import { buildFightPrompt } from '../lamp/fight-prompt.js';
+import { dryRunRouteCard } from '../activity/retry-guard.js';
 import { buildAlignStoryWindow, listAiStoryFloors } from '../lamp/story-window.js';
 import { normalizeRefreshSelection } from './bar.js';
 import { createStaggerGate } from './stagger.js';
@@ -382,18 +383,42 @@ export function createRefreshController(env = {}) {
                 outlineRaw: books.outlineRaw || '',
                 intent: options.intent || {},
             });
-            if (!cfg.url || !cfg.key) {
-                const error = makeDiagnosticError('config-missing');
-                recordFailed(error);
-                return { status: 'failed', error };
+            let parsed;
+            if (Array.isArray(options.applyPatches)) {
+                parsed = { note: String(options.note || ''), patches: options.applyPatches, unchanged: !options.applyPatches.length };
+            } else {
+                if (!cfg.url || !cfg.key) {
+                    const error = makeDiagnosticError('config-missing');
+                    recordFailed(error);
+                    return { status: 'failed', error };
+                }
+                const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'lamp-fight', diagnosticSink: diagnostic.sink, fullMemory: false });
+                if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled' };
+                diagnostic.accepted({ phase: 'response' });
+                parsed = parseReconcilePatches(raw);
             }
-            const raw = await env.callApi?.(ctx, prompt, cfg, ctx.name1 || '用户', ctx.name2 || '角色', token.controller.signal, 5, { promptMode: 'mechanical', diagnosticModule: 'lamp-fight', diagnosticSink: diagnostic.sink, fullMemory: false });
-            if (!ownerStillHere(token, ownerChatId)) return { status: 'cancelled' };
-            diagnostic.accepted({ phase: 'response' });
-            const parsed = parseReconcilePatches(raw);
             const before = snapshotSelected(['point', 'lines']);
             const point = applyPointPatches(pointRaw, parsed.patches, { feedback: options.intent?.text || '', calendar: env.calendar?.() });
             const lines = applyLinePatches(linesRaw, parsed.patches, { feedback: options.intent?.text || '' });
+            const previewItems = [...(point.applied || []), ...(lines.applied || [])];
+            if (options.preview === true) {
+                diagnostic.accepted({ phase: 'validation', reasonCode: parsed.unchanged ? 'fight-preview-unchanged' : 'fight-preview' });
+                return {
+                    status: 'preview',
+                    patches: parsed.patches,
+                    items: previewItems,
+                    note: parsed.note,
+                    summary: summarizeFight({ point, lines, extras: [], note: parsed.note }),
+                    unchanged: !point.changed && !lines.changed,
+                    skippedLocks: [...(point.skippedLocks || []), ...(lines.skippedLocks || [])],
+                    kind: 'fight',
+                    route: dryRunRouteCard({
+                        route: { status: cfg.url && cfg.key ? 'configured' : 'missing', presetName: cfg.presetName || cfg.model },
+                        selected: ['point', 'lines'],
+                        promptChars: String(prompt || '').length,
+                    }),
+                };
+            }
             const extras = await env.applyFightExtras?.(parsed.patches.filter(item => item.target !== 'point' && item.target !== 'line'), options.intent) || [];
             const ownerGuard = () => ownerStillHere(token, ownerChatId);
             if (point.changed && lines.changed && typeof env.writeBatchRaw === 'function') {

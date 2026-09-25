@@ -11,7 +11,7 @@ export function enforceLineCapacity({ previousLines = [], mergedLines = [], max 
     const candidates = Array.isArray(mergedLines) ? mergedLines : [];
     const used = new Set();
     const retained = [];
-    const isActiveAuto = line => line?.pin !== true && !isTerminalLineStage(line?.stage);
+    const isActiveAuto = line => line?.pin !== true && line?.dormant !== true && !isTerminalLineStage(line?.stage);
     const oldAuto = (Array.isArray(previousLines) ? previousLines : []).filter(isActiveAuto);
     const queues = new Map();
     for (let index = 0; index < candidates.length; index++) {
@@ -36,8 +36,9 @@ export function enforceLineCapacity({ previousLines = [], mergedLines = [], max 
         retained.push(line);
     }
     // 本轮刚收束的终态线与锁线都不占自动活线池，并维持各自在合并结果中的顺序。
-    const settled = candidates.filter(line => line?.pin !== true && isTerminalLineStage(line?.stage));
+    const settled = candidates.filter(line => line?.pin !== true && line?.dormant !== true && isTerminalLineStage(line?.stage));
     const pinned = candidates.filter(line => line?.pin === true);
-    const model = [...retained, ...settled, ...pinned];
+    const dormant = candidates.filter(line => line?.dormant === true && line?.pin !== true);
+    const model = [...retained, ...settled, ...pinned, ...dormant];
     return { ok: true, model, dropped: Math.max(0, candidates.length - model.length), rawCount: model.length };
 }

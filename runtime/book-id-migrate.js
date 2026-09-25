@@ -1,4 +1,4 @@
-import { migrateLinesRaw, migratePointRaw } from '../business/identity-migrate.js';
+import { migrateLinesRaw, migrateOutlineRaw, migratePointRaw } from '../business/identity-migrate.js';
 
 async function writeIfChanged(env, { key, stored, plan }) {
     if (!plan.changed) return { status: 'none' };
@@ -23,11 +23,21 @@ export async function migrateCanonicalBookIds(env = {}) {
         stored: pointStored,
         plan: migratePointRaw(pointStored?.raw),
     });
-    if (env.chatId?.() !== chatId) return { status: 'superseded', point, lines: { status: 'skipped' } };
+    if (env.chatId?.() !== chatId) return { status: 'superseded', point, lines: { status: 'skipped' }, outline: { status: 'skipped' } };
     const lines = await writeIfChanged({ writeConfirmed, ownerGuard }, {
         key: linesKey,
         stored: linesStored,
         plan: migrateLinesRaw(linesStored?.raw),
     });
-    return { status: 'ready', point, lines };
+    if (env.chatId?.() !== chatId) return { status: 'superseded', point, lines, outline: { status: 'skipped' } };
+    const outlineKey = env.outlineKey?.();
+    const outlineStored = outlineKey ? env.read?.(outlineKey) : null;
+    const outline = outlineKey
+        ? await writeIfChanged({ writeConfirmed, ownerGuard }, {
+            key: outlineKey,
+            stored: outlineStored,
+            plan: migrateOutlineRaw(outlineStored?.raw),
+        })
+        : { status: 'skipped' };
+    return { status: 'ready', point, lines, outline };
 }

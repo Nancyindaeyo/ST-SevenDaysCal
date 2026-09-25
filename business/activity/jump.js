@@ -32,8 +32,37 @@ export function jumpViewOf(module) {
     return null;
 }
 
+export function catalogFromBooks(books = {}) {
+    const rows = [];
+    for (const event of books.pointEvents || []) rows.push({ id: event.id, title: event.title, module: 'point' });
+    for (const line of books.lines || []) rows.push({ id: line.id, name: line.name, title: line.name, module: 'lines' });
+    for (const beat of books.outline || []) rows.push({ id: beat.id, title: beat.title, module: 'outline' });
+    return rows;
+}
+
 export function canJumpActivityItem(item) {
     return Boolean(jumpViewOf(item?.module) && (String(item?.ref || '').trim() || String(item?.title || '').trim()));
+}
+
+export function explainJumpMiss({ item, catalog = [], chatRevision, currentRevision } = {}) {
+    if (chatRevision != null && currentRevision != null && Number(chatRevision) !== Number(currentRevision)) {
+        return { reason: 'chat-mismatch', message: '这条属于另一段聊天，不能跳到当前页' };
+    }
+    const ref = String(item?.ref || '').trim();
+    const title = String(item?.title || '').trim();
+    const nameOf = row => String(row?.title || row?.name || '').trim();
+    if (ref) {
+        const byRef = (Array.isArray(catalog) ? catalog : []).find(row => String(row?.id || row?.ref || '') === ref);
+        if (!byRef) return { reason: 'deleted', message: '这条已经删除' };
+        if (title && nameOf(byRef) && nameOf(byRef) !== title) {
+            return { reason: 'renamed', message: `已改名为「${nameOf(byRef)}」` };
+        }
+        return { reason: 'missing', message: '这条还在账里，但当前页没有对应卡片' };
+    }
+    if (title && !(Array.isArray(catalog) ? catalog : []).some(row => nameOf(row) === title)) {
+        return { reason: 'deleted', message: '这条已经不在了' };
+    }
+    return { reason: 'missing', message: '这条已经不在了' };
 }
 
 export function findJumpElement(root, item) {

@@ -128,6 +128,7 @@ export function activityOverlayHtml() {
         </div>
         <div class="sp-activity-recent-head">
             <p class="sp-activity-section-kicker sp-activity-recent-kicker">最近</p>
+            <button type="button" class="sp-btn sp-activity-failed-only">只看未处理失败</button>
             <button type="button" class="sp-activity-summary-copy"><i class="fa-regular fa-copy"></i> 复制本轮摘要</button>
         </div>
         <div class="sp-settings-body" id="sp-activity-body"></div>
@@ -187,7 +188,7 @@ function jumpButton(item) {
 }
 
 function undoItemButton(entry, item, entries) {
-    if (item.module !== 'point' && item.module !== 'lines') return '';
+    if (item.module !== 'point' && item.module !== 'lines' && !(item.module === 'outline' && item.action !== 'cursor')) return '';
     if ((entry.undoneRefs || []).includes(undoItemKey(item))) return '<span class="sp-activity-item-undone">已撤</span>';
     if (entry.undone || !canUndoActivity(entry, entries)) return '';
     const ref = item.ref ? ` data-ref="${escape(item.ref)}"` : '';
@@ -276,14 +277,15 @@ export function renderAlignRounds(entries = []) {
     return renderPaceDetail('align', entries);
 }
 
-export function renderActivityList(entries = [], { expanded = false } = {}) {
+export function renderActivityList(entries = [], { expanded = false, failedOnly = false } = {}) {
     if (!entries.length) {
         return `<div class="sp-empty sp-activity-empty"><p>这轮聊天还没有后台改账。</p><p class="sp-cfg-hint">上面能看见这楼正在跑谁、后面排谁。自动对齐、推进、补录、刻度、面、冷知识跑完会记在下面；开局生成、补窗口和刷新账本失败也能在这里重试。</p></div>`;
     }
+    const visible = failedOnly ? entries.filter(entry => entry.outcome === 'failed' && entry.undone !== true) : entries;
     const preview = Math.max(1, ACTIVITY_LIST_PREVIEW);
-    const shown = expanded ? entries : entries.slice(0, preview);
-    const more = !expanded && entries.length > preview
-        ? `<button type="button" class="sp-btn sp-activity-more">查看更早（${entries.length - preview}）</button>`
+    const shown = expanded ? visible : visible.slice(0, preview);
+    const more = !expanded && visible.length > preview
+        ? `<button type="button" class="sp-btn sp-activity-more">查看更早（${visible.length - preview}）</button>`
         : '';
     return `<ol class="sp-activity-list">${shown.map(entry => {
         const stale = entry.stale && !entry.undone

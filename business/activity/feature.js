@@ -9,10 +9,11 @@ import {
     sourceLabel,
     undoItemKey,
 } from './schema.js';
-import { restoreLineItem, restorePointItem } from './revert.js';
+import { restoreLineItem, restoreOutlineItem, restorePointItem } from './revert.js';
 import { createActivityStore } from './store.js';
 import { activityButtonHtml, activityOverlayHtml, authorChangeSummary, quoteTextForSpace, renderActivityList, renderPaceDetail, renderQueueStatus } from './ui.js';
-import { isPaceExpandable, canJumpActivityItem } from './jump.js';
+import { isPaceExpandable, canJumpActivityItem, catalogFromBooks, explainJumpMiss } from './jump.js';
+import { retryNeedsConfirm } from './retry-guard.js';
 import {
     RESTORE_WRITE_ORDER,
     isRestoreWriteConfirmed,
@@ -43,6 +44,7 @@ export function createActivityFeature(env = {}) {
     let restyled = false;
     let paceOpen = '';
     let listExpanded = false;
+    let failedOnly = false;
     let blockedReroll = [];
 
     const chatId = () => env.chatId?.() ?? null;
@@ -113,7 +115,8 @@ export function createActivityFeature(env = {}) {
     const paint = () => {
         // 【改】只从本楼队列和活动存储画状态，不扫聊天正文重建卡片。
         const $body = $in?.('#sp-activity-body');
-        if ($body?.length) $body.html(renderActivityList(list(), { expanded: listExpanded }));
+        if ($body?.length) $body.html(renderActivityList(list(), { expanded: listExpanded, failedOnly }));
+        $in?.('.sp-activity-failed-only')?.toggleClass?.('is-on', failedOnly);
         $in?.('#sp-activity-blocked')?.prop?.('hidden', !blockedReroll.length);
         $in?.('#sp-activity-blocked-list')?.text?.(blockedReroll.join('、'));
         const $badge = $in?.('.sp-activity-badge');
@@ -193,9 +196,10 @@ export function createActivityFeature(env = {}) {
             paint();
             return { status: 'updated', mode: 'full', results: restored.results };
         }
-        const targets = (onlyItem ? [onlyItem] : remainingUndoItems(entry)).filter(item => item.module === 'point' || item.module === 'lines');
+        const targets = (onlyItem ? [onlyItem] : remainingUndoItems(entry)).filter(item => item.module === 'point' || item.module === 'lines' || (item.module === 'outline' && item.action !== 'cursor'));
         let nextPoint = current.point;
         let nextLines = current.lines;
+        let nextOutline = current.outline;
         const restored = [];
         for (const item of targets) {
             if (item.module === 'point' && entry.snapshot.point != null) {
@@ -204,6 +208,9 @@ export function createActivityFeature(env = {}) {
             } else if (item.module === 'lines' && entry.snapshot.lines != null) {
                 const result = restoreLineItem(nextLines, entry.snapshot.lines, entry.after?.lines, item);
                 if (result.changed) { nextLines = result.raw; restored.push(item); }
+            } else if (item.module === 'outline' && entry.snapshot.outline != null) {
+                const result = restoreOutlineItem(nextOutline, entry.snapshot.outline, entry.after?.outline, item);
+                if (result.changed) { nextOutline = result.raw; restored.push(item); }
             }
         }
         if (!restored.length) return { status: 'diverged' };
@@ -223,6 +230,14 @@ export function createActivityFeature(env = {}) {
             writeResults.lines = written;
             if (isRestoreWriteConfirmed(written) && matched) {
                 confirmedItems.push(...restored.filter(item => item.module === 'lines'));
+            }
+        }
+        if (nextOutline !== current.outline) {
+            const written = await applyWriter('outline', nextOutline);
+            const matched = sameSnapshot(capture(['outline']), { outline: nextOutline });
+            writeResults.outline = written;
+            if (isRestoreWriteConfirmed(written) && matched) {
+                confirmedItems.push(...restored.filter(item => item.module === 'outline'));
             }
         }
         if (!confirmedItems.length) {
@@ -470,11 +485,31 @@ export function createActivityFeature(env = {}) {
         syncPaceOpen();
     };
 
+    const jumpCatalog = () => catalogFromBooks(env.jumpBooks?.() || {});
+    const confirmRetry = async entry => {
+        const check = retryNeedsConfirm(entry, capture(['point', 'lines', 'outline', 'ledger']));
+        if (!check.needed) return true;
+        return env.confirm?.({
+            title: '账本已经变了',
+            body: '重试时账本和当初不一样了，还要按这次重试吗？',
+            confirmText: '仍要重试',
+            cancelText: '取消',
+        });
+    };
     const jumpToItem = async item => {
         if (!canJumpActivityItem(item)) return { status: 'skipped' };
         setOpen(false, { immediate: true });
         const result = await env.openItem?.(item);
-        if (result?.status === 'missing') env.toast?.('这条已经不在了', true);
+        if (result?.status === 'missing') {
+            const explained = explainJumpMiss({
+                item,
+                catalog: jumpCatalog(),
+                chatRevision: item.chatRevision,
+                currentRevision: chatRevision,
+            });
+            env.toast?.(explained.message, true);
+            return { ...result, reason: explained.reason, message: explained.message };
+        }
         return result || { status: 'skipped' };
     };
 
@@ -506,12 +541,15 @@ export function createActivityFeature(env = {}) {
         click('.sp-activity-realign', () => { void realign({ cause: 'retry' }); });
         click('.sp-activity-retry', function () {
             const entry = list().find(item => item.id === String(env.$(this).attr('data-id')));
-            if (isAdvanceEntry(entry)) void readvance({ cause: 'retry', floorId: entry.floorId });
-            else if (entry?.source === 'align' || entry?.source === 'align-auto') void realign({ cause: 'retry' });
-            else if (entry?.source === 'bootstrap') void env.retryBootstrap?.();
-            else if (entry?.source === 'fill') void env.retryFill?.();
-            else if (entry?.source === 'refresh' || entry?.source === 'fight') void env.retryRefresh?.(entry);
-            else if (isRetryableEntry(entry)) void env.retryQueueJob?.(entry.source);
+            void (async () => {
+                if (!(await confirmRetry(entry))) return;
+                if (isAdvanceEntry(entry)) return readvance({ cause: 'retry', floorId: entry.floorId });
+                if (entry?.source === 'align' || entry?.source === 'align-auto') return realign({ cause: 'retry' });
+                if (entry?.source === 'bootstrap') return env.retryBootstrap?.();
+                if (entry?.source === 'fill') return env.retryFill?.();
+                if (entry?.source === 'refresh' || entry?.source === 'fight') return env.retryRefresh?.(entry);
+                if (isRetryableEntry(entry)) return env.retryQueueJob?.(entry.source);
+            })();
         });
         click('.sp-activity-queue-fail', function () {
             void env.retryQueueJob?.(env.$(this).attr('data-queue-retry'));
@@ -531,6 +569,10 @@ export function createActivityFeature(env = {}) {
         click('.sp-activity-summary-copy', () => { void copySummary(); });
         click('.sp-activity-more', () => {
             listExpanded = true;
+            paint();
+        });
+        click('.sp-activity-failed-only', () => {
+            failedOnly = !failedOnly;
             paint();
         });
         click('.sp-activity-readvance', () => { void readvance({ cause: 'retry' }); });

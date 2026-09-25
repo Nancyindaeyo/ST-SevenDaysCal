@@ -53,10 +53,12 @@ export function createLampHost(env = {}) {
             ...entry,
             due: env.dueInfo?.(entry),
         }));
+        let storedLines = [];
         let lines = [];
         try {
+            storedLines = parseLines(env.readLinesRaw?.() || '');
             lines = activeLines(env.readLinesRaw?.() || '');
-        } catch { lines = []; }
+        } catch { storedLines = []; lines = []; }
         let hasBaiBai = false;
         let bbb = null;
         try {
@@ -79,6 +81,7 @@ export function createLampHost(env = {}) {
             books: {
                 days,
                 lines,
+                storedLines,
                 ledger: ledgerEntries,
                 outline: env.outline?.()?.readSnapshot?.()?.beats || [],
                 almanac: env.loadAlmanac?.() || [],

@@ -9,7 +9,7 @@ export function auditLineEvolution({ previousLines = [], generatedLines = [], fr
     const activeNames = new Set();
     const pinnedNames = new Set();
     for (const line of previous) {
-        if (!line?.name || (line.pin !== true && isTerminalLineStage(line.stage))) continue;
+        if (!line?.name || line.dormant === true || (line.pin !== true && isTerminalLineStage(line.stage))) continue;
         const kind = line.pin === true ? 'pinned' : 'active';
         const queue = identityQueues.get(line.name) || [];
         queue.push({ kind, line });

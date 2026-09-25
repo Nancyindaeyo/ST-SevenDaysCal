@@ -1,5 +1,6 @@
 import { buildOutlineContinuePrompt, buildOutlineNodePrompt, buildOutlinePrompt } from './prompts.js';
 import { parseOutline, normalizeOutlineResponse } from './schema.js';
+import { migrateOutlineRaw } from '../identity-migrate.js';
 import { canPartialOutlineRegen, normalizeOutlineRegenMode, appendOutlineNodes, replaceOutlineNode } from './regen.js';
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
 
@@ -104,6 +105,8 @@ export function createOutlineGeneration({
                 normalizedRaw = merged.raw;
             }
             diagnostic.accepted({ phase: 'validation', reasonCode: mode === 'all' ? 'outline-valid' : `outline-${mode}` });
+            const migrated = migrateOutlineRaw(normalizedRaw);
+            if (migrated.raw) normalizedRaw = migrated.raw;
             let committed;
             try { committed = await (repository.commitOutlineConfirmed || repository.commitOutline)(target, { raw: normalizedRaw, ts: now(), cursor: mode === 'all' ? 1 : cursor }, baseline, { ownerGuard: () => currentAndOwned(task) }); }
             catch (cause) { const status = Number(cause?.saveResult?.status ?? cause?.status); const error = makeDiagnosticError('save', { phase: 'save', ...(Number.isInteger(status) ? { status } : {}) }); if (cause?.saveResult) error.saveResult = cause.saveResult; throw diagnostic.rejected(error, { phase: 'save', reasonCode: 'outline-save-failed' }); }

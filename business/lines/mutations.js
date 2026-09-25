@@ -30,6 +30,10 @@ export function togglePin(raw, index) {
     const model = parseLines(raw); if (!Number.isInteger(index) || index < 0 || index >= model.length) return { ok: false, reason: 'not-found', raw };
     model[index].pin = !model[index].pin; return { ok: true, raw: serializeLines(model), model };
 }
+export function toggleDormant(raw, index) {
+    const model = parseLines(raw); if (!Number.isInteger(index) || index < 0 || index >= model.length) return { ok: false, reason: 'not-found', raw };
+    model[index].dormant = !model[index].dormant; return { ok: true, raw: serializeLines(model), model };
+}
 export function mergePinned(oldRaw, aiRaw, options = {}) {
     const old = parseLines(oldRaw), fresh = parseLines(aiRaw);
     const used = new Set();
@@ -45,8 +49,20 @@ export function mergePinned(oldRaw, aiRaw, options = {}) {
             const same = fresh[index];
             used.add(index);
             if (options.preferPinnedSource) Object.assign(same, pinned);
-            else { same.pin = true; same.adult = pinned.adult === true || same.adult === true; same.cue = pinned.cue ?? null; if (pinned.id) same.id = pinned.id; }
+            else { same.pin = true; same.dormant = pinned.dormant === true || same.dormant === true; same.adult = pinned.adult === true || same.adult === true; same.cue = pinned.cue ?? null; if (pinned.id) same.id = pinned.id; }
         } else fresh.push({ ...pinned });
+    }
+    for (const dormant of old.filter(line => line.dormant && !line.pin)) {
+        const byId = dormant.id ? fresh.findIndex((item, i) => !used.has(i) && String(item.id || '') === String(dormant.id)) : -1;
+        const index = byId >= 0 ? byId : fresh.findIndex((item, i) => !used.has(i) && sameLine(item, dormant));
+        if (index >= 0) {
+            const same = fresh[index];
+            used.add(index);
+            same.dormant = true;
+            same.adult = dormant.adult === true || same.adult === true;
+            same.cue = dormant.cue ?? same.cue ?? null;
+            if (dormant.id) same.id = dormant.id;
+        } else fresh.push({ ...dormant });
     }
     return { ok: true, raw: serializeLines(fresh), model: fresh };
 }

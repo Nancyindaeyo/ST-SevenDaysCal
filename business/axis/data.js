@@ -67,7 +67,7 @@ function saveAlmanacItemsConfirmed(items, options = {}) {
     const current = readStore(getAlmanacKey()) || {};
     const caldesc = cloneCalDesc(loadCalDesc());
     const archived = archiveAxisSnapshot(axisHistoryBaseline(current, current.caldesc), items, caldesc, now);
-    return writeStoreConfirmed(getAlmanacKey(), { ...archived.value, ts: now }, options);
+    return writeStoreConfirmed(getAlmanacKey(), { ...archived.value, footprints: current.footprints, ts: now }, options);
 }
 
 function almTypeMeta(type) {

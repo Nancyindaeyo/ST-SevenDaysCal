@@ -1,3 +1,4 @@
+import { ensureBookId } from '../identity.js';
 import { stripRecordWrappers } from '../utils/record-wrappers.js';
 
 const cleanOutlineLine = value => {
@@ -8,7 +9,7 @@ const cleanOutlineLine = value => {
 const outlineAnchorKind = value => {
     const text = cleanOutlineLine(value);
     for (const kind of ['Beat', 'Scene', 'Subtext', 'Think']) if (new RegExp(`^${kind}\\s*[:：]`, 'i').test(text)) return kind.toLowerCase();
-    return null;
+    return /^(?:Id|Volume)\s*[:：]/i.test(text) ? 'field' : null;
 };
 const completeOutlineStructure = kinds => ['beat', 'scene', 'subtext', 'think'].every(kind => kinds.includes(kind));
 
@@ -40,6 +41,10 @@ export function parseOutline(raw) {
             current.subtext = text.replace(/^Subtext\s*[:：]\s*/i, '').trim();
         } else if (/^Think\s*[:：]/i.test(text) && current) {
             current.think = text.replace(/^Think\s*[:：]\s*/i, '').trim();
+        } else if (/^Id\s*[:：]/i.test(text) && current) {
+            current.id = text.replace(/^Id\s*[:：]\s*/i, '').trim();
+        } else if (/^Volume\s*[:：]/i.test(text) && current) {
+            current.volume = text.replace(/^Volume\s*[:：]\s*/i, '').trim();
         }
     }
     if (current) beats.push(current);
@@ -55,15 +60,22 @@ export function parseCompleteOutline(raw) {
     return parseOutline(raw).filter(isCompleteOutlineBeat);
 }
 
-export function serializeOutlineBeats(beats) {
+export function serializeOutlineBeats(beats, { assignIds = false } = {}) {
     const complete = (beats || []).filter(isCompleteOutlineBeat);
     if (!complete.length) return '';
-    const blocks = complete.map(beat => [
-        `Beat: ${beat.time}|${beat.title}|${beat.type}|${beat.line}|${beat.outcome}`,
-        `Scene: ${beat.scene}`,
-        `Subtext: ${beat.subtext}`,
-        `Think: ${beat.think}`,
-    ].join('\n'));
+    const seen = new Set();
+    const blocks = complete.map(beat => {
+        if (assignIds) ensureBookId(beat, 'OUTLINE', seen);
+        else if (beat.id) seen.add(beat.id);
+        return [
+            `Beat: ${beat.time}|${beat.title}|${beat.type}|${beat.line}|${beat.outcome}`,
+            `Scene: ${beat.scene}`,
+            `Subtext: ${beat.subtext}`,
+            `Think: ${beat.think}`,
+            beat.id ? `Id: ${beat.id}` : '',
+            beat.volume ? `Volume: ${beat.volume}` : '',
+        ].filter(Boolean).join('\n');
+    });
     return `<outline_widget>\n${blocks.join('\n')}\n</outline_widget>`;
 }
 
@@ -125,7 +137,10 @@ export function clampOutlineCursor(cursor, beatCount) {
 export function cursorAfterBeatDelete(cursor, deletedIndex, remainingCount) {
     const current = Math.max(0, Math.floor(Number(cursor) || 0));
     if (current === 0) return 0;
-    return current > deletedIndex + 1 ? current - 1 : Math.min(current, Math.max(0, remainingCount));
+    const left = Number.isFinite(Number(remainingCount)) ? Math.max(0, Math.floor(Number(remainingCount))) : null;
+    if (current > deletedIndex + 1) return left == null ? current - 1 : Math.min(current - 1, left);
+    if (current === deletedIndex + 1) return left == null ? Math.max(0, current - 1) : Math.min(Math.max(0, current - 1), left);
+    return left == null ? current : Math.min(current, left);
 }
 
 export function manualOutlineCursorActivity(raw, fromCursor, toCursor) {

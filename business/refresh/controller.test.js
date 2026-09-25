@@ -383,3 +383,24 @@ test('since-align window feeds later floors and drops extra history', async () =
     assert.doesNotMatch(prompt, /第一楼出门了/);
     assert.equal(historyLimit, 0);
 });
+
+test('fight preview returns patches without writing or extras', async () => {
+    const extras = [];
+    const host = env({
+        readLinesRaw: () => `<storylines_widget>
+Line: 赴约|延展|今天|world|false|false
+Desc: 旧
+Next: 下一步
+</storylines_widget>`,
+        applyFightExtras: async patches => {
+            extras.push(...patches);
+            return patches;
+        },
+        callApi: async () => 'note: 拟改赴约\nline: edit|赴约|下一步改到夜里',
+    });
+    const result = await createRefreshController(host).fight({ intent: { text: '先看' }, preview: true });
+    assert.equal(result.status, 'preview');
+    assert.equal(host.writes.length, 0);
+    assert.equal(extras.length, 0);
+    assert.ok(result.route.tokenTier);
+});

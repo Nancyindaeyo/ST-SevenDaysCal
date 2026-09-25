@@ -4477,6 +4477,22 @@ select.sp-input { appearance: none; cursor: pointer; }
     border       : 1px solid rgba(180,180,180,0.22);
     flex-shrink  : 0;
 }
+.sp-line-dormant-tag {
+    display      : inline-flex;
+    align-items  : center;
+    padding      : 1px 6px;
+    border-radius: 99px;
+    font-size    : var(--sp-fs-62);
+    font-weight  : 600;
+    letter-spacing: 0.05em;
+    background   : rgba(120,140,180,0.14);
+    color        : var(--sp-subtle);
+    border       : 1px solid rgba(120,140,180,0.22);
+    flex-shrink  : 0;
+}
+.sp-line-card.sp-line-dormant { opacity: 0.72; }
+.sp-outline-volume { margin: 0 0 10px; }
+.sp-outline-volume-title { cursor: pointer; font-weight: 600; }
 .sp-inline-stall { font-size: var(--sp-fs-58); padding: 0 5px; }
 
 /* Stalled cards: subtle desaturation overlay so LLM's "no-progress" state reads visually */

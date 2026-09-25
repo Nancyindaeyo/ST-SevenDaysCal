@@ -1202,6 +1202,11 @@ const timeTravel = createTimeTravelHost({
     validMonthDay: date => almValidMonthDay(date, loadCalDesc()),
     pluginEnabled,
     toast: showToast,
+    readAlmanacStore: () => readStore(getAlmanacKey()) || {},
+    writeAlmanacStore: value => writeStore(getAlmanacKey(), value),
+    charKey: () => charStableKey(getContext()),
+    saveAnchor: (charKey, month, day, source, options) => axisDateActions.saveAnchor(charKey, month, day, source, options),
+    aftermath: () => runAnchorAftermath('jump-back'),
     confirm: options => customDialog.confirm(options),
     selectOne: options => customDialog.selectOne(options),
     selectOneAsync: options => customDialog.selectOneAsync(options),
@@ -1401,6 +1406,19 @@ const activityFeature = createActivityFeature({
     readOutline: () => ({ raw: outlineFeature?.readRaw?.() || '', cursor: outlineFeature?.readSnapshot?.()?.cursor || 0 }),
     readDashed: () => linesFeature?.dashed?.read?.() || [],
     readLedger: () => ledger.snapshotLedgerState(),
+    jumpBooks: () => {
+        const parsed = parseCalendar(readStore(getCacheKey('user', ''))?.raw || '');
+        return {
+            pointEvents: [
+                ...(parsed.pastDays || []).flatMap(day => day.events || []),
+                ...(parsed.allDays || parsed.days || []).flatMap(day => day.events || []),
+                ...(parsed.future?.events || []),
+            ],
+            lines: parseLines(readStore(getLinesCacheKey())?.raw || ''),
+            outline: outlineFeature?.readSnapshot?.()?.beats || [],
+        };
+    },
+    confirm: options => customDialog.confirm(options),
     writePoint: async raw => {
         const key = getCacheKey('user', '');
         const saved = readStore(key) || {};
@@ -2012,6 +2030,8 @@ const lampFeature = createLampFeature({
     dismiss: payload => lampHost.dismiss(payload),
     previewAlign: opts => refreshController.align({ selected: ['point', 'lines'], cause: 'manual', preview: true, ...opts }),
     applyAlign: opts => refreshController.align({ selected: ['point', 'lines'], cause: 'manual', ...opts }),
+    previewFight: opts => refreshController.fight({ cause: 'manual', preview: true, ...opts }),
+    applyFight: opts => refreshController.fight({ cause: 'manual', ...opts }),
 });
 let theaterMode          = false;
 let beatFeature          = null;
@@ -2430,6 +2450,7 @@ jQuery(async () => {
             writeConfirmed: writeStoreConfirmed,
             pointKey: () => getCacheKey('user', ''),
             linesKey: () => keyDesc('lines', 'user', ''),
+            outlineKey: () => keyDesc('outline', 'user', ''),
         }),
         hydratePace: hydratePaceFromStore,
         reloadPanel() {
@@ -2486,6 +2507,7 @@ jQuery(async () => {
             writeConfirmed: writeStoreConfirmed,
             pointKey: () => getCacheKey('user', ''),
             linesKey: () => keyDesc('lines', 'user', ''),
+            outlineKey: () => keyDesc('outline', 'user', ''),
         }).catch(error => console.warn('[SP store] 首屏 Id 迁移失败', safeDiagnosticLog('storage', 'save', error)));
         if (pluginEnabled()) maybeApplyBoundCalendarTemplate().catch(error => {
             console.error('[SP calendar] 首屏角色默认历法自动应用失败', safeDiagnosticLog('axis', 'save', error));
@@ -3127,6 +3149,7 @@ function injectModal() {
         inject: iid => injectToST(_injectTexts[iid]),
         lineEdit: idx => linesFeature.actions.edit(idx),
         linePin: idx => linesFeature.actions.pin(idx),
+        lineDormant: idx => linesFeature.actions.dormant(idx),
         lineDelete: idx => linesFeature.actions.delete(idx),
         outlineEdit: idx => outlineFeature.actions.editScene(idx),
         outlineCurrent: idx => outlineFeature.actions.toggleCursor(idx),
@@ -3177,6 +3200,8 @@ function injectModal() {
         navMonth: almNavMonth,
         calMonth: almCalMonth,
         startTravel: targetDate => timeTravel.start(targetDate),
+        jumpBack: id => timeTravel.jumpBack(id),
+        footprints: () => readStore(getAlmanacKey())?.footprints || [],
         cancelTravel: () => timeTravel.cancel(),
         calendarActions: axisCalendarActions,
         openEditor: openAlmanacEditor,

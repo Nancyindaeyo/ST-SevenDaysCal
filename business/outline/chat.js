@@ -1,5 +1,6 @@
 import { createGenerationDiagnosticScope, diagnosticMessage, makeDiagnosticError } from '../../api/diagnostics.js';
 import { normalizeOutlineResponse } from './schema.js';
+import { migrateOutlineRaw } from '../identity-migrate.js';
 
 export function createOutlineChat({
     repository,
@@ -45,7 +46,7 @@ export function createOutlineChat({
         ui?.endThinking?.(previous?.thinking);
     };
     const applyRaw = (target, raw, button = null) => {
-        const normalizedRaw = normalizeOutlineResponse(raw);
+        const normalizedRaw = migrateOutlineRaw(normalizeOutlineResponse(raw)).raw;
         if (!repository.isCurrent(target) || !normalizedRaw) return false;
         if (!repository.commitOutline(target, { raw: normalizedRaw, ts: now(), cursor: 1 }, null, { archive: true })) return false;
         injection?.refresh(target);

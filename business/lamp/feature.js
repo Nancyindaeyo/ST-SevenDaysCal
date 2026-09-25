@@ -131,6 +131,7 @@ export function createLampFeature(env = {}) {
             });
             if (result?.status === 'preview') {
                 preview = {
+                    kind: 'align',
                     note: result.note || result.summary || '',
                     items: itemsFromAlignPreview(result),
                     patches: result.patches || [],
@@ -138,6 +139,8 @@ export function createLampFeature(env = {}) {
                     storyWindow,
                     reason: storyWindow === 'since-align' ? '灯上追从上次对齐到现在' : '灯上先看再写',
                     window: result.window || null,
+                    skippedLocks: result.skippedLocks || [],
+                    route: result.route || null,
                 };
                 kind = 'align';
                 for (const item of preview.items) basketMap.set(keyOf(item), item);
@@ -155,6 +158,54 @@ export function createLampFeature(env = {}) {
             }
         } catch (error) {
             env.toast?.(error?.message || '对齐预览失败', true);
+        } finally {
+            busy = false;
+            paint();
+        }
+    }
+
+    async function runFightPreview() {
+        if (busy) {
+            env.toast?.('正在对齐，请稍后再点', true);
+            return;
+        }
+        addCheckedToBasket();
+        setBusy(true);
+        try {
+            const nextKind = currentKind({ from: page === 'search' ? 'search' : 'conflict' }) || 'fight';
+            const payload = intentFromBasket([...basketMap.values()], {
+                kind: nextKind,
+                reason: intent?.reason || intent?.text || '',
+            });
+            const result = await env.previewFight?.({ intent: payload, cause: 'manual' });
+            if (result?.status === 'preview') {
+                preview = {
+                    kind: 'fight',
+                    note: result.note || result.summary || '',
+                    items: result.items || itemsFromAlignPreview(result),
+                    patches: result.patches || [],
+                    selected: ['point', 'lines'],
+                    reason: payload?.text || payload?.reason || '灯上先看打架',
+                    skippedLocks: result.skippedLocks || [],
+                    route: result.route || null,
+                    intent: payload,
+                };
+                kind = 'fight';
+                for (const item of preview.items) basketMap.set(keyOf(item), item);
+                if (result.unchanged || !preview.items.length) {
+                    env.toast?.(result.summary || '对照过了，点和线都不用改');
+                } else {
+                    env.toast?.(result.summary || '拟改已放进待改篮，确认后再写入');
+                }
+            } else if (result?.status === 'failed') {
+                env.toast?.(String(result.errorMessage || result.error?.message || '打架预览失败'), true);
+            } else if (result?.status === 'skipped' && result.reason === 'busy') {
+                env.toast?.('正在对齐或刷新，请稍后再点', true);
+            } else if (result?.status === 'cancelled') {
+                env.toast?.('这次打架已取消', true);
+            }
+        } catch (error) {
+            env.toast?.(error?.message || '打架预览失败', true);
         } finally {
             busy = false;
             paint();
@@ -289,6 +340,9 @@ export function createLampFeature(env = {}) {
             $root.on('click.spLamp', '#sp-lamp-preview-window', () => {
                 void runPreview({ storyWindow: 'since-align' });
             });
+            $root.on('click.spLamp', '#sp-lamp-preview-fight', () => {
+                void runFightPreview();
+            });
             $root.on('click.spLamp', '#sp-lamp-apply-preview', () => {
                 if (busy) return;
                 if (!preview?.patches?.length) {
@@ -299,11 +353,13 @@ export function createLampFeature(env = {}) {
                 void (async () => {
                     setBusy(true);
                     try {
-                        const result = await env.applyAlign?.({
+                        const apply = payload.kind === 'fight' ? env.applyFight : env.applyAlign;
+                        const result = await apply?.({
                             applyPatches: payload.patches,
                             selected: payload.selected,
                             reason: payload.reason,
                             note: payload.note,
+                            intent: payload.intent,
                             cause: 'manual',
                         });
                         if (result?.status === 'updated') {

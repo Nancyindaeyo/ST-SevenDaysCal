@@ -14,6 +14,7 @@ import {
     timeTravelAbortReason,
     travelAnniversaryCoverage,
 } from './time-travel-session.js';
+import { appendTimeTravelFootprint, planJumpBackAnchor } from './footprint.js';
 
 function abortError(message) {
     return Object.assign(new Error(message), { name: 'AbortError' });
@@ -47,6 +48,17 @@ export function createTimeTravelHost(env = {}) {
         onStepResult: env.onStepResult,
         onSequenceEnd: payload => {
             releaseClaim(payload?.sessionId);
+            if (payload?.reason && payload.reason !== 'cancelled') {
+                try {
+                    const store = env.readAlmanacStore?.() || {};
+                    const added = appendTimeTravelFootprint(store.footprints, {
+                        sourceDate: payload.sourceDate,
+                        targetDate: payload.selectedTargetDate || payload.targetDate,
+                        landingFloor: payload.messageId ?? payload.landingFloor,
+                    });
+                    if (added.ok) env.writeAlmanacStore?.({ ...store, footprints: added.list, ts: Date.now() });
+                } catch { /* 足迹失败不能挡住时旅收尾 */ }
+            }
             env.onSequenceEnd?.(payload);
         },
         onError: env.onError,
@@ -226,6 +238,33 @@ export function createTimeTravelHost(env = {}) {
         return true;
     }
 
+    async function jumpBack(id) {
+        const store = env.readAlmanacStore?.() || {};
+        const list = Array.isArray(store.footprints) ? store.footprints : [];
+        const item = id ? list.find(row => String(row?.id || '') === String(id)) : list[0];
+        const plan = planJumpBackAnchor(item);
+        if (!plan.ok) {
+            env.toast?.('没有可回跳的时旅足迹');
+            return false;
+        }
+        const confirmed = await env.confirm?.({
+            title: '回到这次出发日？',
+            body: '只改今天锚点，不改写正文，也不撤回改账。',
+            confirmText: '改回锚点',
+            cancelText: '留下',
+        });
+        if (!confirmed) return false;
+        const key = env.charKey?.();
+        const saved = env.saveAnchor?.(key, plan.date.month, plan.date.day, 'explicit');
+        if (saved?.ok === false) {
+            env.toast?.('回跳锚点失败', true);
+            return false;
+        }
+        env.aftermath?.();
+        env.toast?.('已回到出发日锚点');
+        return true;
+    }
+
     function abortAll(reason = 'plugin-disabled') {
         const active = controller.getState();
         if (active) clearSession(active, { removeWaitingBlock: active.phase === 'waiting', reason });
@@ -241,6 +280,7 @@ export function createTimeTravelHost(env = {}) {
         resetSelection,
         abortAll,
         start,
+        jumpBack,
         cancel,
         cancelForDeletion,
         clearSession,

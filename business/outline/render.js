@@ -1,4 +1,5 @@
 import { parseOutline } from './schema.js';
+import { groupOutlineVolumes } from './volumes.js';
 import { renderActionMenu } from '../utils/action-menu.js';
 
 export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton, makeCopyButton, beginRender, emptyHtml } = {}) {
@@ -12,7 +13,7 @@ export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton,
         beginRender?.();
         const beats = parseOutline(raw);
         if (!beats.length) return `<div class="sp-raw">${esc(raw).replace(/\n/g, '<br>')}</div>`;
-        const cards = beats.map((beat, index) => {
+        const cardOf = (beat, index) => {
             const injectParts = [
                 '【剧情节点参考】',
                 `${beat.time}·《${beat.title}》${beat.type ? '·' + beat.type : ''}${beat.line ? '（' + beat.line + '）' : ''}`,
@@ -40,7 +41,7 @@ export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton,
                 { action: 'outline-delete', icon: 'fa-trash', label: '删除', title: '删除这个面' },
             ], escapeHtml, value => String(value ?? '')).replace('data-menu-id="outline"', `data-menu-id="outline" data-idx="${index + 1}" data-iid="${injectId}" data-cid="${copyId}"`);
             return `
-        <div class="sp-beat${highlight}" data-jump-mod="outline" data-jump-key="${esc(beat.title)}">
+        <div class="sp-beat${highlight}" data-jump-mod="outline" data-jump-key="${esc(beat.title)}"${beat.id ? ` data-jump-ref="${esc(beat.id)}"` : ''}>
             <div class="sp-beat-head">
                 <span class="sp-beat-index">${index + 1}</span>
                 ${badge}
@@ -57,7 +58,12 @@ export function createOutlineRenderer({ escapeHtml, cleanText, makeInjectButton,
             ${beat.subtext ? `<div class="sp-beat-subtext">"${esc(clean(beat.subtext))}"</div>` : ''}
             ${beat.think ? `<details class="sp-beat-think"><summary>创作思考</summary><p>${esc(clean(beat.think))}</p></details>` : ''}
         </div>`;
-        }).join('');
+        };
+        const groups = groupOutlineVolumes(beats);
+        const named = groups.some(group => group.title !== '未分卷');
+        const cards = named
+            ? groups.map(group => `<details class="sp-outline-volume"${group.indices.some(index => cursor >= 1 && index + 1 === cursor) ? ' open' : ''}><summary class="sp-outline-volume-title">${esc(group.title)}</summary>${group.beats.map((beat, offset) => cardOf(beat, group.indices[offset])).join('')}</details>`).join('')
+            : beats.map((beat, index) => cardOf(beat, index)).join('');
         const rawDebug = beats.length < 3
             ? `<details class="sp-debug"><summary>⚠ 仅解析到 ${beats.length} 个节点</summary><pre class="sp-debug-raw">${esc(raw)}</pre></details>`
             : '';

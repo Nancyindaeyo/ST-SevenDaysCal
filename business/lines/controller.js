@@ -55,7 +55,7 @@ export function createLinesGenerationController(env = {}) {
             const sourceRaw = typeof swipeCtx?.baselineRaw === 'string' ? swipeCtx.baselineRaw : commitBaseline.raw;
             const isReroll = !!(swipeCtx?.forceReroll || swipeCtx?.reroll);
             const sourceLines = parseLines(sourceRaw);
-            const liveCandidates = sourceLines.filter(line => line.pin || !TERMINAL_LINE_STAGES.has(line.stage));
+            const liveCandidates = sourceLines.filter(line => !line.dormant && (line.pin || !TERMINAL_LINE_STAGES.has(line.stage)));
             const identityLines = isReroll ? liveCandidates.filter(line => line.pin) : liveCandidates;
             const promptLines = isReroll ? [] : identityLines.filter(line => !line.pin);
             const previousRaw = isReroll || promptLines.length !== sourceLines.length ? serializeLines(promptLines, { includeId: false }) : sourceRaw;
@@ -69,7 +69,7 @@ export function createLinesGenerationController(env = {}) {
             const ticketCount = Math.min(capacity, AUTO_LINE_SEED_CAPACITY);
             const freshTickets = await drawer(ticketCount, { random: env.random || (() => Math.random()), seed: owner.id, nonce: owner.chatRevision });
             if (signal.aborted || travelAbort?.aborted || !owners.isCurrent(owner, { chatId }) || env.chatId() !== chatId) return { status: 'cancelled', reason: 'stale-owner' };
-            const activeLines = sourceLines.filter(line => line.name && !line.pin && !TERMINAL_LINE_STAGES.has(line.stage));
+            const activeLines = sourceLines.filter(line => line.name && !line.pin && !line.dormant && !TERMINAL_LINE_STAGES.has(line.stage));
             const allocatorBase = isReroll ? { activeCount: 0, activeAdultCount: 0 } : { activeCount: activeLines.length, activeAdultCount: activeLines.filter(line => line.adult).length };
             const pools = adultMode === 'off' ? null : allocateAdultPools(adultMode, freshTickets.length, allocatorBase);
             const selectionCount = pools ? pools.filter(pool => pool === 'nsfw').length : 0;
