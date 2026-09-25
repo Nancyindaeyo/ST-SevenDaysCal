@@ -1,4 +1,5 @@
 import { spaceMessagePlainText } from './schema.js';
+import { expectedKindFromHistory } from './context.js';
 import { excerptToQuote, wrapQuotedSpaceMessage, parseQuotedSpaceMessage, quoteCardHtml } from './quote.js';
 import { renderSpaceGuide, spaceGuideEmptyHtml } from './guide-ui.js';
 
@@ -40,13 +41,16 @@ export function createSpaceUi(host = {}) {
         renderPendingQuote();
     };
 
-    const registerWidget = widget => {
+    const registerWidget = (widget, handoff = true) => {
         const wid = String(++widgetSeq);
-        widgets.set(wid, { kind: widget.kind, body: widget.body, editIdx: widget.editIdx });
+        widgets.set(wid, { kind: widget.kind, body: widget.body, editIdx: widget.editIdx, handoff });
         return wid;
     };
     const appendMessage = (role, content, historyIndex = null) => {
-        const parts = controllers.renderer.message(role, content, historyIndex, registerWidget);
+        const expectedKind = role === 'ai' && Number.isInteger(historyIndex)
+            ? expectedKindFromHistory(controllers.chat.history(), historyIndex)
+            : null;
+        const parts = controllers.renderer.message(role, content, historyIndex, registerWidget, expectedKind);
         const $wrap = host.$?.('<div>').addClass(`sp-chat-msg-wrap ${parts.wrapClass}`);
         if (!$wrap) return;
         if (parts.canAct) $wrap.attr('data-idx', historyIndex);

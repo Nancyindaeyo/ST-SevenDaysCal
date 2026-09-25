@@ -499,6 +499,10 @@ export function panelMarkup({
                                             <hr class="sp-mem-divider">
                                             <p class="sp-cfg-group">成人剧情模式（按角色保存）</p>
                                             <div class="sp-mode-row" id="sp-adult-row"><!-- populated when settings opens --></div>
+                                            <hr class="sp-mem-divider">
+                                            <p class="sp-cfg-group">剧情倾向（按角色保存）</p>
+                                            <p class="sp-cfg-hint">只在同样有证据的走向里调优先级，不强制结果，也不改已锁定或已收束的线。</p>
+                                            <div class="sp-mode-row" id="sp-direction-row"><!-- populated when settings opens --></div>
                                         </div>
                                     </details>
                                 </div>

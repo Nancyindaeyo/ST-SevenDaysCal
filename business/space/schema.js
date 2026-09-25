@@ -74,3 +74,45 @@ export function spaceMessagePlainText(message) {
     if (message.role === 'user') return quotedSpaceMessageForApi(raw);
     return message.role === 'assistant' ? extractWidgets(raw).text : raw;
 }
+
+const SPACE_WIDGET_LABELS = Object.freeze({
+    schedule_widget: '点卡片',
+    line_widget: '线卡片',
+    almanac_widget: '历卡片',
+    era_widget: '历法卡片',
+});
+
+export function spaceWidgetLabel(kind) {
+    return SPACE_WIDGET_LABELS[kind] || '结构化卡片';
+}
+
+export function spaceWidgetHandoff(widget, expectedKind = null, { parseAlmanac, parseEra } = {}) {
+    if (!widget?.kind) {
+        return Object.freeze({ ok: false, reason: 'missing', message: '这张建议不能交给灯：没有可用的结构化卡片。' });
+    }
+    if (expectedKind && widget.kind !== expectedKind) {
+        return Object.freeze({
+            ok: false,
+            reason: 'wrong-kind',
+            message: `这张建议不能交给灯：本轮要的是${spaceWidgetLabel(expectedKind)}，AI 给了${spaceWidgetLabel(widget.kind)}。`,
+        });
+    }
+    const body = String(widget.body || '');
+    if (widget.kind === 'almanac_widget') {
+        let items = [];
+        try { items = parseAlmanac?.(body) || []; } catch { items = []; }
+        if (!items.length) return Object.freeze({ ok: false, reason: 'invalid', message: '这张建议不能交给灯：历卡片字段不完整或日期无效。' });
+    }
+    if (widget.kind === 'era_widget') {
+        let desc = null;
+        try { desc = parseEra?.(body) || null; } catch { desc = null; }
+        if (!desc) return Object.freeze({ ok: false, reason: 'invalid', message: '这张建议不能交给灯：历法卡片字段不完整或格式无效。' });
+    }
+    if (widget.kind === 'schedule_widget' && !/Event\s*[:：]/i.test(body)) {
+        return Object.freeze({ ok: false, reason: 'invalid', message: '这张建议不能交给灯：点卡片缺少 Event 字段。' });
+    }
+    if (widget.kind === 'line_widget' && !/Line\s*[:：]/i.test(body)) {
+        return Object.freeze({ ok: false, reason: 'invalid', message: '这张建议不能交给灯：线卡片缺少 Line 字段。' });
+    }
+    return Object.freeze({ ok: true, reason: '', message: '' });
+}

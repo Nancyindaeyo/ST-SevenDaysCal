@@ -1,4 +1,4 @@
-import { extractWidgets } from './schema.js';
+import { extractWidgets, spaceWidgetHandoff, spaceWidgetLabel } from './schema.js';
 import { parseQuotedSpaceMessage, quoteCardHtml } from './quote.js';
 import { normalizeLine, parseLineRow } from '../lines/schema.js';
 
@@ -9,6 +9,13 @@ export function createSpaceRenderer(env = {}) {
         if (/^[|｜].*[|｜]$/.test(text)) text = text.slice(1, -1).trim();
         return text.replace(/^[>#*\-\s]+/, '').replace(/\*+/g, '').trim();
     }).filter(Boolean);
+    const invalidWidgetCard = (kind, body, message = '') => `<div class="sp-space-widget-card sp-space-widget-card-error" data-kind="error">
+        <div class="sp-space-widget-head"><span class="sp-space-widget-badge"><i class="fa-solid fa-triangle-exclamation"></i> ${escape(spaceWidgetLabel(kind))}无法交给灯</span></div>
+        <div class="sp-space-widget-body">
+            <div class="sp-space-widget-desc">${escape(message || '这张建议不能交给灯：卡片字段不完整或格式无效。')}</div>
+            ${String(body || '').trim() ? `<div class="sp-raw">${escape(body).replace(/\n/g, '<br>')}</div>` : ''}
+        </div>
+    </div>`;
     const widgetCard = (kind, body, wid, editIdx = null) => {
         if (kind === 'schedule_widget') {
             const line = rows(body).find(item => /^Event\s*[:：]/i.test(item)) || '';
@@ -109,18 +116,24 @@ export function createSpaceRenderer(env = {}) {
         return '';
     };
 
-    const message = (role, content, historyIndex, registerWidget) => {
+    const message = (role, content, historyIndex, registerWidget, expectedKind = null) => {
         const cls = role === 'user' ? 'sp-chat-msg-user' : role === 'ai' ? 'sp-chat-msg-ai' : 'sp-chat-msg-system';
         const wrapClass = role === 'user' ? 'sp-chat-msg-wrap-user' : role === 'ai' ? 'sp-chat-msg-wrap-ai' : 'sp-chat-msg-wrap-system';
         const canAct = role !== 'system' && Number.isInteger(historyIndex);
         let contentHtml;
         let widgetCards = '';
+        let canHandoff = false;
         if (role === 'ai') {
             const parsed = extractWidgets(content);
             contentHtml = parsed.text ? env.formatAi?.(parsed.text) ?? escape(parsed.text).replace(/\n/g, '<br>') : '';
             widgetCards = parsed.widgets.map(widget => {
-                const wid = registerWidget?.(widget);
-                return widgetCard(widget.kind, widget.body, wid, widget.editIdx);
+                const decision = spaceWidgetHandoff(widget, expectedKind, { parseAlmanac: env.parseAlmanac, parseEra: env.parseEra });
+                const wid = registerWidget?.(widget, decision.ok);
+                if (decision.ok) {
+                    canHandoff = true;
+                    return widgetCard(widget.kind, widget.body, wid, widget.editIdx);
+                }
+                return invalidWidgetCard(widget.kind, widget.body, decision.message);
             }).join('');
         } else {
             const quoted = parseQuotedSpaceMessage(content);
@@ -133,9 +146,9 @@ export function createSpaceRenderer(env = {}) {
         }
         const edit = role === 'user' ? '<button class="sp-chat-msg-edit" title="编辑"><i class="fa-solid fa-pen"></i></button>' : '';
         const actions = canAct
-            ? `<div class="sp-chat-msg-actions">${edit}<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button><button class="sp-chat-msg-delete" title="删除"><i class="fa-solid fa-trash"></i></button>${widgetCards ? '<button class="sp-space-to-lamp" title="交给灯">交给灯</button><button class="sp-space-clarify" title="回间写清">回间写清</button>' : ''}</div>`
+            ? `<div class="sp-chat-msg-actions">${edit}<button class="sp-chat-msg-copy" title="复制"><i class="fa-solid fa-copy"></i></button><button class="sp-chat-msg-delete" title="删除"><i class="fa-solid fa-trash"></i></button>${canHandoff ? '<button class="sp-space-to-lamp" title="交给灯">交给灯</button>' : ''}${widgetCards ? '<button class="sp-space-clarify" title="回间写清">回间写清</button>' : ''}</div>`
             : '';
-        return Object.freeze({ cls, wrapClass, canAct, contentHtml, widgetCards, actions });
+        return Object.freeze({ cls, wrapClass, canAct, canHandoff, contentHtml, widgetCards, actions });
     };
     return Object.freeze({ widgetCard, message });
 }

@@ -5003,6 +5003,9 @@ select.sp-input { appearance: none; cursor: pointer; }
     min-width    : 0;
     overflow     : hidden;   /* 兜底：任何子元素都别想越出卡片边界 */
 }
+.sp-space-widget-card-error {
+    border-color : color-mix(in srgb, var(--sp-danger, #c45c5c) 45%, var(--sp-divider));
+}
 .sp-space-widget-head {
     display    : flex;
     align-items: center;
@@ -7130,11 +7133,9 @@ body.sp-anchor-fs-lock { overflow: hidden; }
 .sp-alm-today-month { width: auto !important; min-width: 78px; max-width: min(132px, 38vw); flex: 0 1 132px; text-align: left; text-overflow: ellipsis; }
 .sp-alm-today-calibration-title { white-space: nowrap; flex-shrink: 0; }
 .sp-alm-today-weekday { width: 78px !important; max-width: 78px; flex: 0 1 78px; }
-@media (max-width: 520px) {
-    .sp-alm-today-editing { flex-wrap: wrap; row-gap: 4px; }
-    .sp-alm-time-context .sp-alm-today-editing > .sp-alm-today-calibration-title { flex: 0 0 100%; }
-    .sp-alm-today-editing .sp-alm-today-acts { margin-left: auto; }
-}
+.sp-alm-today-editing { flex-wrap: wrap; row-gap: 4px; }
+.sp-alm-time-context .sp-alm-today-editing > .sp-alm-today-calibration-title { flex: 0 0 100%; }
+.sp-alm-today-editing .sp-alm-today-acts { margin-left: auto; flex-shrink: 0; }
  /* 时间戳·只读行：今天条下方一行，回显主楼 AI 每楼隐形时间戳（起→止），比今天条更素 */
 .sp-alm-clock {
     display      : flex;

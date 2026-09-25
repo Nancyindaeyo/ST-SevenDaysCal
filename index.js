@@ -134,6 +134,7 @@ import { migrateCanonicalBookIds } from './runtime/book-id-migrate.js';
 import { createInlineHost } from './runtime/inline-host.js';
 import { backupExportWarnings, parseBackupText, summarizeBackup } from './runtime/backup.js';
 import { ADULT_MODES, ADULT_MODE_LABELS, adultModeForCharacter } from './business/lines/adult.js';
+import { LINE_DIRECTION_VALUES, LINE_DIRECTION_LABELS, lineDirectionForCharacter, normalizeLineDirection } from './business/lines/direction.js';
 import { axisState } from './business/axis/state.js';
 import {
     ALM_TYPES,
@@ -219,7 +220,7 @@ import {
 } from './runtime/generation-messages.js';
 import { createChatBoundaryGate } from './runtime/generation-context.js';
 import { mountBackupOverlay as createBackupOverlay, mountMigrationOverlay as createMigrationOverlay } from './runtime/storage-overlay.js';
-import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
+import { bindStoryClock, parseStoryClock as parseStoryClockPure, parseJudgedDate as parseJudgedDatePure, latestStoryClock as latestStoryClockPure, storyClockDate as storyClockDatePure, storyWeekdayRef as storyWeekdayRefPure, completeStoryClock as completeStoryClockPure, storyClockNarrativeBody, buildStoryClockPrompt, buildStoryClockCalendarContext, STORY_CLOCK_KEY, createStoryClockController, extensionStoryClockState } from './business/axis/story-clock.js';
 import { createStoryClockFillHost } from './business/axis/story-clock-fill.js';
 import { createWeekdayConsumerContext } from './business/axis/weekday-coordinator.js';
 import { createDateDetectionHost } from './business/axis/date-detection-host.js';
@@ -1069,6 +1070,7 @@ const storyClockController = createStoryClockController({
     pluginEnabled,
     enabled: () => getSettings().storyClockEnabled !== false && !booksAreEmpty(readBooksFlags()),
     settings: getSettings,
+    calendarContext: () => buildStoryClockCalendarContext(loadCalDesc(), { isGregorian: isGregorianCalendar }),
     peerState: () => extensionStoryClockState({ extensionNames, disabledExtensions: extension_settings.disabledExtensions, extensionSuffix: '/ST-QianQianJie', peerSettings: extension_settings.qianqianjie }),
 });
 const storyClockEnabled = () => getSettings().storyClockEnabled !== false;
@@ -1646,6 +1648,7 @@ const linesFeature = createLinesFeature({
     injectionEnv: {
         context: () => getContext(), settings: getSettings, enabled: injectEnabled,
         adultMode: () => getAdultMode(charStableKey(getContext())),
+        lineDirection: () => getLineDirection(charStableKey(getContext())),
         readRaw: () => readStore(getLinesCacheKey())?.raw || '',
         promptTypes: getContext()?.constants?.promptTypes || {}, promptRoles: getContext()?.constants?.promptRoles || {}, clean: cleanText,
     },
@@ -1671,7 +1674,7 @@ const linesFeature = createLinesFeature({
         participantIdentity: captureParticipantIdentity,
         sameParticipantIdentity,
         contextSnapshot: captureGenerationContext,
-        buildPrompt: (previousRaw, travelContext, vectorContext, identity) => appendTravelPromptContext(buildLinesPrompt(identity?.userName || '用户', identity?.charName || '角色', 'user', previousRaw, getScale(identity?.characterKey || charStableKey(getContext())), vectorContext, getAdultMode(identity?.characterKey || charStableKey(getContext()))), travelContext),
+        buildPrompt: (previousRaw, travelContext, vectorContext, identity) => appendTravelPromptContext(buildLinesPrompt(identity?.userName || '用户', identity?.charName || '角色', 'user', previousRaw, getScale(identity?.characterKey || charStableKey(getContext())), vectorContext, getAdultMode(identity?.characterKey || charStableKey(getContext())), getLineDirection(identity?.characterKey || charStableKey(getContext()))), travelContext),
         random: () => Math.random(),
         callApi: (prompt, signal, options, identity, contextSnapshot) => callCustomApi(contextSnapshot || getContext(), prompt, loadCfg(), identity?.userName || '用户', identity?.charName || '角色', signal, options?.historyLimit ?? 3, options),
         missingApi: ({ silent }) => { if (!silent && !settingsOpen) toggleSettings(); },
@@ -1819,6 +1822,7 @@ const spaceFeature = createSpaceFeature({
         readCardExtras,
         readAlmanacText: () => getAlmanacInjectText(),
         readCalendarText: () => getCalDescInjectText(),
+        lineDirection: () => getLineDirection(charStableKey(getContext())),
         readBaiBaiGarnish: () => getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
     },
     renderEnv: {
@@ -3267,6 +3271,7 @@ function injectModal() {
         charKey: () => charStableKey(getContext()),
         setScale,
         setAdultMode,
+        setLineDirection,
         applyPluginEnabled,
         refreshLinesInjection,
         refreshOutlineInjection: () => outlineFeature.injection.refresh(),
@@ -3655,6 +3660,22 @@ function getAdultMode(charKey) {
 function setAdultMode(charKey, value) {
     if (charKey == null) return;
     getAdultModeMap()[charKey] = ADULT_MODES.includes(value) ? value : 'off';
+    saveSettingsDebounced();
+}
+
+function getLineDirectionMap() {
+    const s = getSettings();
+    if (!s.lineDirection || typeof s.lineDirection !== 'object') s.lineDirection = {};
+    return s.lineDirection;
+}
+
+function getLineDirection(charKey) {
+    return lineDirectionForCharacter(getSettings(), charKey);
+}
+
+function setLineDirection(charKey, value) {
+    if (charKey == null) return;
+    getLineDirectionMap()[charKey] = normalizeLineDirection(value);
     saveSettingsDebounced();
 }
 
@@ -4194,6 +4215,7 @@ function toggleSettings() {
         renderWiExcludeList();   // 全局排除清单（async fire-and-forget；冷缓存会强刷世界书全表）
         renderScaleRow();   // per-character scale radios (sync)
         renderAdultRow();
+        renderDirectionRow();
         renderMemorySection();   // memory status + settings sync
         renderTheaterSection();  // 棱 settings + cache usage + template manager
         renderStorageUsage();    // 存储管理面板：本聊天、坐标收藏、本机缓存三层用量统计
@@ -4316,6 +4338,13 @@ function renderAdultRow() {
     if (!$row.length) return;
     const current = getAdultMode(charStableKey(getContext()));
     $row.html(ADULT_MODES.map(v => `<label class="sp-mode-opt"><input type="radio" name="sp-lines-adult-mode" value="${v}"${v === current ? ' checked' : ''}><span>${escapeHtml(ADULT_MODE_LABELS[v])}</span></label>`).join(''));
+}
+
+function renderDirectionRow() {
+    const $row = $in('#sp-direction-row');
+    if (!$row.length) return;
+    const current = getLineDirection(charStableKey(getContext()));
+    $row.html(LINE_DIRECTION_VALUES.map(v => `<label class="sp-mode-opt"><input type="radio" name="sp-lines-direction" value="${v}"${v === current ? ' checked' : ''}><span>${escapeHtml(LINE_DIRECTION_LABELS[v])}</span></label>`).join(''));
 }
 
 function toggleKeyVisibility() {

@@ -50,6 +50,12 @@ export function bindSettingsPanel(env = {}) {
         env.setAdultMode?.(charKey, this.value);
         env.refreshLinesInjection?.();
     });
+    $in('#sp-direction-row').on('change.autoSave', 'input[name="sp-lines-direction"]', function () {
+        const charKey = env.charKey?.();
+        if (!charKey) return;
+        env.setLineDirection?.(charKey, this.value);
+        env.refreshLinesInjection?.();
+    });
 
     bindCheck($in, '#sp-plugin-enabled', 'pluginEnabled', {
         settings, persist: saveNow, after: on => env.applyPluginEnabled?.(on),

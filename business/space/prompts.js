@@ -1,3 +1,5 @@
+import { lineDirectionContract } from '../lines/direction.js';
+
 export function getSpaceChatPlaceholder() {
     return '局外聊聊：剧情、设定、关系、知识…';
 }
@@ -18,7 +20,7 @@ const widgetLabel = kind => ({
     era_widget: '历法',
 }[kind] || '卡片');
 
-function widgetContract(kind, calDescText) {
+function widgetContract(kind, calDescText, lineDirection = 'natural') {
     if (kind === 'schedule_widget') return [
         `【点卡片理想结构】每张卡片写一条完整 Event，不寒暄、不解释：`,
         `<schedule_widget>Event: type|title|description|time|location|线头动态</schedule_widget>`,
@@ -40,6 +42,7 @@ function widgetContract(kind, calDescText) {
         `- agency=player 仅当下一步必须等待 user 的选择或行动；agency=world 表示其他人物、势力、机构或环境即使 user 暂不参与也能自行推进。不得因为事件将来可能影响 user 就标 player。`,
         `- stall 只能是 true / false。stall=true 时 Next 写恢复条件；否则 Next 写真正主动方的紧邻下一步。`,
         `- pin 是本地保留位，一律输出 false。`,
+        lineDirectionContract(lineDirection),
     ].join('\n');
     if (kind === 'almanac_widget') return [
         `【历卡片理想结构】用卡片记录具体日期；一次多个日期可写多行 Item，不寒暄、不解释：`,
@@ -66,7 +69,7 @@ function widgetContract(kind, calDescText) {
     return '';
 }
 
-function outputModeBlock(intent = {}, calDescText = '') {
+function outputModeBlock(intent = {}, calDescText = '', lineDirection = 'natural') {
     if (intent.action === 'clarify') {
         return intent.reason === 'missing-recent-widget'
             ? `【本轮输出模式】用户像是在修改上一张卡片，但当前可用历史里没有上一张有效卡片。请用自然语言简短追问要修改哪一类卡片及原内容；不要猜类型，不要输出任何卡片。`
@@ -74,7 +77,7 @@ function outputModeBlock(intent = {}, calDescText = '') {
     }
     if (intent.action === 'semantic-route') {
         const contracts = ['schedule_widget', 'line_widget', 'almanac_widget', 'era_widget']
-            .map(kind => widgetContract(kind, calDescText))
+            .map(kind => widgetContract(kind, calDescText, lineDirection))
             .join('\n\n');
         return [
             `【本轮输出模式：语义路由】本地规则无法可靠确定用户是在讨论，还是在用自然语言要求生成结构化卡片。请在本次回答内根据完整语义自行判断，不要因为措辞没命中固定说法就拒绝卡片。`,
@@ -90,7 +93,7 @@ function outputModeBlock(intent = {}, calDescText = '') {
     if (!intent.kind) {
         return `【本轮输出模式】这是普通讨论或只读查询。只用自然语言回答，不生成结构化卡片，不输出无关标签。`;
     }
-    return `【本轮输出模式】用户已明确授权落地或修改${widgetLabel(intent.kind)}卡片。只使用下面这一种结构，不输出其他种类、无关标签、前言或解释；用户明确要多条候选时，可逐张输出同一种卡片。\n${widgetContract(intent.kind, calDescText)}`;
+    return `【本轮输出模式】用户已明确授权落地或修改${widgetLabel(intent.kind)}卡片。只使用下面这一种结构，不输出其他种类、无关标签、前言或解释；用户明确要多条候选时，可逐张输出同一种卡片。\n${widgetContract(intent.kind, calDescText, lineDirection)}`;
 }
 
 function recentWidgetBlock(intent = {}) {
@@ -108,7 +111,7 @@ function recentWidgetBlock(intent = {}) {
     ].join('\n');
 }
 
-export function buildSpaceChatSystemPrompt({ userName, charName, personaDesc = '', authorNote = '', outlineRaw = '', wiContext = '', memText = '', recentCtx = '', pointList = '', lineList = '', ledgerList = '', almanacText = '', calDescText = '', faqText = '', personaOverride = '', intent = {}, garnish = '' }) {
+export function buildSpaceChatSystemPrompt({ userName, charName, personaDesc = '', authorNote = '', outlineRaw = '', wiContext = '', memText = '', recentCtx = '', pointList = '', lineList = '', ledgerList = '', almanacText = '', calDescText = '', faqText = '', personaOverride = '', intent = {}, garnish = '', lineDirection = 'natural' }) {
     // 间·人格覆盖：用户填了就用它取代默认「表达分寸」（ADVISOR_TONE_GUIDE）——换的是间的语气/行文/人格色彩，
     // 但「你是创作顾问、不推进剧情、不扮演角色」那句恒定保留（最高纲领，不能被覆盖，否则 AI 会跑去推剧情/扮演）。
     // 空白＝用内置 ADVISOR_TONE_GUIDE（现状不变）。override 非 append：填了默认那段就整体让位。
@@ -136,7 +139,7 @@ export function buildSpaceChatSystemPrompt({ userName, charName, personaDesc = '
         `- 长度由问题决定：一句能说清的绝不写两句；确实需要展开的（如剧情推演、设定考据），才分点铺陈`,
         `- 直接给结论，避免"其实"、"值得注意的是"、"综上所述"这类铺垫与总结`,
         toneBlock,
-        outputModeBlock(intent, calDescText),
+        outputModeBlock(intent, calDescText, lineDirection),
         recentWidgetBlock(intent),
 
         (intent.kind && (pointList || lineList)) ? `\n【改现有条目】若用户要改的是上面当前列表里的某条已存在条目：` : '',
@@ -157,7 +160,7 @@ export const SPACE_HELP_FACTS = `【构画·功能与设置速查（你据此回
 · 【点】从故事“今天”开始安排我／TA 接下来 3 天的事项，并另列“未来”，不是人物此刻状态卡。换日时格子机械前移（未锁的昨天记完成，锁定滚进未来），不调 API；时旅仍按目标日重排。也不潜伏注入。对齐或重做去对账灯里的刷新账本：勾选模块后「按正文对齐」或「重新生成」。空账时用「生成账本」按 面→点→线→轴→刻度标注→冷知识 排队。设置→推进设置→日期与对齐里可打开「点/线按正文自动对齐」。头部图钉「固定 TA」只把 TA 留在 TA▾ 抽屉，不是锁事项。每条的 ⋮ 菜单含编辑／锁定／注入／删除；点的锁定只保证同名事项刷新时不被删除，时间和说明仍可能随新剧情推进。
 · 【轴·三页】「即将到来」按距今排列日期，「日历」按月查看，「刻度」管理随时间变化的账。日期工具：＋「添加」手动录日期；魔杖「生成节日」按世界观重做一整年，保留手动项和锁定项、替换未锁 AI 日期；爱心加号「补录纪念日」只追加新浮现的重大里程碑，可能一条也没有，新增项自动锁定；日历图标「历法管理」编辑月份、天数、纪年与模板。日期条目的锁／笔／垃圾桶分别是锁定、编辑、删除。换历法若现有日期失效，会先让用户选取消、删除冲突日期或自动修正；不会暗中乱改。
 · 【刻度】分持续状态／约定待办／周期。自动标注开关在设置→注入与内容设置→功能与内容开关，名称就是「刻度」，默认关；节奏在设置→推进设置→刻度。也可在轴的刻度页或楼内「标注池」点「标注」捞新条、点「更新」按时间刷新现状。刻度潜伏注入默认关，需总闸和设置→注入与内容设置→模块注入里的刻度「潜伏注入主楼 AI」同时开启。每条可编辑（保存后自动用户锁）、锁定（AI 更新不再改）、暂停埋入（不注入但继续跟进）、了结（移到归档）；归档可捞回或彻底删除。锁定与注入是两回事：锁定不代表必定注入，暂停埋入则一定不注入。
-· 【线】有「平行事件」「冷知识」两页。平行事件追踪仍在发展的伏笔、人物行动和局势；冷知识开关在设置→注入与内容设置→功能与内容开关，名称是「冷知识」，默认关闭，开启后才参与生成和楼内显示。线的推进策略在设置→推进设置→线：可按 AI 回复回合数、故事日期变化或只手动推进。刷新「重新生成」只重做未锁线；「推进」会更新旧线，也可能新增少量真正独立的事件。每条 ⋮ 菜单含编辑／锁定／注入／删除；AI 不能替用户创建锁。潜伏注入要同时开总闸和设置→模块注入里线的「潜伏注入主楼 AI」。
+· 【线】有「平行事件」「冷知识」两页。平行事件追踪仍在发展的伏笔、人物行动和局势；冷知识开关在设置→注入与内容设置→功能与内容开关，名称是「冷知识」，默认关闭，开启后才参与生成和楼内显示。线的推进策略在设置→推进设置→线：可按 AI 回复回合数、故事日期变化或只手动推进。剧情倾向在设置→成人内容与叙事尺度，按角色保存，只在同样有证据的走向里调优先级，不强制结果，也不改已锁定或已收束的线。刷新「重新生成」只重做未锁线；「推进」会更新旧线，也可能新增少量真正独立的事件。每条 ⋮ 菜单含编辑／锁定／注入／删除；AI 不能替用户创建锁。潜伏注入要同时开总闸和设置→模块注入里线的「潜伏注入主楼 AI」。
 · 【面】左侧是整份大纲，右侧是 AI 讨论。左侧「重新生成」会替换整份旧面；节点 ⋮ 菜单含编辑／设为当前（当前节点显示取消当前）／注入／复制／删除。右侧纸飞机发送、扫帚只清讨论记录，不删现有面。讨论回复只有解析出至少一个有效节点时才可「应用此面」。设置→推进设置→面的判定只会把当前节点向后推进，不会自动倒退；潜伏注入需总闸、面自己的「大纲自动注入」和一个已设为当前的节点同时具备。
 · 【间】是局外创作顾问，不把对话写入正式角色扮演楼层，也不直接推进剧情。发送新问题时会先清理较旧记录；一轮完整问答结束后，最多可能暂时显示 21 条间内消息。纸飞机发送、扫帚清空；用户消息可用笔「编辑并重发」（会从这里截断后续记录），消息还可复制或删除。复制只包含该条消息的普通文字，结构化卡片不会随消息一起复制。卡片只展示建议，不再一键写账；要落地请「交给灯」，由灯按打架／对齐／重做提示词改账。跑法或条目没写清时，点「回间写清」让间再出一版意图。引导只出草案，同意后交给灯，间自己不 commit。
 · 【日台】只读汇总今天的点、近七天节日、到期/持续刻度、时机写近日的线；本轮拍在最下面。点一条跳回原账，永不注入。

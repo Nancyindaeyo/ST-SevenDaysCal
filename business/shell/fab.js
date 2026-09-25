@@ -103,16 +103,23 @@ export function createFab(env = {}) {
         applyPos(f, box);
     }
 
+    function persistFabPos(left, top) {
+        try { win.localStorage.setItem(posKey, JSON.stringify({ left, top })); }
+        catch { /* 配额/隐私模式失败时仍必须结束手势 */ }
+    }
+
     function onPointerEnd(ev) {
         if (!dragState || ev.pointerId !== dragState.pointerId) return;
         const pointerId = dragState.pointerId;
         if (dragged) {
-            const r = fabEl().getBoundingClientRect();
-            win.localStorage.setItem(posKey, JSON.stringify({ left: r.left, top: r.top }));
+            const box = fabEl()?.getBoundingClientRect();
+            if (box) persistFabPos(box.left, box.top);
         }
         dragState = null;
         const captureTarget = ev.currentTarget;
-        if (captureTarget?.hasPointerCapture?.(pointerId)) captureTarget.releasePointerCapture(pointerId);
+        if (captureTarget?.hasPointerCapture?.(pointerId)) {
+            try { captureTarget.releasePointerCapture(pointerId); } catch { /* 捕获已丢失 */ }
+        }
     }
 
     function inject() {
@@ -174,6 +181,7 @@ export function createFab(env = {}) {
         fabButton.addEventListener('pointermove', onPointerMove);
         fabButton.addEventListener('pointerup', onPointerEnd);
         fabButton.addEventListener('pointercancel', onPointerEnd);
+        fabButton.addEventListener('lostpointercapture', onPointerEnd);
         fabButton.addEventListener('click', function () {
             if (dragged) return;
             env.panelVisible?.() ? env.close?.() : env.open?.();

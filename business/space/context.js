@@ -12,7 +12,8 @@ const POINT_RX = /(?:日程|日历|待办|点卡片?|第\s*\d+\s*条\s*点|(?:�
 const LINE_RX = /(?:事件线|剧情线|线索|伏笔|线卡片?|第\s*\d+\s*条\s*线|(?:当前|现有|已有|所有)(?:的)?线(?=$|[\s，。？！、；：]|要|里|再|改|修|调|重|简|详|短|长)|(?:有哪些|有几(?:个|条)|多少(?:个|条))线|(?:这个|那个)线(?=(?:$|[\s，。？！、；：]|要怎么|怎么|如何|显示|加|改|删|存|落地))|(?:往|向)线里|(?:做|新建|加|新增|添加|创建|生成|记录|保存|落地|修改|查看|看看|列出|给我(?:做|来)?|来)(?:一|一个|一条|个|条)?线(?=$|[\s，。？！、；：]|然后|并|再|和))/;
 const ERA_RX = /(?:整套(?:的)?历|历法|纪年|年号|月名|月份结构|月份数量|月(?:份)?数|一年(?:有|几|多少|改成|设为|调整为)?[一二三四五六七八九十百\d]*个月|每(?:个)?月(?:都)?(?:天数|(?:有|几|多少)天|(?:(?:改|调整|设置|设)(?:为|成))?[零〇一二两三四五六七八九十百\d]+天)|历法卡片?)/;
 const UNIQUE_HELP_RX = /(?:悬浮球|悬浮按钮|潜伏注入|构画设置|构画开关|构画功能|模块教程)/;
-const HELP_MODULE_RX = /(?:构画|点卡片?|线卡片?|事件线|轴模块|刻度|面模块|间模块|棱|坐标|历法)/;
+const HELP_MODULE_RX = /(?:构画|点卡片?|线卡片?|轴(?:历)?卡片|事件线|轴模块|刻度|面模块|间模块|棱|坐标|历法)/;
+const AXIS_CARD_RX = /轴(?:历)?卡片/;
 const BARE_HELP_MODULE_RX = /(?:^|[\s，。？！、；：])(?:点|线)(?=(?:要|应该)?(?:怎么|如何|怎样)|会(?:不会)?自动|能不能|可以吗|在哪|没反应|没生效|不生效|没出现|不显示)|(?:怎么|如何|怎样)(?:往|向)(?:点|线)里|(?:怎么|如何|怎样)给(?:点|线)(?:里)?(?:加|添加|新增|写|记录|保存|放)|(?:这个|那个)(?:点|线).{0,8}(?:显示|出现|生效|找不到)/;
 const BARE_HELP_MODULE_MENTION_RX = /(?:^|[\s，。？！、；：]|给|往|向|到|在)(?:点|线)(?=$|[\s，。？！、；：]|里|中|内|上|的|要|应该|该|加|添加|新增|写|记录|保存|放|修改|显示|使用|打开|关闭)/;
 const HELP_ACTION_RX = /(?:加|添加|新增|写|记录|保存|放|修改|显示|使用|打开|关闭)/;
@@ -46,9 +47,22 @@ const GENERAL_REQUEST_RX = /^\s*(?:请|麻烦|劳驾|帮|给|把|替|为|我要|
 
 const moduleMatches = message => {
     const era = ERA_RX.test(message);
-    const almanac = /(?:重要日期|具体日期|节日|生日|纪念日|年历|历卡片?)/.test(message) || (!era && /日期/.test(message));
+    const axisCard = AXIS_CARD_RX.test(message);
+    const almanac = axisCard || /(?:重要日期|具体日期|节日|生日|纪念日|年历|历卡片?)/.test(message) || (!era && /日期/.test(message));
     return Object.freeze({ schedule_widget: POINT_RX.test(message), line_widget: LINE_RX.test(message), almanac_widget: almanac, era_widget: era });
 };
+
+const spaceIntent = extra => Object.freeze({
+    action: 'discuss',
+    kind: null,
+    expectedKind: null,
+    faq: false,
+    pointContext: false,
+    lineContext: false,
+    recentWidget: null,
+    reason: '',
+    ...extra,
+});
 
 export function classifySpaceIntent(userMsg, historySnapshot = []) {
     const message = String(userMsg || '').trim();
@@ -82,26 +96,41 @@ export function classifySpaceIntent(userMsg, historySnapshot = []) {
         || (SEMANTIC_CARD_RX.test(message) && REQUEST_LANGUAGE_RX.test(message));
     const explicitStructuredLanding = directSemanticRequest || (hasWrite && semanticKinds.length > 0);
     if (writeKinds.length > 1 || (!helpQuestion && !noWrite && (hasWrite || directSemanticRequest || delegatedCardRequest) && semanticKinds.length > 1)) {
-        return Object.freeze({ action: 'clarify', kind: null, faq, pointContext: false, lineContext: false, recentWidget: null, reason: 'ambiguous-widget-kind' });
+        return spaceIntent({ action: 'clarify', faq, reason: 'ambiguous-widget-kind' });
     }
     if (!helpQuestion && !noWrite && RECENT_EDIT_RX.test(message)) {
         const explicitKind = writeKinds[0] || null;
         const canReviseLatest = latestWidget && (!explicitKind || explicitKind === latestWidget.kind) && !CANONICAL_ITEM_RX.test(message);
         if (canReviseLatest) {
-            return Object.freeze({ action: 'revise-recent', kind: latestWidget.kind, faq, pointContext: latestWidget.kind === 'schedule_widget', lineContext: latestWidget.kind === 'line_widget', recentWidget: latestWidget, reason: '' });
+            return spaceIntent({
+                action: 'revise-recent',
+                kind: latestWidget.kind,
+                expectedKind: latestWidget.kind,
+                faq,
+                pointContext: latestWidget.kind === 'schedule_widget',
+                lineContext: latestWidget.kind === 'line_widget',
+                recentWidget: latestWidget,
+            });
         }
         if (!latestWidget && !explicitKind) {
-            return Object.freeze({ action: 'clarify', kind: null, faq, pointContext: false, lineContext: false, recentWidget: null, reason: 'missing-recent-widget' });
+            return spaceIntent({ action: 'clarify', faq, reason: 'missing-recent-widget' });
         }
     }
     if (writeKinds.length === 1) {
         const kind = writeKinds[0];
-        return Object.freeze({ action: 'write', kind, faq, pointContext: kind === 'schedule_widget', lineContext: kind === 'line_widget', recentWidget: null, reason: '' });
+        return spaceIntent({
+            action: 'write',
+            kind,
+            expectedKind: kind,
+            faq,
+            pointContext: kind === 'schedule_widget',
+            lineContext: kind === 'line_widget',
+        });
     }
     const pointContext = modules.schedule_widget && VIEW_RX.test(message);
     const lineContext = modules.line_widget && VIEW_RX.test(message);
     if (pointContext || lineContext) {
-        return Object.freeze({ action: 'view', kind: null, faq, pointContext, lineContext, recentWidget: null, reason: '' });
+        return spaceIntent({ action: 'view', faq, pointContext, lineContext });
     }
     const semanticCardCandidate = semanticKinds.length > 0 || SEMANTIC_CARD_RX.test(message);
     const reliableDiscussion = helpQuestion
@@ -114,15 +143,17 @@ export function classifySpaceIntent(userMsg, historySnapshot = []) {
         || (EXPLICIT_EXPLANATION_RX.test(message) && !explicitStructuredLanding)
         || (PURE_DISCUSSION_RX.test(message) && !directSemanticRequest && !delegatedCardRequest);
     const uncertainRequest = semanticCardCandidate || GENERAL_REQUEST_RX.test(message);
-    return Object.freeze({
+    return spaceIntent({
         action: uncertainRequest && !reliableDiscussion ? 'semantic-route' : 'discuss',
-        kind: null,
         faq,
-        pointContext: false,
-        lineContext: false,
-        recentWidget: null,
-        reason: '',
     });
+}
+
+export function expectedKindFromHistory(history, assistantIndex) {
+    if (!Array.isArray(history) || !Number.isInteger(assistantIndex) || assistantIndex < 1) return null;
+    const previous = history[assistantIndex - 1];
+    if (previous?.role !== 'user') return null;
+    return classifySpaceIntent(quotedSpaceMessageForApi(previous.content), history.slice(0, assistantIndex)).expectedKind || null;
 }
 
 export function numberedSpaceLineList(raw, parseLines) {
@@ -179,6 +210,7 @@ export function createSpaceContext(env = {}) {
             personaOverride: String(env.settings?.()?.spacePersona || '').trim(),
             intent,
             garnish,
+            lineDirection: env.lineDirection?.() || 'natural',
         });
         return [{ role: 'system', content: system }, ...stripWidgetsForApi(historySnapshot), { role: 'user', content: quotedSpaceMessageForApi(userMsg) }];
     };
