@@ -212,7 +212,7 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
     // Request-level replacement applies to every role, not only the global custom prompt.
     // Keep non-string content (e.g. multimodal parts) untouched and do not rewrite plain "user".
     messages = expandRequestMessageContents(messages, names);
-    // 棱把柏宝书破限原文写进消息后，不再往第一条前面贴机械链的「不要续写/扩写」。
+    // 棱的破限和破限词已经写在消息里，不再往第一条前面贴机械链的「不要续写/扩写」。
     if (!omitBaseProcessing) {
         const promptLayers = [BASE_PROCESSING_PROMPT];
         if (creative) promptLayers.push(DEFAULT_JAILBREAK, ...(userExtra ? [userExtra] : []));

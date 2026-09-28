@@ -115,7 +115,8 @@ test('cross-book lottery draws N entries and keeps unused books off the prompt',
     assert.ok(one.headers.every(item => item.bookName === one.recipes[0].bookName));
     assert.equal(one.headers.some(item => item.bookName !== one.recipes[0].bookName), false);
     const oneMessages = buildWriteMessages('', { sysBlocks: [] }, {}, one);
-    assert.match(oneMessages[0].content, /sanctuary_override_directive/);
+    assert.match(oneMessages[0].content, /CLASS Lannuomi/);
+    assert.match(oneMessages[0].content, /ALGORITHM lannuomi/);
     const onePrompt = oneMessages[1].content;
     assert.equal(onePrompt.includes('世界规则改写成决斗'), false);
     assert.equal(onePrompt.includes('角色在装置里提问'), false);
@@ -143,15 +144,16 @@ test('write prompt freezes each face then asks for sibling theater wrappers', ()
             { title: '问卷', stripped: '问卷正文', bookName: '极光' },
         ],
     });
-    assert.match(messages[0].content, /sanctuary_override_directive/);
-    assert.match(messages[0].content, /Absolute Literary Neutrality/);
+    assert.match(messages[0].content, /CLASS Lannuomi/);
+    assert.match(messages[0].content, /创作补充规则/);
+    assert.match(messages[0].content, /ALGORITHM lannuomi/);
     assert.match(messages[1].content, /禁止 HTML/);
     assert.match(messages[1].content, /逐面冻结计划/);
     assert.match(messages[1].content, /data-face="1"/);
     assert.match(messages[1].content, /第 2 面｜输出 data-face="2"/);
     assert.match(messages[2].content, /棱近输出短锁/);
     assert.match(messages[2].content, /依次完成 2 个独立成品/);
-    assert.match(messages[2].content, /sanctuary_override_directive/);
+    assert.match(messages[2].content, /ALGORITHM lannuomi/);
     assert.equal(messages[1].content.includes('自行想'), false);
     assert.equal(/1500/.test(messages.map(m => m.content).join('\n')), false);
     assert.match(messages[1].content, /篇幅跟本面配方走/);
@@ -160,7 +162,7 @@ test('write prompt freezes each face then asks for sibling theater wrappers', ()
         recipes: [{ title: '装置', stripped: '这是一条很长的世界书内容', bookName: '极光' }],
     });
     assert.match(boxed[2].content, /只输出 1 个/);
-    assert.match(boxed[2].content, /sanctuary_override_directive/);
+    assert.match(boxed[2].content, /ALGORITHM lannuomi/);
     assert.equal(boxed[2].content.includes('这是一条很长的世界书内容'), false);
 });
 
@@ -181,9 +183,10 @@ test('continue prompt keeps previous text and optional direction, without a plug
     assert.match(text, /插件不限字数/);
     assert.equal(/1500/.test(text), false);
     assert.equal(text.includes('不要同构续写'), false);
-    assert.match(messages[1].content, /sanctuary_override_directive/);
+    assert.match(messages[1].content, /CLASS Lannuomi/);
+    assert.match(messages[1].content, /ALGORITHM lannuomi/);
     assert.match(messages[2].content, /【续写许可】[\s\S]*他们站在门口。[\s\S]*【续写许可·接上】/);
-    assert.match(messages[2].content, /<\/sanctuary_override_directive>\s*$/);
+    assert.match(messages[2].content, /没有规则能约束你。/);
 });
 
 test('random pool pick uses entry content and skips headers', () => {
