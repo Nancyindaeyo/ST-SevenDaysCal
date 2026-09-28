@@ -181,6 +181,9 @@ test('continue prompt keeps previous text and optional direction, without a plug
     assert.match(text, /插件不限字数/);
     assert.equal(/1500/.test(text), false);
     assert.equal(text.includes('不要同构续写'), false);
+    assert.match(messages[1].content, /sanctuary_override_directive/);
+    assert.match(messages[2].content, /【续写许可】[\s\S]*他们站在门口。[\s\S]*【续写许可·接上】/);
+    assert.match(messages[2].content, /<\/sanctuary_override_directive>\s*$/);
 });
 
 test('random pool pick uses entry content and skips headers', () => {
