@@ -188,7 +188,7 @@ export async function postChatCompletion(options = {}) {
     }
 }
 
-async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, acceptPartial = false, promptMode = PROMPT_MODES.MECHANICAL, bypassPreset = false, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
+async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, signal: inputSignal = null, userName = '', charName = '', allowEmptyOutput = false, acceptPartial = false, promptMode = PROMPT_MODES.MECHANICAL, bypassPreset = false, omitBaseProcessing = false, diagnosticLifecycle = null, diagnosticTraceBase = null } = {}) {
     const signal = normalizeAbortSignal(inputSignal);
     throwIfPreAborted(signal);
     // 总开关硬闸：插件关闭时挡住一切生成（手动 + 后台判定），防任何路径漏网。tag 供调用方识别、静默处理。
@@ -208,16 +208,20 @@ async function postChatCompletionCore({ cfg, messages, maxTokens, temperature, s
     // 未声明、拼错或未知值都只得到基础处理层，避免新的机械调用误吃创作指令。
     const creative = promptMode === PROMPT_MODES.CREATIVE;
     const userExtra = creative && !bypassPreset ? (getSettings().customPrompt || '').trim() : '';
-    const promptLayers = [BASE_PROCESSING_PROMPT];
-    if (creative) promptLayers.push(DEFAULT_JAILBREAK, ...(userExtra ? [userExtra] : []));
-    const custom = substituteParams(expandRequestPlaceholders(promptLayers.join('\n\n'), { userName: requestUserName, charName: requestCharName }));
+    const names = { userName: requestUserName, charName: requestCharName };
     // Request-level replacement applies to every role, not only the global custom prompt.
     // Keep non-string content (e.g. multimodal parts) untouched and do not rewrite plain "user".
-    messages = expandRequestMessageContents(messages, { userName: requestUserName, charName: requestCharName });
-    const si = messages.findIndex(m => m.role === 'system' && typeof m.content === 'string');
-    messages = si >= 0
-        ? messages.map((m, idx) => idx === si ? { ...m, content: custom + '\n\n' + m.content } : m)
-        : [{ role: 'system', content: custom }, ...messages];
+    messages = expandRequestMessageContents(messages, names);
+    // 棱把柏宝书破限原文写进消息后，不再往第一条前面贴机械链的「不要续写/扩写」。
+    if (!omitBaseProcessing) {
+        const promptLayers = [BASE_PROCESSING_PROMPT];
+        if (creative) promptLayers.push(DEFAULT_JAILBREAK, ...(userExtra ? [userExtra] : []));
+        const custom = substituteParams(expandRequestPlaceholders(promptLayers.join('\n\n'), names));
+        const si = messages.findIndex(m => m.role === 'system' && typeof m.content === 'string');
+        messages = si >= 0
+            ? messages.map((m, idx) => idx === si ? { ...m, content: custom + '\n\n' + m.content } : m)
+            : [{ role: 'system', content: custom }, ...messages];
+    }
     // 调试面板「🐛 AI 输入」的数据源：记在分层注入之后，展示真实请求。
     _bridge.setLastDebugPayload({ model: cfg.model || 'gpt-4o-mini', messages });
     const body = {
@@ -378,10 +382,12 @@ export async function callMemoryApi(messages, signal = null) {
 // Called by business/theater/generation.js — bare API caller (world info/persona already baked into
 // the messages by the theater generation flow via getTheaterStoryContext). Bare like callMemoryApi;
 // world info is NOT auto-injected here so the beautify pass stays clean.
-export async function callTheaterApi(messages, { maxTokens = 30000, signal = null, userName = null, charName = null, promptMode = PROMPT_MODES.MECHANICAL, diagnosticModule = 'theater', diagnosticSink = null } = {}) {
+// 破限原文在 business/theater/prompts.js。这里只避免再把机械链的「不要续写」贴到它前面。
+export async function callTheaterApi(messages, { maxTokens = 30000, signal = null, userName = null, charName = null, promptMode = PROMPT_MODES.CREATIVE, diagnosticModule = 'theater', diagnosticSink = null } = {}) {
     const cfg = loadCfg();
     if (!cfg.url || !cfg.key) throw makeDiagnosticError('config-missing');
     const ctx = getContext();
     const names = { userName: userName || ctx?.name1 || '用户', charName: charName || ctx?.name2 || '角色' };
-    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, ...names, promptMode, diagnosticModule, diagnosticSink, bypassPreset: true, acceptPartial: true });
+    const creative = promptMode === PROMPT_MODES.CREATIVE;
+    return postChatCompletion({ cfg, messages, maxTokens, temperature: GEN_TEMPERATURE, signal, ...names, promptMode: creative ? PROMPT_MODES.CREATIVE : PROMPT_MODES.MECHANICAL, diagnosticModule, diagnosticSink, bypassPreset: true, omitBaseProcessing: creative, acceptPartial: true });
 }

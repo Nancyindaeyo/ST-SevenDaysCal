@@ -114,7 +114,9 @@ test('cross-book lottery draws N entries and keeps unused books off the prompt',
     assert.equal(one.recipes.length, 1);
     assert.ok(one.headers.every(item => item.bookName === one.recipes[0].bookName));
     assert.equal(one.headers.some(item => item.bookName !== one.recipes[0].bookName), false);
-    const onePrompt = buildWriteMessages('', { sysBlocks: [] }, {}, one)[0].content;
+    const oneMessages = buildWriteMessages('', { sysBlocks: [] }, {}, one);
+    assert.match(oneMessages[0].content, /sanctuary_override_directive/);
+    const onePrompt = oneMessages[1].content;
     assert.equal(onePrompt.includes('世界规则改写成决斗'), false);
     assert.equal(onePrompt.includes('角色在装置里提问'), false);
 });
@@ -141,21 +143,25 @@ test('write prompt freezes each face then asks for sibling theater wrappers', ()
             { title: '问卷', stripped: '问卷正文', bookName: '极光' },
         ],
     });
-    assert.match(messages[0].content, /禁止 HTML/);
-    assert.match(messages[0].content, /逐面冻结计划/);
-    assert.match(messages[0].content, /data-face="1"/);
-    assert.match(messages[0].content, /第 2 面｜输出 data-face="2"/);
-    assert.match(messages[1].content, /棱近输出短锁/);
-    assert.match(messages[1].content, /依次完成 2 个独立成品/);
-    assert.equal(messages[0].content.includes('自行想'), false);
+    assert.match(messages[0].content, /sanctuary_override_directive/);
+    assert.match(messages[0].content, /Absolute Literary Neutrality/);
+    assert.match(messages[1].content, /禁止 HTML/);
+    assert.match(messages[1].content, /逐面冻结计划/);
+    assert.match(messages[1].content, /data-face="1"/);
+    assert.match(messages[1].content, /第 2 面｜输出 data-face="2"/);
+    assert.match(messages[2].content, /棱近输出短锁/);
+    assert.match(messages[2].content, /依次完成 2 个独立成品/);
+    assert.match(messages[2].content, /sanctuary_override_directive/);
+    assert.equal(messages[1].content.includes('自行想'), false);
     assert.equal(/1500/.test(messages.map(m => m.content).join('\n')), false);
-    assert.match(messages[0].content, /篇幅跟本面配方走/);
+    assert.match(messages[1].content, /篇幅跟本面配方走/);
     const boxed = buildWriteMessages('这是一条很长的世界书内容', { userName: '我', charName: '他', sysBlocks: [] }, {}, {
         boxed: true,
         recipes: [{ title: '装置', stripped: '这是一条很长的世界书内容', bookName: '极光' }],
     });
-    assert.match(boxed[1].content, /只输出 1 个/);
-    assert.equal(boxed[1].content.includes('这是一条很长的世界书内容'), false);
+    assert.match(boxed[2].content, /只输出 1 个/);
+    assert.match(boxed[2].content, /sanctuary_override_directive/);
+    assert.equal(boxed[2].content.includes('这是一条很长的世界书内容'), false);
 });
 
 test('continue prompt keeps previous text and optional direction, without a plugin length cap', () => {
