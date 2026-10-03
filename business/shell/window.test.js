@@ -53,7 +53,7 @@ test('panel dispose removes window and visual viewport listeners', () => {
         sheet: () => sheet,
     });
     panel.position();
-    assert.deepEqual([...windowListeners.keys()].sort(), ['orientationchange', 'resize']);
+    assert.deepEqual([...windowListeners.keys()].sort(), ['blur', 'orientationchange', 'resize']);
     assert.deepEqual([...viewportListeners.keys()].sort(), ['resize', 'scroll']);
     panel.dispose();
     assert.equal(windowListeners.size, 0);

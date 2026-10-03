@@ -632,6 +632,16 @@ export function createLinesFeature(env = {}) {
     const mode = env.getMode?.();
     const reconcileRan = env.didReconcile?.(mid) === true;
     let advance = false;
+    const queueAdvance = () => env.enqueueJob?.({
+      id: "advance",
+      run: async () => {
+        lifecycle.lastAdvanceFloor = mid;
+        const beforeRaw = env.readRaw?.() || "";
+        const next = await appendInlineBlock(mid, true);
+        recordAdvanceAttempt(mid, beforeRaw, next, "auto");
+        return next || { status: "skipped" };
+      },
+    });
     if (!autoSuppressed && mode === "days")
       lifecycle.holdConfirmedFloor(credential);
     else if (!autoSuppressed && mode === "turns") {
@@ -639,17 +649,9 @@ export function createLinesFeature(env = {}) {
         mode,
         interval: env.getInterval?.(),
       }).shouldAdvance;
-      if (wouldAdvance && reconcileRan && env.enqueueJob) {
-        env.enqueueJob({
-          id: "advance",
-          run: async () => {
-            lifecycle.lastAdvanceFloor = mid;
-            const beforeRaw = env.readRaw?.() || "";
-            const next = await appendInlineBlock(mid, true);
-            recordAdvanceAttempt(mid, beforeRaw, next, "auto");
-            return next || { status: "skipped" };
-          },
-        });
+      if (wouldAdvance && env.enqueueJob) {
+        // 生成离开本楼渲染监听。酒馆按注册顺序等待监听返回，在这里 await 模型会堵住后面插件的渲染。
+        queueAdvance();
       } else if (wouldAdvance && reconcileRan) env.deferAdvance?.();
       else advance = wouldAdvance;
     }
@@ -657,8 +659,10 @@ export function createLinesFeature(env = {}) {
     if (!autoSuppressed) await retirePreviousTerminalLines(credential);
     if (!floorCredentialCurrent(credential)) return;
     lifecycle.lastSeenMaxMesId = mid;
-    if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.())
-      advance = true;
+    if (!autoSuppressed && !reconcileRan && env.consumeDeferredAdvance?.()) {
+      if (env.enqueueJob) queueAdvance();
+      else advance = true;
+    }
     if (advance) lifecycle.lastAdvanceFloor = mid;
     const before = advance ? env.readRaw?.() || "" : "";
     const result = await appendInlineBlock(mid, advance);

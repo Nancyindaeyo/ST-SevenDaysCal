@@ -1710,6 +1710,7 @@ const linesFeature = createLinesFeature({
         context: () => getContext(), settings: getSettings, enabled: injectEnabled,
         adultMode: () => getAdultMode(charStableKey(getContext())),
         lineDirection: () => getLineDirection(charStableKey(getContext())),
+        scale: () => getScale(charStableKey(getContext())),
         readRaw: () => readStore(getLinesCacheKey())?.raw || '',
         promptTypes: getContext()?.constants?.promptTypes || {}, promptRoles: getContext()?.constants?.promptRoles || {}, clean: cleanText,
     },
@@ -1775,6 +1776,7 @@ const outlineFeature = createOutlineFeature({
     buildChatMessages: args => generationMessages.composeCreativeChat(args),
     postCompletion: ({ config, ...options }) => postChatCompletion({ cfg: config, ...options }),
     temperature: GEN_TEMPERATURE,
+    preferences: () => narrativePreferences(),
     chatPlaceholder: getCreativeChatPlaceholder,
     cleanText,
     escapeHtml,
@@ -1884,6 +1886,7 @@ const spaceFeature = createSpaceFeature({
         readAlmanacText: () => getAlmanacInjectText(),
         readCalendarText: () => getCalDescInjectText(),
         lineDirection: () => getLineDirection(charStableKey(getContext())),
+        preferences: ctx => narrativePreferences(ctx),
         readBaiBaiGarnish: () => getSettings().useBaiBaiBook ? baiBaiBookGarnishBlock(readBaiBaiBookGarnish(globalThis.STBaiBaiBook)) : '',
     },
     renderEnv: {
@@ -3701,7 +3704,7 @@ async function generate(ctx, userName, charName, perspective = 'user', signal = 
                 gap: horizonFill,
                 existingSummary: travelContext?.existingSummary || '',
             })
-            : buildPrompt(userName, charName, perspective, pinned, loadCalDesc(), { mode: adultMode, tickets: pointTicketPlan(adultMode, 14) }),
+            : buildPrompt(userName, charName, perspective, pinned, loadCalDesc(), { mode: adultMode, tickets: pointTicketPlan(adultMode, 14) }, narrativePreferences()),
         travelContext,
     );
     const apiOpts = { ...(travelContext?.feedback === 'time-travel' ? { fullMemory: true, ...travelContext } : (travelContext || {})), promptMode: 'creative', diagnosticModule: 'point', diagnosticSink };
@@ -3737,6 +3740,11 @@ function getScaleMap() {
 }
 
 // charKey = charStableKey(ctx)（角色卡 avatar 文件名），与 wiFilter 同源，理由见 charStableKey 注释。
+function narrativePreferences(ctx = getContext()) {
+    const key = charStableKey(ctx);
+    return { scale: getScale(key), direction: getLineDirection(key) };
+}
+
 function getScale(charKey) {
     if (charKey == null) return 'auto';
     const v = getScaleMap()[charKey];
@@ -3829,6 +3837,7 @@ const generationMessages = createGenerationMessagesHost({
     readOutline: target => outlineFeature.repository.readRaw(target),
     buildRecentChatContext,
     buildCreativeChatSystemPrompt,
+    preferences: ctx => narrativePreferences(ctx),
 });
 
 // ─── Inject ───────────────────────────────────────────────────────────────────

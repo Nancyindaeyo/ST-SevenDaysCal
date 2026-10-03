@@ -1266,3 +1266,56 @@ test('reroll back to the previous floor day restores the advance snapshot', asyn
     assert.equal(harness.lines(), 'lines-raw');
     assert.equal(harness.activities[0].undone, true);
 });
+
+test('turns advance leaves the render listener before the model returns', async () => {
+    let release;
+    let started = false;
+    const queued = [];
+    const feature = createLinesFeature({
+        runtime: { busy: false },
+        pluginEnabled: () => true,
+        getSettings: () => ({ linesEnabled: true }),
+        getMode: () => 'turns',
+        getInterval: () => 1,
+        chatId: () => 'yield-chat',
+        chat: () => [{ is_user: false, is_system: false, mes: '正文' }],
+        loadConfig: () => ({ url: 'u', key: 'k' }),
+        floorSignature: () => 'sig',
+        enqueueJob: job => { queued.push(job); return true; },
+        generation: { run: () => { started = true; return new Promise(resolve => { release = () => resolve({ status: 'updated' }); }); } },
+    });
+    assert.equal(feature.onMessageReceived({ messageId: 0, type: 'normal' }), true);
+    await feature.onCharacterRendered({ messageId: 0, type: 'normal' });
+    assert.equal(started, false);
+    assert.equal(queued.some(job => job.id === 'advance'), true);
+    const job = queued.find(item => item.id === 'advance').run();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(started, true);
+    release();
+    assert.equal((await job).status, 'updated');
+});
+
+test('a hung line generation fails at the deadline and frees the channel for a manual retry', async () => {
+    const owners = createTaskOwnerManager();
+    let fails = 0;
+    const hung = createLinesGenerationController({
+        owners, chatId: () => 'timeout-chat', cacheKey: () => 'timeout-key',
+        loadConfig: () => ({ url: 'u', key: 'k' }), readSaved: () => ({ raw: '', ts: 1 }),
+        drawTickets: () => drawTickets(1, { seed: 'timeout' }), buildPrompt: () => 'p',
+        callApi: () => new Promise(() => {}), commit: () => { throw new Error('timed out generation must not commit'); },
+        fail: () => { fails++; }, timeLimits: { totalMs: 20 }, runtime: { start() {}, finish() {} },
+    });
+    const result = await hung.run();
+    assert.equal(result.status, 'failed');
+    assert.equal(result.reason, 'timeout');
+    assert.equal(fails, 1);
+    const retry = createLinesGenerationController({
+        owners, chatId: () => 'timeout-chat', cacheKey: () => 'timeout-key',
+        loadConfig: () => ({ url: 'u', key: 'k' }), readSaved: () => ({ raw: '', ts: 1 }),
+        drawTickets: () => drawTickets(1, { seed: 'timeout-retry' }), buildPrompt: () => 'p',
+        callApi: async () => freshRaw, commit: () => {}, timeLimits: { totalMs: 5000 }, runtime: { start() {}, finish() {} },
+    });
+    const again = await retry.run();
+    assert.notEqual(again.reason, 'busy');
+    assert.equal(again.status, 'updated');
+});

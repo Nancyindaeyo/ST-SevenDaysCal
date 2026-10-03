@@ -210,6 +210,7 @@ export function createSpaceContext(env = {}) {
             personaOverride: String(env.settings?.()?.spacePersona || '').trim(),
             intent,
             garnish,
+            preferences: env.preferences?.(ctx) || { direction: env.lineDirection?.() || 'natural' },
             lineDirection: env.lineDirection?.() || 'natural',
         });
         return [{ role: 'system', content: system }, ...stripWidgetsForApi(historySnapshot), { role: 'user', content: quotedSpaceMessageForApi(userMsg) }];

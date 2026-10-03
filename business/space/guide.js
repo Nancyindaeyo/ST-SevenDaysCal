@@ -73,7 +73,6 @@ export function createSpaceGuide(env = {}) {
                     { role: 'system', content: '你是局外创作顾问。不问番外，不填棱，不扮演，不代发主楼。' },
                     { role: 'user', content: prompt },
                 ],
-                maxTokens: 30000,
                 temperature: env.temperature,
                 signal: controller.signal,
                 promptMode: 'creative',

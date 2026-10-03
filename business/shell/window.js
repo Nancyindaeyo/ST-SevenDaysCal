@@ -64,7 +64,7 @@ export function createPanelWindow(env = {}) {
 
     function onDragMove(e) {
         if (!dragState) return;
-        if (e.buttons === 0 && !e.touches) { onDragEnd(); return; }
+        if ((e.touches && e.touches.length === 0) || (!e.touches && e.buttons === 0)) { onDragEnd(); return; }
         e.preventDefault();
         const cx = e.touches ? e.touches[0].clientX : e.clientX;
         const cy = e.touches ? e.touches[0].clientY : e.clientY;
@@ -88,6 +88,7 @@ export function createPanelWindow(env = {}) {
         $(doc).off('mousemove.spdrag mouseup.spdrag');
         doc.removeEventListener('touchmove', onDragMove);
         doc.removeEventListener('touchend', onDragEnd);
+        doc.removeEventListener('touchcancel', onDragEnd);
         doc.body.style.cursor = '';
     }
 
@@ -112,11 +113,13 @@ export function createPanelWindow(env = {}) {
         $(doc).on('mousemove.spdrag', onDragMove).on('mouseup.spdrag', onDragEnd);
         doc.addEventListener('touchmove', onDragMove, { passive: false });
         doc.addEventListener('touchend', onDragEnd);
+        doc.addEventListener('touchcancel', onDragEnd);
         doc.body.style.cursor = 'grabbing';
     }
 
     function onResizeMove(e) {
         if (!resizeState) return;
+        if ((e.touches && e.touches.length === 0) || (!e.touches && e.buttons === 0)) { onResizeEnd(); return; }
         e.preventDefault();
         const touch = e.touches?.[0] ?? e.changedTouches?.[0];
         const cx = touch ? touch.clientX : e.clientX;
@@ -152,6 +155,7 @@ export function createPanelWindow(env = {}) {
         $(doc).off('mousemove.spresize mouseup.spresize');
         doc.removeEventListener('touchmove', onResizeMove);
         doc.removeEventListener('touchend', onResizeEnd);
+        doc.removeEventListener('touchcancel', onResizeEnd);
     }
 
     function onResizeStart(e) {
@@ -173,6 +177,7 @@ export function createPanelWindow(env = {}) {
         $(doc).on('mousemove.spresize', onResizeMove).on('mouseup.spresize', onResizeEnd);
         doc.addEventListener('touchmove', onResizeMove, { passive: false });
         doc.addEventListener('touchend', onResizeEnd);
+        doc.addEventListener('touchcancel', onResizeEnd);
     }
 
     function bindOutlineDivider() {
@@ -280,11 +285,19 @@ export function createPanelWindow(env = {}) {
         onViewportChange = null;
     }
 
+    function onWindowBlur() {
+        onDragEnd();
+        onResizeEnd();
+    }
+
     function dispose() {
         onDragEnd();
         onResizeEnd();
+        win.removeEventListener('blur', onWindowBlur);
         unbindViewportSync();
     }
+
+    win.addEventListener('blur', onWindowBlur);
 
     function position() {
         const el = sheet();

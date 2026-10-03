@@ -2,6 +2,7 @@ import { parseLines, serializeLines } from './schema.js';
 import { stripInternalLineLines, ticketFromCue } from './vectors/codec.js';
 import { adultPromptGuidance } from './adult.js';
 import { lineDirectionContract } from './direction.js';
+import { narrativeScaleGuidance } from '../narrative-preferences.js';
 
 export function prepareLinesInspirationContext(context = {}) { return context; }
 
@@ -43,7 +44,7 @@ export function buildLinesPrompt(userName = '用户', charName = '角色', persp
     const promptContext = prepareLinesInspirationContext({ userName, charName, perspective, previousRaw, scale, vectorContext });
     ({ userName, charName, perspective, previousRaw, scale, vectorContext } = promptContext);
     const seedRun = vectorContext.intent === 'initial' || vectorContext.intent === 'reroll';
-    const scaleContract = (scale === 'macro' ? '关注势力、世界与长期局势。' : scale === 'micro' ? '关注人物当下行动、关系与短期催化。' : '兼顾人物、事件与世界局势，保持可推进的粒度。')
+    const scaleContract = `【叙事尺度·观察焦点】${narrativeScaleGuidance(scale)}尺度只决定观察焦点，不决定冲突强度或故事时间速度；宏观不等于阴谋或冲突，中观不等于组织对抗，微观不等于恋爱。不得为了匹配尺度创造陌生人物、阴谋、灾难或转折。`
         + '以已有正文、记忆与世界设定确立的事实，以及既有主体的动机、资源、行动条件和实际经过的故事时间为依据，自由判断下一变化应当激化、维持、缓和、转向、解决或淡出。既有人物、势力、机构或环境可以在场外合理推进自身进展；正文暂未提及或当前主角未参与不等于停滞，普通场外推演也不等于凭空编造。不要求每条线每轮都变化或升级阶段；分歧、关系张力、彼此试探或立场摩擦不等于必须扩大伤害。阶段只描述生命周期位置，不构成升级命令。没有充分依据时，不得突然扩大伤害或制造不可逆后果；只经过短时间时，不得强行跨越本应漫长的进程。';
     const countContract = seedRun
         ? '首次生成或刷新可按证据输出 1–8 条自动线；不必用完票据，不为凑数硬编。'

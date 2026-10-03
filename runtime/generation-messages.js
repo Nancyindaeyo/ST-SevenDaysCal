@@ -140,6 +140,7 @@ export function createGenerationMessagesHost(env = {}) {
             almanacText: env.getAlmanacInjectText?.() || '',
             calDescText: env.getCalDescInjectText?.() || '',
             garnish: env.garnish?.() || '',
+            preferences: env.preferences?.(ctx) || {},
         }) || '';
         // 历史快照已包含刚写入的 user turn；末尾再追加一次是当前生产合同，禁止去重。
         return [{ role: 'system', content: sys }, ...(historySnapshot || []), { role: 'user', content: userMsg }];

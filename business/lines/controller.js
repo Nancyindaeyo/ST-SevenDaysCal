@@ -8,6 +8,28 @@ import { enforceLineCapacity, AUTO_LINE_CAPACITY, AUTO_LINE_SEED_CAPACITY } from
 import { auditLineEvolution } from './evolution.js';
 
 const LINES_GENERATION_LEASES = Symbol.for('st-seven-days-cal.lines-generation-leases');
+const LINES_TOTAL_MS = 240_000;
+
+function waitForSignal(value, signal) {
+    const pending = Promise.resolve(value);
+    if (!signal) return pending;
+    if (signal.aborted) {
+        pending.catch(() => {});
+        return Promise.reject(signal.reason || new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (callback, result) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener('abort', onAbort);
+            callback(result);
+        };
+        const onAbort = () => finish(reject, signal.reason || new DOMException('The operation was aborted.', 'AbortError'));
+        signal.addEventListener('abort', onAbort, { once: true });
+        pending.then(result => finish(resolve, result), error => finish(reject, error));
+    });
+}
 
 function generationLeases() {
     const current = globalThis[LINES_GENERATION_LEASES];
@@ -35,6 +57,7 @@ export function createLinesGenerationController(env = {}) {
         const leaseToken = Object.freeze({});
         leases.set(leaseKey, leaseToken);
         let owner = null;
+        let totalTimer = null;
         let travelAbort = null;
         let abortFromTravel = null;
         let generationCommitted = false;
@@ -43,6 +66,8 @@ export function createLinesGenerationController(env = {}) {
             owner.contextSnapshot = contextSnapshot;
             env.runtime?.start(owner.controller); env.onStart?.(owner);
             const signal = owner.controller.signal;
+            const totalMs = Number(env.timeLimits?.totalMs);
+            totalTimer = setTimeout(() => owner.controller.abort(Object.assign(new Error('lines-total-timeout'), { name: 'TimeoutError', code: 'operation-timeout' })), Math.max(0, Number.isFinite(totalMs) ? totalMs : LINES_TOTAL_MS));
             travelAbort = travelContext?.signal;
             abortFromTravel = () => owner.controller.abort('time-travel-cancel');
             travelAbort?.addEventListener('abort', abortFromTravel, { once: true });
@@ -86,14 +111,14 @@ export function createLinesGenerationController(env = {}) {
             if (signal.aborted || travelAbort?.aborted || !owners.isCurrent(owner, { chatId, chatRevision }) || env.chatId() !== chatId || !participantCurrent(participantIdentity)) return { status: 'cancelled', reason: 'stale-owner' };
             const beforeCall = env.readSaved() || {};
             if (String(beforeCall.raw || '') !== commitBaseline.raw || (Number(beforeCall.ts) || null) !== commitBaseline.ts) return { status: 'cancelled', reason: 'stale-baseline' };
-            const raw = await env.callApi(prompt, signal, {
+            const raw = await waitForSignal(env.callApi(prompt, signal, {
                 ...(travelContext || {}),
                 ...(swipeCtx?.forceReroll || swipeCtx?.reroll ? { reroll: true, module: 'lines' } : {}),
                 promptMode: 'creative',
                 diagnosticModule: 'lines',
                 diagnosticSink: diagnostic.sink,
                 diagnosticContext: { owner: owner.token, channel: owner.channel, chatRevision, floor: swipeCtx?.mesId },
-            }, participantIdentity, contextSnapshot);
+            }, participantIdentity, contextSnapshot), signal);
             if (env.isEditing?.()) return { status: 'cancelled', reason: 'editing' };
             if (signal.aborted || travelAbort?.aborted || !owners.isCurrent(owner, { chatId, chatRevision }) || env.chatId() !== chatId || !participantCurrent(participantIdentity)) return { status: 'cancelled', reason: 'stale-owner' };
             const checked = validateLinesResponse(raw);
@@ -120,7 +145,7 @@ export function createLinesGenerationController(env = {}) {
             const resultModel = capacityResult.model;
             diagnostic.accepted({ phase: 'validation', reasonCode: 'lines-valid' });
             let commitResult;
-            try { commitResult = await env.commit(serializeLines(resultModel), { silent, owner, swipeCtx, travelContext, commitBaseline }); }
+            try { commitResult = await waitForSignal(env.commit(serializeLines(resultModel), { silent, owner, swipeCtx, travelContext, commitBaseline }), signal); }
             catch (cause) {
                 if (cause?.diagnosticCode === 'save') throw cause;
                 const status = Number(cause?.saveResult?.status ?? cause?.status);
@@ -135,12 +160,17 @@ export function createLinesGenerationController(env = {}) {
             if (commitResult?.stale) return { status: 'cancelled', reason: 'committed-but-stale', committed: true, targetDate: travelContext?.targetDate };
             return { status: 'updated', targetDate: travelContext?.targetDate };
         } catch (error) {
+            if (error?.name === 'TimeoutError' || error?.code === 'operation-timeout') {
+                if (env.chatId() === chatId && participantCurrent(participantIdentity)) env.fail?.(error, { silent });
+                return { status: 'failed', reason: 'timeout', error };
+            }
             if (error?.name === 'AbortError') return { status: 'cancelled' };
             if (owner && (!owners.isCurrent(owner, { chatId, chatRevision }) || !participantCurrent(participantIdentity))) return { status: 'cancelled', reason: 'stale-owner' };
             if (env.chatId() === chatId && participantCurrent(participantIdentity)) env.fail?.(error, { silent });
             return { status: 'failed', error };
         } finally {
             const cleanup = () => {
+                if (totalTimer !== null) clearTimeout(totalTimer);
                 if (abortFromTravel) travelAbort?.removeEventListener('abort', abortFromTravel);
                 if (owner) { env.runtime?.finish(owner.controller); env.cleanup?.(owner, chatId); }
             };

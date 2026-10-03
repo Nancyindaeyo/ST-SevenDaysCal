@@ -45,6 +45,7 @@ export function createOutlineFeature(env = {}) {
         settings: env.settings,
         injectEnabled: env.injectEnabled,
         cleanText: env.cleanText,
+        preferences: env.preferences,
     });
     const refreshPanel = (target = repository.capture()) => {
         if (!repository.isCurrent(target)) return;
@@ -86,6 +87,7 @@ export function createOutlineFeature(env = {}) {
         now: env.now,
         isEditing: () => editing,
         refreshStoryClock: env.refreshStoryClock,
+        preferences: env.preferences,
     });
     const chat = createOutlineChat({
         repository,
@@ -96,7 +98,6 @@ export function createOutlineFeature(env = {}) {
         renderer,
         ui,
         openSettings: env.openSettings,
-        maxTokens: 30000,
         temperature: env.temperature,
         now: env.now,
     });

@@ -19,6 +19,7 @@ export function createOutlineGeneration({
     now = () => Date.now(),
     isEditing = () => false,
     refreshStoryClock,
+    preferences = () => ({}),
 } = {}) {
     let owner = null;
     let busy = false;
@@ -76,11 +77,12 @@ export function createOutlineGeneration({
             }
             const cursor = repository.cursor(target) || 1;
             const currentBeat = parseOutline(baseline.raw)[cursor - 1] || parseOutline(baseline.raw)[0];
+            const prefs = preferences(ctx) || {};
             const promptHead = mode === 'current'
-                ? buildOutlineNodePrompt(userName, charName, currentBeat, cursor)
+                ? buildOutlineNodePrompt(userName, charName, currentBeat, cursor, prefs)
                 : mode === 'continue'
-                    ? buildOutlineContinuePrompt(userName, charName, baseline.raw)
-                    : buildOutlinePrompt(userName, charName, 'user');
+                    ? buildOutlineContinuePrompt(userName, charName, baseline.raw, prefs)
+                    : buildOutlinePrompt(userName, charName, 'user', prefs);
             const raw = await callApi?.({
                 ctx,
                 prompt: [promptHead, apiOptions?.promptAddon].filter(Boolean).join('\n\n'),
