@@ -1,7 +1,7 @@
 import { isTerminalLineStage } from './schema.js';
 
 export const AUTO_LINE_CAPACITY = 8;
-// 每轮签发完整自动池容量的票据。推进时旧线进入终态必须由新线顶上；票据给足补位，不强制凑满 8 条。
+// 只有空账首次生成建议并限制到 8 条。已有账按证据增减，锁线和休眠线不进这道裁剪。
 export const AUTO_LINE_SEED_CAPACITY = AUTO_LINE_CAPACITY;
 
 // 在完整校验、票据绑定和锁线合并之后收敛自动池；不接触尚未验证的 AI 输出。

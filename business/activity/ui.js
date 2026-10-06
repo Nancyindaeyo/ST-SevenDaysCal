@@ -112,6 +112,9 @@ export function activityOverlayHtml() {
             <p>这楼重 roll 了。换日会按这楼新旧戳再推进；同日只改钟点不推。对齐楼会按新正文自动再对齐；没补上或失败时，点下面这颗，或卡片上的重试。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-realign">按新正文再对齐一次</button>
         </div>
+        <div id="sp-activity-story" class="sp-activity-restyle" hidden>
+            <p id="sp-activity-story-text">正文缺失，等有正文了自动补跑。</p>
+        </div>
         <div id="sp-activity-stamp" class="sp-activity-restyle" hidden>
             <p>这楼没打上时间戳，日期制推进先停着。补上起止时间后会按新戳再判断要不要推进。</p>
             <button type="button" class="sp-btn sp-btn-primary sp-activity-stamp-fill">手动补时间戳</button>

@@ -568,6 +568,7 @@ export function createLinesFeature(env = {}) {
     )
       return false;
     if (mid <= lifecycle.lastSeenMaxMesId) return false;
+    if (lifecycle.pendingFloor && Number(lifecycle.pendingFloor.messageId) !== mid) lifecycle.pendingFloor = null;
     if (
       lifecycle.consumePendingReroll() ||
       lifecycle.pendingSwipeGen?.mesId === mid
@@ -587,6 +588,14 @@ export function createLinesFeature(env = {}) {
         ts: Number(saved.ts) || null,
       }),
     });
+  };
+  const rearmFloor = messageId => {
+    const mid = Number(messageId);
+    if (Number(lifecycle.pendingFloor?.messageId) === mid) return true;
+    if (onMessageReceived({ messageId: mid, type: "normal" })) return true;
+    if (Number(lifecycle.pendingFloor?.messageId) === mid) return true;
+    lifecycle.pendingFloor = null;
+    return onMessageReceived({ messageId: mid, type: "normal" }) === true;
   };
   const onCharacterRendered = async ({
     messageId,
@@ -1032,6 +1041,7 @@ export function createLinesFeature(env = {}) {
     cleanupOwner,
     abortGeneration,
     onMessageReceived,
+    rearmFloor,
     onCharacterRendered,
     onDateAftermath,
     rerunFloorAdvance,

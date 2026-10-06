@@ -23,6 +23,7 @@ import { diagnosticMessage, safeDiagnosticLog } from './api/diagnostics.js';
 import { getChatRoot, persistExternalRoots, registerExternalStorageContext } from './runtime/external-chat-storage.js';
 import { chatFingerprints, firstRemovedIndex, pruneMemoryAfterDelete } from './business/memory/invalidate.js';
 import { collectStableGroups, isStrippedEmptyGroup } from './business/memory/groups.js';
+import { selectUnsummarizedFloors } from './business/memory/recent-raw.js';
 
 export { extractStoryText, normalizeTagList, stripTags };
 
@@ -495,7 +496,7 @@ export function consumeMigrationNotice() {
 }
 
 // ─── Memory context for injection ────────────────────────────────────────────
-export function getMemoryContext() {
+export function getMemoryContext({ excludeMesIds = [], includeRecentRaw = false } = {}) {
     if (_getSettings().useBaiBaiBook) return '';
     const m = meta();
     if (!m) return '';
@@ -509,16 +510,36 @@ export function getMemoryContext() {
     // Recent L0 (not yet compressed into L1)
     const groups = getStableGroups();
     const lastL1End = m.L1.length ? parseInt(m.L1[m.L1.length - 1].range[1], 10) : -1;
-    const recent = groups
-        .filter(g => parseInt(g.floors[0].mesid, 10) > lastL1End)
-        .filter(g => m.L0[g.key])
-        .slice(-6);
+    const eligible = groups.filter(g => parseInt(g.floors[0].mesid, 10) > lastL1End);
+    const recent = eligible.filter(g => m.L0[g.key]).slice(-6);
+    const coveredMesIds = [];
     if (recent.length) {
         parts.push('━ 最近发展 ━');
         for (const g of recent) {
             const l0 = m.L0[g.key];
             parts.push(`【楼 ${l0.range[0]} - ${l0.range[1]}】\n${l0.text}`);
+            if (includeRecentRaw) g.floors.forEach(floor => coveredMesIds.push(String(floor.mesid)));
         }
+    }
+    if (includeRecentRaw) {
+        const allFloors = getAiFloors();
+        for (const l1 of m.L1 || []) {
+            const start = parseInt(l1.range[0], 10);
+            const end = parseInt(l1.range[1], 10);
+            for (const floor of allFloors) {
+                const id = Number(floor.mesid);
+                if (id >= start && id <= end) coveredMesIds.push(String(floor.mesid));
+            }
+        }
+        const recentWindowFloors = eligible.slice(-6).flatMap(group => group.floors || []);
+        const tail = selectUnsummarizedFloors({
+            floors: allFloors,
+            coveredMesIds,
+            recentWindowFloors,
+            groupSize: _getSettings().memoryL0Group,
+            excludeMesIds,
+        });
+        if (tail.length) parts.push(`━ 尚未摘要的近期正文 ━\n${tail.map(floor => `【楼 ${floor.mesid}】\n${floor.text}`).join('\n\n')}`);
     }
     return parts.join('\n\n');
 }

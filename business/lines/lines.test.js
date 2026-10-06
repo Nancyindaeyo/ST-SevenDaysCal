@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateLinesResponse, parseLineCard, parseLines, serializeLines } from './schema.js';
+import { validateLinesResponse, parseLineCard, parseLines, serializeLines, normalizeLineStage } from './schema.js';
 import { buildLinesPrompt, buildLatestFloorAddon, LINE_NEXT_RELEASE_CONTRACT } from './prompt.js';
 import { createLinesGenerationController } from './controller.js';
 import { createLinesFeature } from './feature.js';
@@ -159,6 +159,12 @@ test('legacy seven/eight-field storage stays readable and rewrites as six fields
     const legacyStages = ['萌芽', '筹备', '发酵', '执行', '逼近', '关键', '已爆发', '已完成', '已消散', '已失败'];
     const canonicalStages = legacyStages.map(stage => parseLines(`<storylines_widget>\nLine: ${stage}|推进|${stage}|今天|world|false|false\nDesc: d\nNext: n\n</storylines_widget>`)[0].stage);
     assert.deepEqual(canonicalStages, ['起线', '起线', '延展', '延展', '成形', '成形', '收束', '收束', '淡出', '淡出']);
+    assert.equal(normalizeLineStage('未完成'), '起线');
+    assert.equal(normalizeLineStage('尚未结束'), '起线');
+    assert.equal(normalizeLineStage('接近完成'), '起线');
+    assert.equal(normalizeLineStage('完成'), '收束');
+    assert.equal(normalizeLineStage('推进中'), '延展');
+    assert.equal(normalizeLineStage('随便说说'), '起线');
     assert.equal(rewritten.split('\n').find(line => line.startsWith('Line:')).split('|').length, 6);
     const aliases = parseLines('<storylines_widget>\nLine: old8|推进|筹备|4|下周|world|停滞|false\nDesc: d\nNext: n\n</storylines_widget>')[0];
     assert.deepEqual([aliases.when, aliases.agency, aliases.stall, aliases.pin], ['下周', 'world', true, false]);
@@ -244,7 +250,8 @@ test('ticket protocol rejects missing duplicate unknown and old-line IDs without
 });
 test('release prompt defines global agency, neutral progression, ideal format, and local 6x3 cues without old quotas', () => {
     const prompt = buildLinesPrompt('用户', '角色', 'user', '', 'auto', { freshTickets: [{ selections: [{ label: '时机', prompt: '近日' }] }] });
-    for (const phrase of ['全局平行事件线', '不是固定叙事中心', '既有配角、群体、势力、机构', 'agency=player 仅表示下一步必须等待', 'agency=world 表示', '不要因为事件将来可能影响 用户 就标 player', '未锁非终态自动线不得超过 8 条', '不设主动方或单轮出生配额', '必须新建至少一条非终态新线顶上', '自由判断下一变化应当激化、维持、缓和、转向、解决或淡出', '分歧、关系张力、彼此试探或立场摩擦不等于必须扩大伤害', '不得突然扩大伤害或制造不可逆后果', '阶段只描述生命周期位置', '成形＝影响变得明确，而非要求事态极端化', '收束＝解决、和解、形成新平衡或事务落定', '淡出＝不再值得持续追踪', '理想机器结构']) assert.match(prompt, new RegExp(phrase));
+    for (const phrase of ['全局平行事件线', '不是固定叙事中心', '既有配角、群体、势力、机构', 'agency=player 仅表示下一步必须等待', 'agency=world 表示', '不要因为事件将来可能影响 用户 就标 player', '先整理旧线', '不设主动方或单轮出生配额', '失去独立价值可以淡出或省略', '自由判断下一变化应当激化、维持、缓和、转向、解决或淡出', '分歧、关系张力、彼此试探或立场摩擦不等于必须扩大伤害', '不得突然扩大伤害或制造不可逆后果', '阶段只描述生命周期位置', '成形＝影响变得明确，而非要求事态极端化', '收束＝解决、和解、形成新平衡或事务落定', '淡出＝不再值得持续追踪', '理想机器结构']) assert.match(prompt, new RegExp(phrase));
+    assert.doesNotMatch(prompt, /不得超过 8 条|必须新建至少一条非终态新线顶上/);
     assert.match(prompt, /stage 只使用起线、延展、成形、收束、淡出/);
     for (const obsolete of ['叙事主体为用户', '默认最多出生 1 条', '单轮新生最多 4 条', '每有 1 条旧未锁活线']) assert.doesNotMatch(prompt, new RegExp(obsolete));
     assert.match(prompt, /Line: 名称\|阶段\|时间锚点\|agency\|stall\|pin/);
@@ -271,10 +278,11 @@ test('release prompt allows evidence-based offscreen progress across intents and
         assert.match(prompt, /Ticket 不得缺失、重复、改写或伪造；旧线不得使用 Ticket/);
         assert.match(prompt, /锁线已由本地完整保留，不输出、不改写、不终结、不分票/);
     }
-    assert.match(prompts[0], /首次生成或刷新可按证据输出 1–8 条自动线/);
-    assert.match(prompts[1], /逐条原名、完整返回每条旧未锁活线/);
-    assert.match(prompts[1], /每有一条旧未锁活线进入收束或淡出/);
-    assert.match(prompts[1], /必须新建至少一条非终态新线顶上/);
+    assert.match(prompts[0], /首次最多输出 8 条/);
+    assert.match(prompts[1], /先整理旧线、合并同一事件/);
+    assert.match(prompts[1], /可为 0 或多条/);
+    assert.match(prompts[1], /仍要追踪的旧线保持原名/);
+    assert.doesNotMatch(prompts[1], /不得超过 8 条/);
     assert.doesNotMatch(prompts[0], /必须新建至少一条非终态新线顶上/);
     assert.doesNotMatch(prompts[2], /必须新建至少一条非终态新线顶上/);
     assert.match(prompts[1], /旧活线/);
@@ -382,7 +390,7 @@ test('dominant initial/reroll signs eight tickets with a temporary 2 SFW plus 6 
     const prompt = buildLinesPrompt('用户', '角色', 'user', '', 'auto', captured, 'dominant');
     assert.match(prompt, /选择任意不重复子集/);
     assert.match(prompt, /1v1、1vN 或 NvN/);
-    assert.match(prompt, /首次生成或刷新可按证据输出 1–8 条自动线/);
+    assert.match(prompt, /刷新数量按当前剧情证据/);
     assert.doesNotMatch(prompt, /超过票数仍可输出/);
 });
 
@@ -669,11 +677,11 @@ test('evolution audit preserves identities and applies only the eight-line activ
     const continued = { name: '活线', stage: '延展', ticketId: undefined };
     const newborn = id => ({ name: `新${id}`, stage: '起线', ticketId: `TICKET-${id}` });
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [continued, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
-    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).reason, 'evolution-old-line-missing');
-    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }], freshTickets: [], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
-    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '淡出' }], freshTickets: [], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true, '旧线可以按证据退出');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }], freshTickets: [], intent: 'advance' }).ok, true, '收束不必强制补一条新线');
+    assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '淡出' }], freshTickets: [], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
-    assert.equal(auditLineEvolution({ previousLines: [{ name: '甲', stage: '延展' }, { name: '乙', stage: '延展' }], generatedLines: [{ name: '甲', stage: '收束' }, { name: '乙', stage: '淡出' }, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).reason, 'evolution-terminal-unreplaced');
+    assert.equal(auditLineEvolution({ previousLines: [{ name: '甲', stage: '延展' }, { name: '乙', stage: '延展' }], generatedLines: [{ name: '甲', stage: '收束' }, { name: '乙', stage: '淡出' }, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: [{ name: '甲', stage: '延展' }, { name: '乙', stage: '延展' }], generatedLines: [{ name: '甲', stage: '收束' }, { name: '乙', stage: '淡出' }, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [{ name: '活线', stage: '收束' }, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true);
     assert.equal(auditLineEvolution({ previousLines: old, generatedLines: [continued, newborn(1), newborn(2)], freshTickets: [ticket(1), ticket(2)], intent: 'advance' }).ok, true, '没有单轮出生配额');
@@ -687,7 +695,7 @@ test('evolution audit preserves identities and applies only the eight-line activ
     assert.equal(auditLineEvolution({ previousLines: sevenOld, generatedLines: [...sevenContinued, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true);
     const eightOld = [...sevenOld, { name: '旧8', stage: '起线', pin: false }];
     const eightContinued = eightOld.map(line => ({ ...line, stage: '延展' }));
-    assert.equal(auditLineEvolution({ previousLines: eightOld, generatedLines: [...eightContinued, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).reason, 'evolution-auto-capacity-overflow');
+    assert.equal(auditLineEvolution({ previousLines: eightOld, generatedLines: [...eightContinued, newborn(1)], freshTickets: [ticket(1)], intent: 'advance' }).ok, true, '已有账可以超过 8 条');
     const oneSettled = [{ ...eightContinued[0], stage: '收束' }, ...eightContinued.slice(1), newborn(1)];
     assert.equal(auditLineEvolution({ previousLines: eightOld, generatedLines: oneSettled, freshTickets: [ticket(1)], intent: 'advance' }).ok, true, '旧线终态为新线腾出一格');
     assert.equal(auditLineEvolution({ previousLines: [...eightOld, { name: '锁线', stage: '起线', pin: true }], generatedLines: [...eightContinued, { name: '锁线', stage: '延展' }], freshTickets: [], intent: 'advance' }).activeAutoCount, 8, '锁线即使被模型回显也不占自动池');
@@ -702,7 +710,7 @@ test('production controller signs and binds eight tickets, accepts terminal turn
     for (const scenario of [
         { name: 'terminal-only', savedRaw: makeOld(1, '收束'), response: widget(Array.from({ length: 8 }, (_, index) => newBlock(index + 1))), expectedStatus: 'updated', expectedActive: 8, expectedTotal: 8 },
         { name: 'terminal-turnover', savedRaw: makeOld(8), response: widget([...Array.from({ length: 8 }, (_, index) => oldBlock(index + 1, '收束')), ...Array.from({ length: 8 }, (_, index) => newBlock(index + 1))]), expectedStatus: 'updated', expectedActive: 8, expectedTotal: 16 },
-        { name: 'terminal-unreplaced', savedRaw: makeOld(1), response: widget([oldBlock(1, '收束')]), expectedStatus: 'failed', expectedReason: 'evolution-terminal-unreplaced' },
+        { name: 'terminal-exit', savedRaw: makeOld(1), response: widget([oldBlock(1, '收束')]), expectedStatus: 'updated', expectedActive: 0, expectedTotal: 1 },
         { name: 'ninth-rejected', savedRaw: '', response: widget(Array.from({ length: 9 }, (_, index) => newBlock(index + 1))), expectedStatus: 'failed', expectedReason: 'evolution-auto-capacity-overflow' },
     ]) {
         let saved = { raw: scenario.savedRaw, ts: 1 }; let drawn = 0; let captured = null; let commits = 0;
@@ -734,7 +742,7 @@ test('controller treats terminal-only history as advance and preserves same-name
     const terminal = serializeLines([{ name: '旧终态', type: '推进', stage: '收束', when: '今天', agency: 'world', desc: 'd', next: 'n' }]);
     let saved = { raw: terminal, ts: 1 }; let captured = null; let drawn = 0;
     const instance = createLinesGenerationController({ owners: createTaskOwnerManager(), chatId: () => 'terminal-only', cacheKey: () => 'terminal-only', loadConfig: () => ({ url: 'u', key: 'k' }), readSaved: () => saved, drawTickets: count => { drawn = count; return drawTickets(count, { seed: 'terminal-only' }); }, buildPrompt: (_raw, _travel, context) => { captured = context; return 'p'; }, callApi: async () => responseWithCount(1), commit: raw => { saved = { raw, ts: 2 }; }, runtime: { start() {}, finish() {} } });
-    assert.equal((await instance.run()).status, 'updated'); assert.equal(captured.intent, 'advance'); assert.equal(drawn, AUTO_LINE_SEED_CAPACITY); assert.equal(parseLines(saved.raw).length, 1);
+    assert.equal((await instance.run()).status, 'updated'); assert.equal(captured.intent, 'advance'); assert.equal(drawn, AUTO_LINE_SEED_CAPACITY + 2); assert.equal(parseLines(saved.raw).length, 1);
 
     const sameResponse = '<storylines_widget>\nLine: 同名|推进|筹备|1|今天|world|false|false\nDesc: d\nNext: n\nLine: 同名|推进|筹备|1|今天|world|false|false\nDesc: d\nNext: n\n</storylines_widget>';
     for (const source of [

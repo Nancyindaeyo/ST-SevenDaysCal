@@ -17,6 +17,7 @@ export const ACTIVITY_SOURCES = Object.freeze({
     'ledger-capture': '刻度标注',
     'ledger-judge': '刻度现状',
     supplement: '补录纪念日',
+    'story-gap': '正文缺失',
 });
 
 export const ACTIVITY_CAUSES = Object.freeze({

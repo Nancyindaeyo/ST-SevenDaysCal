@@ -22,6 +22,7 @@ import { createFloorJobQueue } from './business/refresh/floor-queue.js';
 import { createPaceBook } from './business/refresh/pace-book.js';
 import { createSameFloorGate } from './business/refresh/same-floor.js';
 import { createRefreshController, latestAiFloor } from './business/refresh/controller.js';
+import { createStoryFloorHost } from './business/refresh/story-floor.js';
 import { createFloorAutomationRerunner } from './business/refresh/reroll.js';
 import { createAdvanceQueue } from './business/refresh/advance-queue.js';
 import { createActivityFeature } from './business/activity/feature.js';
@@ -1462,6 +1463,7 @@ const activityFeature = createActivityFeature({
     },
     onPaint: () => paintPaceSoon(),
     missingLatestStamp,
+    storyFloorStatus: () => storyFloor?.status?.() || null,
     needsAdvanceCatchup,
     fillLatestStamp: () => fillLatestStoryClock(),
     clockLabel: () => activityClockLabel({
@@ -1596,8 +1598,29 @@ async function retryRefreshModule(entry) {
 }
 function syncFabFailed() {
     const failed = (floorQueue.snapshot().failed || []).length > 0;
-    fabRuntime.setFailed?.(failed);
+    const story = storyFloor?.status?.() || null;
+    fabRuntime.setFailed?.(failed || !!story);
+    fabRuntime.setStoryHold?.(story?.note || '');
 }
+let storyFloor = null;
+let resumeStoryAutomations = async () => {};
+storyFloor = createStoryFloorHost({
+    enabled: pluginEnabled,
+    chat: () => getContext()?.chat || [],
+    chatId: () => getContext()?.chatId ?? null,
+    keepTags: () => getSettings().keepTags,
+    alreadyNoted: (floorId, reason) => activityFeature.list().some(entry => entry.source === 'story-gap' && Number(entry.floorId) === Number(floorId) && entry.reasonCode === reason),
+    record: entry => activityFeature.record(entry),
+    toast: message => showToast(message, null, true),
+    abort: () => {
+        floorQueue.abort('story-gap');
+        refreshController.abort('story-gap');
+    },
+    rearm: messageId => linesFeature.rearmFloor?.(messageId),
+    resume: messageId => { void resumeStoryAutomations(messageId); },
+    syncFab: syncFabFailed,
+    paint: () => activityFeature.paint?.(),
+});
 function enqueueStoryDateBeat() {
     const ctx = getContext();
     const mid = (ctx?.chat?.length ?? 0) - 1;
@@ -2414,6 +2437,8 @@ jQuery(async () => {
         refresh: refreshController,
         floorQueue,
         syncFabFailed,
+        storyFloorReset: () => storyFloor?.reset?.(),
+        scanStoryFloor: () => storyFloor?.scan?.(),
         sameFloor: sameFloorGate,
         beat: beatFeature,
         clearTravelUi() {
@@ -2553,7 +2578,7 @@ jQuery(async () => {
         onBlocked: labels => activityFeature.setBlockedReroll(labels),
     });
     const rerunFloorAutomations = messageId => floorAutomationRerunner.run(messageId);
-    bindChatFloorListeners({
+    const handlers = bindChatFloorListeners({
         eventSource,
         event_types,
         store: _stListeners,
@@ -2614,8 +2639,20 @@ jQuery(async () => {
             isExternalMode,
             warnRename: err => console.warn('[7dayscal] 坐标改名同步失败', safeDiagnosticLog('axis', 'save', err)),
             noteBestEffortFailure: metadata => noteBestEffortFailure(traceDiagnosticEvent, metadata),
+            storyFloorBlocked: messageId => storyFloor?.blocked?.(messageId) === true,
+            storyFloorDecision: (messageId, options) => storyFloor?.decision?.(messageId, options) || { blocked: false, resume: false },
         },
     });
+    resumeStoryAutomations = async messageId => {
+        await handlers.char(messageId, 'normal');
+        handlers.outlineJudge(messageId);
+        await handlers.almanacJudge(messageId);
+        await handlers.supplement(messageId);
+        await handlers.ledgerCapture(messageId);
+        await handlers.ledgerJudge(messageId);
+        await handlers.sameFloorSettle(messageId);
+        handlers.floorQueueDrain(messageId);
+    };
     // 柏宝书就绪事件：加载顺序不固定，早期同步检测可能扑空而误报"未就绪"。
     // 柏宝书文档推荐监听 st-baibai-book:ready 兜底——就绪后清掉"仅警告一次"的闩，
     // 并在面板开着且选了柏宝书源时立刻把状态刷成"已就绪"。
@@ -3603,7 +3640,7 @@ const memoryInject = createMemoryInjectHost({
     getApi: () => globalThis.STBaiBaiBook,
     confirm: options => spConfirm(options),
     healthReport: () => memory.getHealthReport(),
-    builtinContext: () => memory.getMemoryContext(),
+    builtinContext: () => memory.getMemoryContext({ includeRecentRaw: true }),
     warnMissingApi: () => {
         if (!getMemText._bbbWarned) {
             getMemText._bbbWarned = true;

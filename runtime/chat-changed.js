@@ -33,6 +33,7 @@ export async function runChatChanged(h) {
     h.refresh?.abort?.(REASON);
     h.floorQueue?.abort?.(REASON);
     h.floorQueue?.resetFailed?.();
+    h.storyFloorReset?.();
     h.syncFabFailed?.();
     h.resetMemoryPauseNotice?.();
     h.theater?.onChatChanged?.();
@@ -80,5 +81,6 @@ export async function runChatChanged(h) {
     h.refreshStoryClock?.();
     h.refreshLedgerInjection?.();
     h.refreshLawInjection?.();
+    h.scanStoryFloor?.();
     return { status: 'ready', mig, idMig };
 }

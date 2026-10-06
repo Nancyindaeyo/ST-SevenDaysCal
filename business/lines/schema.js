@@ -11,23 +11,20 @@ const cleanLabel = value => {
 };
 const splitFields = value => String(value || '').split(/[|｜]/).map(field => field.trim());
 const fieldValue = (text, name) => text.replace(new RegExp(`^${name}\\s*[:：]\\s*`, 'i'), '').trim();
+const LINE_STAGE_ALIASES = Object.freeze({
+    萌芽: '起线', 筹备: '起线', 萌生: '起线', 初始: '起线', 开始: '起线', 新生: '起线', 准备: '起线', 预备: '起线', started: '起线', starting: '起线',
+    发酵: '延展', 执行: '延展', 酝酿: '延展', 发展: '延展', 升温: '延展', 进行: '延展', 推进中: '延展', progressing: '延展', developing: '延展', ongoing: '延展', 'in progress': '延展',
+    逼近: '成形', 关键: '成形', 临近: '成形', 迫近: '成形', 高潮: '成形', 影响明确: '成形', approaching: '成形', forming: '成形', imminent: '成形',
+    已爆发: '收束', 已完成: '收束', 已结束: '收束', 已解决: '收束', 已了结: '收束', 爆发: '收束', 发生: '收束', 完成: '收束', 结束: '收束', 成功: '收束', 解决: '收束', 和解: '收束', 落定: '收束', 新平衡: '收束', completed: '收束', finished: '收束', ended: '收束', resolved: '收束', settled: '收束', concluded: '收束',
+    已消散: '淡出', 已失败: '淡出', 消散: '淡出', 消失: '淡出', 失败: '淡出', 不再追踪: '淡出', faded: '淡出', disappeared: '淡出', failed: '淡出',
+});
 export const normalizeLineStage = value => {
-    const text = String(value || '').trim();
+    const text = String(value ?? '').trim();
     if (LINE_STAGES.has(text)) return text;
-    const legacy = {
-        萌芽: '起线', 筹备: '起线',
-        发酵: '延展', 执行: '延展',
-        逼近: '成形', 关键: '成形',
-        已爆发: '收束', 已完成: '收束',
-        已消散: '淡出', 已失败: '淡出',
-    };
-    if (legacy[text]) return legacy[text];
-    const aliases = [
-        [/萌生|初始|开始|新生|准备|预备/, '起线'], [/酝酿|发展|升温|进行|推进中/, '延展'],
-        [/临近|迫近|关键|高潮|影响明确/, '成形'], [/爆发|发生|完成|结束|成功|解决|和解|落定|新平衡/, '收束'],
-        [/消散|消失|失败|不再追踪/, '淡出'],
-    ];
-    return aliases.find(([rx]) => rx.test(text))?.[1] || '起线';
+    const alias = text.toLowerCase();
+    if (Object.hasOwn(LINE_STAGE_ALIASES, text)) return LINE_STAGE_ALIASES[text];
+    if (Object.hasOwn(LINE_STAGE_ALIASES, alias)) return LINE_STAGE_ALIASES[alias];
+    return '起线';
 };
 export const isTerminalLineStage = value => TERMINAL_LINE_STAGES.has(normalizeLineStage(value));
 const normalizeAgency = value => /^(?:player|user|用户|玩家|主角)$/i.test(String(value || '').trim()) ? 'player' : 'world';
@@ -129,6 +126,10 @@ export function validateLinesResponse(raw) {
     if (typeof raw !== 'string' || !raw.trim()) return { ok: false, reason: 'empty' }; let source = raw.trim();
     source = source.replace(/^```(?:text|markdown|xml)?\s*[\r\n]/i, '').replace(/[\r\n]\s*```\s*$/i, '').trim();
     const inner = extractLinesWidget(source); if (inner === null) return { ok: false, reason: 'incomplete-or-extraneous' };
+    if (!inner.trim()) {
+        if (!/^\s*<storylines_widget\b[^>]*>\s*<\/storylines_widget\s*>\s*$/i.test(source)) return { ok: false, reason: 'incomplete-or-extraneous' };
+        return { ok: true, model: [], raw: '', rejected: [] };
+    }
     const blocks = tolerantBlocks(inner); if (!blocks.length) return { ok: false, reason: 'no-lines' };
     const model = []; const rejected = [];
     for (const [index, block] of blocks.entries()) {

@@ -45,6 +45,7 @@ export function createChatFloorHandlers(h) {
         },
         char: async (messageId, type) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             h.beginFloorAutomation?.(Number(messageId));
             h.coordinate?.onCharacterRendered?.({ messageId: Number(messageId), type });
             h.scheduleForChatBoundary?.(() => h.coordinate?.scanButtons?.(), 150);
@@ -70,6 +71,8 @@ export function createChatFloorHandlers(h) {
             h.syncLatestAlmanacBlock?.();
             h.syncLatestScheduleBlock?.();
             await h.lines?.onSwiped?.({ mesId, info });
+            const story = h.storyFloorDecision?.(Number(mesId), { rearm: true, automations: true }) || { blocked: false, resume: false };
+            if (story.blocked || story.resume) return;
             if (!info?.pendingGeneration) {
                 const mid = Number(mesId);
                 h.activity?.markFloorRestyle?.({ floorId: mid, signature: h.floorSig?.(mid) });
@@ -78,6 +81,7 @@ export function createChatFloorHandlers(h) {
         },
         edited: (mesId) => {
             h.lines?.onEdited?.({ mesId });
+            h.storyFloorDecision?.(Number(mesId), { rearm: true, automations: true });
         },
         sent: (insertAt) => {
             h.lines?.onSent?.({ insertAt });
@@ -97,17 +101,24 @@ export function createChatFloorHandlers(h) {
         genStopped: () => {
             h.sameFloor?.clear?.();
             h.lines?.onGenerationEnded?.({ stopped: true });
+            h.storyFloorDecision?.(undefined, { rearm: true, automations: true });
         },
         sameFloorSettle: async messageId => {
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             if (!isLatestChatFloor(h.getContext?.().chat, messageId)) return;
             if (h.sameFloor?.pending?.()) await h.rerunFloorAutomations?.(Number(messageId));
             h.sameFloor?.consume?.();
         },
-        outlineJudge: messageId => { h.outline?.onCharacterMessage?.(messageId); h.rememberPace?.(); },
+        outlineJudge: messageId => {
+            if (h.storyFloorBlocked?.(messageId) === true) return;
+            h.outline?.onCharacterMessage?.(messageId);
+            h.rememberPace?.();
+        },
         // 历·确认当前剧情日期。戳优先——戳开且本楼有可解析戳 → **每次**最新楼定型都直读落地、零 API、不进单调闸；
         // 读不到戳（漏打 / 「谷雨」无月日）才走单调闸 + almanacAutoDetect 决定是否攒够 N 楼调一次 API 兜底 → 写共享 dateAnchor。
         almanacJudge: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             if (h.booksAreEmpty?.()) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
@@ -131,6 +142,7 @@ export function createChatFloorHandlers(h) {
         },
         supplement: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
             const items = h.loadAlmanac?.() || [];
@@ -146,6 +158,7 @@ export function createChatFloorHandlers(h) {
         },
         ledgerCapture: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             if (h.getSettings?.().ledgerCaptureEnabled !== true) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
@@ -160,6 +173,7 @@ export function createChatFloorHandlers(h) {
         },
         ledgerJudge: async (messageId) => {
             if (!h.pluginEnabled?.()) return;
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             if (h.getSettings?.().ledgerCaptureEnabled !== true) return;
             const chat = h.getContext?.().chat;
             if (!isLatestChatFloor(chat, messageId)) return;
@@ -172,7 +186,8 @@ export function createChatFloorHandlers(h) {
             else run();
             h.rememberPace?.();
         },
-        floorQueueDrain: () => {
+        floorQueueDrain: messageId => {
+            if (h.storyFloorBlocked?.(messageId) === true) return;
             h.scheduleFloorDrain?.();
         },
         ledgerInjectRescore: async (messageId) => {

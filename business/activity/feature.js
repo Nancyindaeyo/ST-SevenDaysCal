@@ -125,6 +125,9 @@ export function createActivityFeature(env = {}) {
         }
         $in?.('#sp-activity-clock')?.text?.(env.clockLabel?.() || '还没有故事日期');
         $in?.('#sp-activity-restyle')?.prop?.('hidden', !restyled);
+        const story = env.storyFloorStatus?.() || null;
+        $in?.('#sp-activity-story')?.prop?.('hidden', !story);
+        if (story?.note) $in?.('#sp-activity-story-text')?.text?.(story.note);
         $in?.('#sp-activity-stamp')?.prop?.('hidden', env.missingLatestStamp?.() !== true);
         const queueHtml = renderQueueStatus(env.queueSnapshot?.());
         $in?.('#sp-activity-queue')?.html?.(queueHtml).prop?.('hidden', false);

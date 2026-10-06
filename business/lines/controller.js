@@ -91,7 +91,10 @@ export function createLinesGenerationController(env = {}) {
             const adultMode = typeof env.adultMode === 'function' ? env.adultMode(participantIdentity) : env.adultMode;
             const isInitial = sourceLines.length === 0;
             const intent = isReroll ? 'reroll' : isInitial ? 'initial' : 'advance';
-            const ticketCount = Math.min(capacity, AUTO_LINE_SEED_CAPACITY);
+            const unlockedLive = sourceLines.filter(line => line.name && !line.pin && !line.dormant && !TERMINAL_LINE_STAGES.has(line.stage));
+            const ticketCount = isInitial
+                ? Math.min(capacity, AUTO_LINE_SEED_CAPACITY)
+                : Math.min(capacity, Math.max(AUTO_LINE_SEED_CAPACITY, unlockedLive.length) + 2);
             const freshTickets = await drawer(ticketCount, { random: env.random || (() => Math.random()), seed: owner.id, nonce: owner.chatRevision });
             if (signal.aborted || travelAbort?.aborted || !owners.isCurrent(owner, { chatId }) || env.chatId() !== chatId) return { status: 'cancelled', reason: 'stale-owner' };
             const activeLines = sourceLines.filter(line => line.name && !line.pin && !line.dormant && !TERMINAL_LINE_STAGES.has(line.stage));
@@ -137,12 +140,15 @@ export function createLinesGenerationController(env = {}) {
             const bound = bindVectorTickets({ previousLines: identityLines, generatedLines: checked.model, freshTickets: adultTickets });
             const merged = mergePinned(sourceRaw, serializeLines(bound, { assignIds: false, includeId: false }), { preferPinnedSource: true });
             if (!merged.ok) return { status: 'cancelled', reason: merged.reason };
-            const capacityResult = enforceLineCapacity({ previousLines: parseLines(previousRaw), mergedLines: merged.model, max: AUTO_LINE_CAPACITY });
-            if (capacityResult.dropped > 0) {
-                const error = diagnostic.rejected(makeDiagnosticError('invalid-structure', { phase: 'validation' }), { phase: 'validation', reasonCode: 'evolution-auto-capacity-overflow' });
-                env.fail?.(error, { silent }); return { status: 'failed', reason: 'evolution-auto-capacity-overflow' };
+            let resultModel = merged.model;
+            if (isInitial) {
+                const capacityResult = enforceLineCapacity({ previousLines: [], mergedLines: merged.model, max: AUTO_LINE_CAPACITY });
+                if (capacityResult.dropped > 0) {
+                    const error = diagnostic.rejected(makeDiagnosticError('invalid-structure', { phase: 'validation' }), { phase: 'validation', reasonCode: 'evolution-auto-capacity-overflow' });
+                    env.fail?.(error, { silent }); return { status: 'failed', reason: 'evolution-auto-capacity-overflow' };
+                }
+                resultModel = capacityResult.model;
             }
-            const resultModel = capacityResult.model;
             diagnostic.accepted({ phase: 'validation', reasonCode: 'lines-valid' });
             let commitResult;
             try { commitResult = await waitForSignal(env.commit(serializeLines(resultModel), { silent, owner, swipeCtx, travelContext, commitBaseline }), signal); }

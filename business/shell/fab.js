@@ -63,6 +63,12 @@ export function createFab(env = {}) {
         $(`#${fabId} .sp-fab-btn`).toggleClass('sp-fab-failed', on === true);
     }
 
+    function setStoryHold(note) {
+        const button = fabBtn();
+        if (!button) return;
+        button.title = note ? String(note) : '构画';
+    }
+
     function setExtBtnState(state) {
         const $fab = $(`#${fabId} .sp-fab-btn`);
         $fab.removeClass('sp-btn-generating sp-btn-done');
@@ -219,5 +225,5 @@ export function createFab(env = {}) {
         });
     }
 
-    return { inject, setBusy, setFailed, setExtBtnState, injectExtButton, removeStaleHosts, dispose, prefs };
+    return { inject, setBusy, setFailed, setStoryHold, setExtBtnState, injectExtButton, removeStaleHosts, dispose, prefs };
 }
